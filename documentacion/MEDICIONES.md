@@ -1998,3 +1998,27 @@ cliente reconoce a sus pares, y si el server puede saberla.
 - `multi.py` lee ahora el registro del server que haya (`EDA_MULTI_LOG`, o `EDA_MULTI_SSH` para el
   de un contenedor): contra red.py/el VPS leía sólo el del espía, nunca veía avanzar nada y repetía
   clics que desarmaban la sala.
+
+### 41 · ★★★ La causa del «lag» y del ping: EDA dibuja SIN LÍMITE (diagnosticado con DXVK)
+
+- **DXVK 3.1.1** (`dxvk-3.1.1.tar.gz` de github.com/doitsujin/dxvk, 18.041.512 B, md5 `dfca4e1e…`;
+  queda en `_trabajo/dxvk/` como herramienta de DIAGNÓSTICO, no para repartir: pide Vulkan y muchas
+  PCs modestas no lo tienen). Su `d3d9.dll` (x32) va al lado de `EDA_limpio.exe` sólo mientras se
+  mide; `DXVK_HUD=fps,frametimes,gpuload,drawcalls` lo dibuja arriba a la izquierda y
+  `DXVK_LOG_PATH` deja el registro.
+- ★ El panel en la lista de servidores: **929 cuadros/s, 58 dibujos por cuadro, 0,6–2,5 ms por
+  cuadro, placa al 73 %**. No es que cada cuadro sea caro: **el juego no tiene tope** (pide
+  IMMEDIATE y dibuja todo lo que puede) y eso pone CUALQUIER placa a máxima potencia (P0, ~150 W).
+  Con dos juegos se pelean la placa y el que pierde cae a ~25 cuadros/s: el «lag».
+- ★★ **Con tope** (`dxvk.conf`: `d3d9.maxFrameRate = 120`; la variable `DXVK_FRAME_RATE` NO se
+  aplicó): exactamente 120 cuadros/s y la placa en **48–84 W** (P3/P5; sin nada abierto ~40 W).
+- ★★★ **Dos clientes en la sala con el tope**: el ping de la sala **8 ms / 8 ms** (antes 75 / 78) y
+  el UDP «sale de uno → lo lee el otro» **4,56 ms de mediana, máximo 5,0** (antes 30–39, hasta 80).
+  ⚠ El tope de DXVK agarró en UNO solo (139 vueltas/s; el otro 397/s y 24–56 % de la placa: los
+  150 W que seguían): su propio registro avisa «Built-in frame rate limiter enabled. Please enable
+  an external limiter».
+- También del registro: el dispositivo usa **software vertex processing** (la geometría la
+  transforma el procesador).
+- ⏭ **La solución, sin Vulkan**: una `d3d9.dll` NUESTRA (como en R2Beat, Zig 0.16) que reenvíe al
+  d3d9 de Windows y ponga un **tope de cuadros confiable** en `Present`, para cada juego abierto. Y en
+  la misma DLL: **soltar el mouse** al perder el foco en la partida.
