@@ -58,17 +58,230 @@ typedef long (WINAPI *M_LOCK)(void *, UINT, UINT, void **, DWORD);
 typedef long (WINAPI *M_DESC)(void *, void *);
 static M_CVB g_cvb_real;
 static M_LOCK g_lock_real;
+typedef long (WINAPI *M_UNLOCK)(void *);
+static M_UNLOCK g_unlock_real;
+
+/* ★★ LA COPIA (11-nov): con DISCARD a secas se rompía la puerta del primer mapa — el juego bloquea el
+ *   búfer ENTERO pero reescribe sólo una parte y cuenta con que el resto SIGA ahí; DISCARD lo borra.
+ *   Ahora cada búfer «caliente» tiene una COPIA en memoria del procesador: el Lock del juego recibe la
+ *   copia (con todo lo que había) y, en el Unlock, la dll pide un búfer nuevo a la placa (DISCARD:
+ *   sin esperar) y le vuelca la copia ENTERA. Mismo resultado que el juego espera, sin frenar la placa. */
+/* ★★★ EL ANILLO (11-nov, la versión buena). Medido con EDA_MEDIR_ESCRITURA: cada Lock del juego escribe
+ *   DESDE EL PRINCIPIO del búfer ~100 B (un cuadradito), y a veces 38 KB de una (el escenario), que después
+ *   se dibujan en varias veces entre medio de los cuadraditos. Con DISCARD a secas se perdía lo de 38 KB
+ *   (la puerta rota); volcando la copia ENTERA en cada Unlock la placa volvía a 153 W.
+ *   Ahora: el juego escribe en la COPIA (memoria del procesador) y la dll sube a la placa SÓLO lo que
+ *   cada dibujo usa (el dibujo dice qué vértices), en el próximo lugar libre del búfer (NOOVERWRITE: sin
+ *   esperar); cuando se llena, DISCARD y de nuevo desde el principio. Al dibujo se le corre el «vértice
+ *   base» para que lea de ahí. Así se sube ~100 B por dibujo, la placa nunca espera y no se pierde nada. */
+typedef struct { void *vb; UINT tam; BYTE *copia; int abierto, cargada; UINT anillo; } SOMBRA;
+
+/* (medición, EDA_MEDIR_ESCRITURA=1): qué pedazo del búfer cambia en cada Lock/Unlock */
+static int g_medir_escritura;
+static BYTE *g_antes;
+static UINT g_antes_tam;
+static long g_med_n, g_med_desde0, g_med_bytes, g_med_max;
+static UINT g_med_ultimo_fin;
+static long g_med_siguiente;     /* cuántas veces el pedazo empieza donde terminó el anterior */
+static SOMBRA g_sombras[32];
+
+static SOMBRA *sombra_de(void *vb, UINT tam, int crear)
+{
+    SOMBRA *libre = NULL;
+    for (int i = 0; i < 32; i++) {
+        if (g_sombras[i].vb == vb) {
+            if (g_sombras[i].tam == tam) return &g_sombras[i];
+            HeapFree(GetProcessHeap(), 0, g_sombras[i].copia);   /* otro búfer en la misma dirección */
+            g_sombras[i].vb = NULL;
+        }
+        if (!g_sombras[i].vb && !libre) libre = &g_sombras[i];
+    }
+    if (!crear || !libre) return NULL;
+    libre->copia = (BYTE *)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, tam);
+    if (!libre->copia) return NULL;
+    libre->vb = vb;
+    libre->tam = tam;
+    libre->abierto = 0;
+    libre->cargada = 0;
+    return libre;
+}
 
 static long WINAPI mi_lock(void *vb, UINT desde, UINT cuanto, void **datos, DWORD flags)
 {
-    if (flags == 0 && desde == 0 && cuanto == 0 && g_buferes) {
+    if (g_buferes) {
         DWORD d[6] = {0};                                        /* D3DVERTEXBUFFER_DESC */
         if (((M_DESC)VT(vb)[13])(vb, d) == 0 && (d[2] & 0x200 /* DYNAMIC */)) {
-            flags = 0x2000;                                       /* D3DLOCK_DISCARD */
-            g_convertidos++;
+            if (flags == 0 && desde == 0 && cuanto == 0) {
+                SOMBRA *s = sombra_de(vb, d[4], 1);
+                if (s && datos) {
+                    if (!s->cargada) {
+                        /* la 1ª vez, la copia arranca con lo que tiene el búfer */
+                        void *p;
+                        if (g_lock_real(vb, 0, 0, &p, 0x10 /* READONLY */) == 0) {
+                            CopyMemory(s->copia, p, s->tam);
+                            g_unlock_real(vb);
+                        }
+                        s->cargada = 1;
+                    }
+                    s->abierto = 1;
+                    if (g_medir_escritura) {                     /* (foto de la copia antes de escribir) */
+                        if (g_antes_tam != s->tam) {
+                            g_antes = (BYTE *)HeapAlloc(GetProcessHeap(), 0, s->tam);
+                            g_antes_tam = g_antes ? s->tam : 0;
+                        }
+                        if (g_antes) CopyMemory(g_antes, s->copia, s->tam);
+                    }
+                    *datos = s->copia;
+                    g_convertidos++;
+                    return 0;                                    /* D3D_OK: el juego escribe la copia */
+                }
+            } else {
+                /* un Lock parcial sobre un búfer con copia: la placa no tiene la copia entera (sólo lo
+                 *   que se fue dibujando): se vuelca toda una vez y se deja de usar la copia */
+                SOMBRA *s = sombra_de(vb, d[4], 0);
+                if (s && !s->abierto) {
+                    void *p;
+                    if (g_lock_real(vb, 0, 0, &p, 0x2000 /* DISCARD */) == 0) {
+                        CopyMemory(p, s->copia, s->tam);
+                        g_unlock_real(vb);
+                    }
+                    HeapFree(GetProcessHeap(), 0, s->copia);
+                    s->vb = NULL;
+                }
+            }
         }
     }
     return g_lock_real(vb, desde, cuanto, datos, flags);
+}
+
+static long WINAPI mi_unlock(void *vb)
+{
+    for (int i = 0; i < 32; i++) {
+        SOMBRA *s = &g_sombras[i];
+        if (s->vb == vb && s->abierto) {
+            s->abierto = 0;
+            if (g_medir_escritura && g_antes && g_antes_tam == s->tam) {
+                UINT a = 0, b = s->tam;
+                while (a < s->tam && g_antes[a] == s->copia[a]) a++;
+                while (b > a && g_antes[b - 1] == s->copia[b - 1]) b--;
+                if (b > a) {
+                    g_med_n++;
+                    g_med_bytes += b - a;
+                    if ((long)(b - a) > g_med_max) g_med_max = b - a;
+                    if (a < 64) g_med_desde0++;
+                    if (a >= g_med_ultimo_fin && a <= g_med_ultimo_fin + 64) g_med_siguiente++;
+                    g_med_ultimo_fin = b;
+                }
+                if (g_med_n && g_med_n % 20000 == 0)
+                    apuntar("  escritura: %ld bloqueos · promedio %ld B · máx %ld · empiezan en 0: %ld · siguen al anterior: %ld",
+                            g_med_n, g_med_bytes / g_med_n, g_med_max, g_med_desde0, g_med_siguiente);
+            }
+            return 0;                       /* ★ nada se sube acá: se sube lo que use cada dibujo */
+        }
+    }
+    return g_unlock_real(vb);
+}
+
+/* ── los dibujos: subir del anillo lo que usan ─────────────────────────── */
+typedef long (WINAPI *M_SSS)(void *, UINT, void *, UINT, UINT);          /* SetStreamSource */
+typedef long (WINAPI *M_DP)(void *, DWORD, UINT, UINT);                   /* DrawPrimitive */
+typedef long (WINAPI *M_DIP)(void *, DWORD, INT, UINT, UINT, UINT, UINT); /* DrawIndexedPrimitive */
+static M_SSS g_sss_real;
+static M_DP g_dp_real;
+static M_DIP g_dip_real;
+static void *g_st_vb;                 /* lo puesto en el stream 0 */
+static UINT g_st_desde, g_st_paso;
+static long g_subidos, g_subidos_bytes;
+
+static long WINAPI mi_sss(void *dev, UINT n, void *vb, UINT desde, UINT paso)
+{
+    if (n == 0) {
+        g_st_vb = vb;
+        g_st_desde = desde;
+        g_st_paso = paso;
+    }
+    return g_sss_real(dev, n, vb, desde, paso);
+}
+
+/* sube [lo, lo+largo) de la copia al próximo lugar del anillo; devuelve cuántos VÉRTICES hay que correr
+ *   el dibujo, o un número enorme si no se pudo (y entonces se sube TODO como antes) */
+#define NO_SE_PUDO 0x7FFFFFFF
+static int subir(SOMBRA *s, UINT lo, UINT largo, UINT paso)
+{
+    if (!paso || lo + largo > s->tam || largo == 0) return NO_SE_PUDO;
+    UINT base = ((s->anillo + paso - 1) / paso) * paso;
+    UINT p = base + (lo % paso);
+    DWORD flags = 0x1000;                                        /* NOOVERWRITE: sin esperar */
+    if (p + largo > s->tam) {
+        p = lo % paso;                                           /* lleno: de nuevo desde el principio */
+        flags = 0x2000;                                          /* DISCARD */
+    }
+    void *dst;
+    if (g_lock_real(s->vb, p, largo, &dst, flags) != 0) return NO_SE_PUDO;
+    CopyMemory(dst, s->copia + lo, largo);
+    g_unlock_real(s->vb);
+    s->anillo = p + largo;
+    g_subidos++;
+    g_subidos_bytes += largo;
+    return (int)((INT)(p - lo) / (INT)paso);
+}
+
+static SOMBRA *sombra_puesta(void)
+{
+    if (!g_st_vb) return NULL;
+    for (int i = 0; i < 32; i++)
+        if (g_sombras[i].vb == g_st_vb && g_sombras[i].copia) return &g_sombras[i];
+    return NULL;
+}
+
+static UINT vertices_de(DWORD tipo, UINT prims)
+{
+    switch (tipo) {
+    case 1: return prims;            /* POINTLIST */
+    case 2: return prims * 2;        /* LINELIST */
+    case 3: return prims + 1;        /* LINESTRIP */
+    case 4: return prims * 3;        /* TRIANGLELIST */
+    case 5: case 6: return prims + 2;/* TRIANGLESTRIP / FAN */
+    default: return 0;
+    }
+}
+
+static void subir_todo(SOMBRA *s)
+{
+    void *p;
+    if (g_lock_real(s->vb, 0, 0, &p, 0x2000) == 0) {
+        CopyMemory(p, s->copia, s->tam);
+        g_unlock_real(s->vb);
+    }
+    s->anillo = s->tam;              /* lo próximo, con DISCARD */
+}
+
+static long WINAPI mi_dp(void *dev, DWORD tipo, UINT inicio, UINT prims)
+{
+    SOMBRA *s = sombra_puesta();
+    if (s) {
+        UINT n = vertices_de(tipo, prims);
+        int corre = subir(s, g_st_desde + inicio * g_st_paso, n * g_st_paso, g_st_paso);
+        if (corre != NO_SE_PUDO && (INT)inicio + corre >= 0)
+            return g_dp_real(dev, tipo, (UINT)((INT)inicio + corre), prims);
+        subir_todo(s);
+    }
+    return g_dp_real(dev, tipo, inicio, prims);
+}
+
+static long WINAPI mi_dip(void *dev, DWORD tipo, INT base, UINT minimo, UINT n, UINT desde_idx, UINT prims)
+{
+    SOMBRA *s = sombra_puesta();
+    if (s) {
+        INT primero = base + (INT)minimo;
+        if (primero >= 0) {
+            int corre = subir(s, g_st_desde + (UINT)primero * g_st_paso, n * g_st_paso, g_st_paso);
+            if (corre != NO_SE_PUDO)
+                return g_dip_real(dev, tipo, base + corre, minimo, n, desde_idx, prims);
+        }
+        subir_todo(s);
+    }
+    return g_dip_real(dev, tipo, base, minimo, n, desde_idx, prims);
 }
 
 static void poner(void **vt, int i, void *nuevo, void **viejo);
@@ -77,9 +290,17 @@ static long WINAPI mi_crear_vb(void *dev, UINT largo, DWORD uso, DWORD fvf, DWOR
 {
     if (g_buferes && pool == 0 /* DEFAULT */ && !(uso & 0x200)) uso |= 0x200;   /* + DYNAMIC */
     long hr = g_cvb_real(dev, largo, uso, fvf, pool, vb, comp);
+    if (hr == 0 && vb && *vb)                                  /* un búfer nuevo no hereda una copia vieja */
+        for (int i = 0; i < 32; i++)
+            if (g_sombras[i].vb == *vb && !g_sombras[i].abierto) {
+                HeapFree(GetProcessHeap(), 0, g_sombras[i].copia);
+                g_sombras[i].vb = NULL;
+                g_sombras[i].copia = NULL;
+            }
     if (hr == 0 && vb && *vb && !g_lock_real) {
+        poner(VT(*vb), 12, (void *)mi_unlock, (void **)&g_unlock_real);
         poner(VT(*vb), 11, (void *)mi_lock, (void **)&g_lock_real);
-        apuntar("  enganchado VertexBuffer::Lock (búferes rápidos: DYNAMIC + DISCARD)");
+        apuntar("  enganchados VertexBuffer::Lock/Unlock (búferes rápidos: copia + DISCARD)");
     }
     return hr;
 }
@@ -383,8 +604,13 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
         g_cuadros = 0;
         g_ventana = ahora;
         if (++ventanas % 60 == 0)                                   /* cada ~30 s */
-            apuntar("  %d cuadros/s · bombeos de red %ld · despertadas %ld · búferes DISCARD %ld",
-                    g_fps, g_bombeos, g_despertadas, g_convertidos);
+        {
+            apuntar("  %d cuadros/s · despertadas %ld · bloqueos a la copia %ld · subidas al anillo %ld (%ld B en promedio)",
+                    g_fps, g_despertadas, g_convertidos, g_subidos, g_subidos ? g_subidos_bytes / g_subidos : 0);
+            if (g_medir_escritura)
+                apuntar("  escritura: %ld de %ld bloqueos CAMBIAN algo · promedio %ld B · máx %ld · empiezan en 0: %ld · siguen al anterior: %ld",
+                        g_med_n, g_convertidos, g_med_n ? g_med_bytes / g_med_n : 0, g_med_max, g_med_desde0, g_med_siguiente);
+        }
     }
     if (g_mostrar) dibujar_contador(dev);
     long hr = g_present_real(dev, a, b, w, r);
@@ -427,7 +653,12 @@ static long WINAPI mi_crear_dispositivo(void *d3d, UINT adaptador, DWORD tipo, H
         void **vt = VT(*dev);
         poner(vt, I_PRESENT, (void *)mi_present, (void **)&g_present_real);
         poner(vt, I_RESET, (void *)mi_reset, (void **)&g_reset_real);
-        if (g_buferes) poner(vt, 26 /* CreateVertexBuffer */, (void *)mi_crear_vb, (void **)&g_cvb_real);
+        if (g_buferes) {
+            poner(vt, 26 /* CreateVertexBuffer */, (void *)mi_crear_vb, (void **)&g_cvb_real);
+            poner(vt, 100 /* SetStreamSource */, (void *)mi_sss, (void **)&g_sss_real);
+            poner(vt, 81 /* DrawPrimitive */, (void *)mi_dp, (void **)&g_dp_real);
+            poner(vt, 82 /* DrawIndexedPrimitive */, (void *)mi_dip, (void **)&g_dip_real);
+        }
         apuntar("  enganchados Present y Reset · tope %d cuadros/s · contador %s · búferes rápidos %s",
                 g_tope, g_mostrar ? "sí" : "no", g_buferes ? "sí" : "no");
     }
@@ -458,6 +689,7 @@ static void leer_ajustes(HMODULE self)
     g_mostrar = GetPrivateProfileIntA("video", "mostrar_fps", 1, ini);
     if (GetEnvironmentVariableA("EDA_TOPE_FPS", v, sizeof(v))) g_tope = atoi(v);
     if (GetEnvironmentVariableA("EDA_MOSTRAR_FPS", v, sizeof(v))) g_mostrar = atoi(v);
+    if (GetEnvironmentVariableA("EDA_MEDIR_ESCRITURA", v, sizeof(v))) g_medir_escritura = atoi(v);
     g_usar_bombeo = GetPrivateProfileIntA("video", "bombeo_red", 0, ini);
     if (GetEnvironmentVariableA("EDA_BOMBEO_RED", v, sizeof(v))) g_usar_bombeo = atoi(v);
     g_estricto = GetPrivateProfileIntA("video", "tope_estricto", 1, ini);

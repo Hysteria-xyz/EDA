@@ -2057,3 +2057,29 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   piloto entero y «Enter Lobby» caía sobre «Search User» (un diálogo abierto). Ahora
   **`herramientas/pantallas.py`** reconoce la pantalla por una huella (zona achicada a 16×6 en
   grises: 0 contra sí misma, ≥17 contra las otras) y `multi.py` espera cada pantalla antes de apretar.
+
+### 43 · El PR #3 (Hysteria-xyz): el ciclo de la sala, el 0x106C, y la puerta rota de la dll (11-nov)
+
+- **El PR** partía de antes de los módulos (`servidor/juego.py` de 1.773 líneas): se pasó a mano lo útil.
+  ★ **Leave Room** (`0x1045` → `0x1046` u16 1; manejador del cliente `0x54E380`): medido con el juego,
+  el invitado aprieta «Leave Room» y vuelve al LOBBY (sin quedarse en «Waiting for Response»), la
+  lista de salas pasa a «1/3» y en la sala del anfitrión queda sólo él. **Echar** (`0x1051` → `0x1052`
+  al anfitrión, `0x1054` al echado), **pasar el mando** (`0x1058` tipo 3 con el nuevo anfitrión) y
+  **título/contraseña** (`0x1049` → `0x104A`) quedan con sus pruebas (y sus reveses: echar si no sos el
+  anfitrión, echarte a vos mismo); en pantalla, sólo Leave Room.
+- ⛔ **El `0x106C` NO hace lanzar las habilidades** (el PR decía que sí). El manejador existe (`0x547A60`:
+  u8 jugador · u8; si es mi número, «CursorCenter 1» y mira el estado 0xA = espectador) pero, con un
+  Warrior nivel 10 y sus habilidades en la barra (cuenta de `preparar`), F1 / F2 / F1+clic derecho no
+  gastan MP con NI sin él (la barra del MP: 210 → 210 píxeles en las tres teclas, las dos veces). Como
+  además agarra el mouse, queda apagado (archivo `con_106c` para prenderlo). ⚠ La 1ª medición salió
+  inválida: los juegos se conectaron a OTRO server de prueba de las 17:19 (otra carpeta de cuentas: rui
+  sin habilidades, y el `0x106C` salía en las dos corridas) — se cerró y se repitió.
+- ★★ **La puerta rota era de NUESTRA dll** (El tester la vio): A/B con `EDA_BUFERES_RAPIDOS=0`, la puerta
+  del primer mapa sale entera; con DISCARD, media negra. Medido con `EDA_MEDIR_ESCRITURA=1`: CADA Lock
+  del juego escribe DESDE EL PRINCIPIO del búfer ~100 B (un cuadradito) y a veces 38 KB de una (el
+  escenario), que se dibujan después entre medio de los cuadraditos: DISCARD borraba esos 38 KB.
+  Volcar la copia entera en cada Unlock arregla la puerta pero la placa volvió a 153 W. ★ **El anillo**:
+  el juego escribe en una COPIA, y la dll sube a la placa sólo lo que cada dibujo usa (el dibujo dice qué
+  vértices), en el próximo lugar libre (NOOVERWRITE; lleno → DISCARD), corriéndole el vértice base.
+  Medido: la puerta entera, ~117 B por subida, 120 cuadros/s en los dos juegos en la partida (la placa
+  ~152 W con dos juegos a 120 en la partida; la versión con la puerta rota daba ~90: a afinar).

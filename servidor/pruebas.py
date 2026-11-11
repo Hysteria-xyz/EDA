@@ -442,6 +442,30 @@ def control():
              sorted(x[3] for x in r if x[0] == 0x1058) == [301, 302]
              and all(x[1] == struct.pack("<BHB", 2, 1, 1) for x in r if x[0] == 0x1058))
     del SALAS[77]
+    # ★ EL CICLO DE LA SALA (aporte de Hysteria-xyz, PR #3): salir, el mando que pasa, echar, el título
+    SALAS[77] = {"sala": bytes(0x59), "anfitrion": 301, "miembros": [301, 302, 303]}
+    for n in (301, 302, 303):
+        partida(n)["sala"] = 77
+    r = responder(0x1045, b"", 301)
+    chequear("0x1045 (Leave Room) → 0x1046 (u16 1) al que sale", (0x1046, b"\1\0", 0) in r)
+    chequear("se fue el anfitrión: el mando pasa a 302, y 0x1058 (lugar 0, tipo 3, nuevo anfitrión 0) a los dos",
+             SALAS[77]["anfitrion"] == 302
+             and sorted(x[3] for x in r if x[0] == 0x1058) == [302, 303]
+             and all(x[1] == struct.pack("<BHB", 0, 3, 0) for x in r if x[0] == 0x1058))
+    r = responder(0x1051, b"\x00", 303)
+    chequear("★ el revés: 303 NO es el anfitrión: no puede echar a nadie",
+             SALAS[77]["miembros"] == [302, 303] and not any(x[0] == 0x1054 for x in r))
+    r = responder(0x1051, b"\x00", 302)
+    chequear("★ el revés: el anfitrión no se puede echar a sí mismo", SALAS[77]["miembros"] == [302, 303])
+    r = responder(0x1051, b"\x01", 302)
+    chequear("0x1051 (Kick) → 0x1052 al anfitrión y 0x1054 al echado (303)",
+             any(x[0] == 0x1052 and len(x) == 3 for x in r) and any(x[0] == 0x1054 and x[3] == 303 for x in r))
+    chequear("303 queda sin sala y en la sala sólo está 302",
+             partida(303).get("sala") is None and SALAS[77]["miembros"] == [302])
+    r = responder(0x1049, b"\0\1\0" + "Nueva".encode("utf-16-le"), 302)
+    chequear("0x1049 (título) → 0x104A con el texto", r[0][0] == 0x104A and r[0][1][4:] == "Nueva".encode("utf-16-le"))
+    responder(0x1045, b"", 302)
+    chequear("se fue el último: la sala desaparece", 77 not in SALAS)
     chequear("sala → Inventory: 0x104C → 0x104D (u16 1 · u8)",
              responder(0x104C, b"\0", 203) == [(0x104D, b"\1\0\0", 0)])
     # ★ VERIFICAR un libro de habilidad (el 0x103B de verdad: libro 14, pergamino 13)
