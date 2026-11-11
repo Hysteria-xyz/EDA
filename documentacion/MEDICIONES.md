@@ -1892,3 +1892,48 @@ Tres errores nuestros y una pieza que faltaba, medidos con Frida en `sendto` / `
 - ⏭ Lo que falta: **cuentas de verdad** (en un server público cada conexión toma rui / kai / mio /
   ren, la primera libre: no hay login; el plan, para más adelante: SQLite y el login / descarga desde
   el launcher web de R2Beat) y **el relay entre dos PCs** (sigue sin probarse).
+
+### 39 · ★★★ La IDENTIDAD P2P: es la MAC, y el server SÍ la recibe (si el juego se lanza con comillas)
+
+Paso 1 del P2P directo (sin relay en el medio): saber de dónde sale la identidad con la que cada
+cliente reconoce a sus pares, y si el server puede saberla.
+- **Quién la escribe** (desarmado): el objeto UDP nace con la identidad vacía (constructor
+  `0x74B110`). Al arrancar, `0x4E767B` llama a **`0x6229F0`** (método de la cuenta), que pide la MAC
+  a Windows (**`GetAdaptersInfo`**, el thunk `0x85900C`; el 1er adaptador), la formatea con
+  `"%02X:%02X:%02X:%02X:%02X:%02X"` y la guarda en **`cuenta+0x166`** (UTF-16) y **`cuenta+0x1C7`**
+  (ASCII). Enseguida `0x4E76AE` le pasa `+0x1C7` al «P2PHelper»: esa es la identidad de los saludos
+  `C354` (`0x74AA60` la lee de `+0xE8` del objeto UDP).
+- **El `0x100F` la lleva**: `0x549940` copia `+0x166` al mensaje. Medido en las 133 capturas viejas:
+  la MAC de esta PC, entera, en el desplazamiento **126** (`+0x7E`) en 15 de 133; en las otras 118,
+  basura. Revés: una MAC inventada no aparece en ninguna.
+- ★ **Por qué sólo a veces — la LÍNEA DE COMANDOS** (desarmado, `0x622B2C`…): después de la MAC,
+  `0x6229F0` lee `GetCommandLineA()`. Si empieza con comillas, toma lo que sigue a la ruta como el
+  BLOQUE del launcher (sin bloque, no hace nada); si **no** empieza con comillas, toma **la línea
+  entera** como bloque. El bloque es hexadecimal (`"%02X"`), cada byte XOR la MAC en texto (en
+  ciclo), y queda `"<A> <B>"` (separador: un espacio, `0x88C328`) → A a `cuenta+0xF0`, B a
+  `cuenta+0x11A` (`0x622E35`, `0x622E49`, `wcscpy`). Con la ruta sin comillas, A y B salen basura
+  (la «huella» del `0x0604`, que tenía pedazos de la MAC: es la MAC XOR ceros) y la copia se pasa
+  de largo y pisa la MAC de `+0x166`.
+  · `frida.spawn([exe])` (lo de `jugar.py`) **pone** comillas; `subprocess.Popen([ruta])` (el piloto,
+    `multi.py`, el espía) **no** (Python no las pone si la ruta no tiene espacios): de ahí vienen
+    casi todas las capturas — medido leyendo `GetCommandLineA` adentro del juego (`'"C:\…exe"'` con
+    Frida; sin comillas con un argumento) y con `%CMDCMDLINE%` de cmd.exe para Python.
+- ★★ **Medido con el juego** (server local con `EDA_LOG_HEX=1`, mismo exe, misma PC):
+
+  | cómo se lanzó | «huella» del `0x0604` | MAC en `+0x7E` del `0x100F` |
+  |---|---|---|
+  | `py jugar.py` (con comillas) | **vacía** | ✅ **la real, entera** |
+  | el piloto con `Popen` (sin comillas) — el revés | 20 caracteres de basura | ⛔ basura con pedazos de la MAC |
+
+- **Arreglado**: el piloto, `multi.py`, `espiar_broker.py juego` y `foto_juego.py` lanzan ahora con
+  la ruta entre comillas.
+- ★ **Lo que esto abre**:
+  1. **P2P directo**: el server ya puede poner en cada miembro de la sala la MAC de verdad del
+     otro (la del `0x100F`) y darle su dirección DIRECTA en el `0x1059`: los saludos `C354` se
+     reconocen sin que nadie reescriba nada. El relay queda sólo de respaldo (NAT simétrico).
+  2. **El login del launcher**: `"exe" <hex(XOR("<usuario> <pase>", MAC))>` llega al server en el
+     `0x0604`, en el UDP `0x3002` (el 1º) y en el `0x100F` (los dos). Es la puerta que va a usar el
+     launcher web de R2Beat, y `jugar.py` puede hacer lo mismo (la MAC la saca con `GetAdaptersInfo`
+     igual que el juego).
+- ⚠ Privacidad: la MAC ya viajaba a los OTROS jugadores en cada saludo (así está hecho el juego); ahora
+  además la ve el server. No se guarda en ningún lado ni va a los registros sin `EDA_LOG_HEX=1`.

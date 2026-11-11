@@ -78,7 +78,8 @@ def main():
     time.sleep(6)
     pids = []
     for i in range(n):
-        p = subprocess.Popen([os.path.join(JUEGO, "EDA_limpio.exe")], cwd=JUEGO)
+        # ⚠ entre comillas: si no, el juego pisa su MAC del 0x100F (MEDICIONES §39)
+        p = subprocess.Popen('"%s"' % os.path.join(JUEGO, "EDA_limpio.exe"), cwd=JUEGO)
         pids.append(p.pid)
         time.sleep(3)
     open(os.path.join(RAIZ, "_trabajo", "multi_pids.txt"), "w").write(" ".join(map(str, pids)))

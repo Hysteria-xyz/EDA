@@ -528,7 +528,7 @@ def juego(segundos=40, exe="EDA_limpio.exe"):
     ruta = os.path.join(JUEGO, exe)
     subprocess.run(["taskkill", "/F", "/IM", exe], capture_output=True)
     time.sleep(0.4)
-    p = subprocess.Popen([ruta], cwd=JUEGO)
+    p = subprocess.Popen('"%s"' % ruta, cwd=JUEGO)          # ⚠ entre comillas (MEDICIONES §39)
     print("★ %s  pid %d  (%d s)" % (exe, p.pid, segundos))
     t0, vistas, udps = time.time(), {}, set()
     try:
