@@ -104,7 +104,25 @@ def main():
     else:
         subprocess.run(["taskkill", "/F", "/IM", "EDA_limpio.exe"], capture_output=True)
         time.sleep(0.5)
-        p = subprocess.Popen([os.path.join(JUEGO, "EDA_limpio.exe")], cwd=JUEGO)
+        import eda_original
+        pid = eda_original.lanzar(esperar=False, nombre="EDA_limpio.exe")
+        class ProcesoFrida:
+            def __init__(self, p):
+                self.pid = p
+                self.returncode = None
+            def poll(self):
+                h = C.ctypes.windll.kernel32.OpenProcess(0x1000, False, self.pid)
+                if not h:
+                    self.returncode = 0
+                    return 0
+                code = C.wt.DWORD()
+                C.ctypes.windll.kernel32.GetExitCodeProcess(h, C.ctypes.byref(code))
+                C.ctypes.windll.kernel32.CloseHandle(h)
+                if code.value == 259:
+                    return None
+                self.returncode = code.value
+                return self.returncode
+        p = ProcesoFrida(pid)
     hora = time.strftime("%H%M%S")
     print("★ EDA_limpio.exe pid %d" % p.pid)
     for tramo in secuencia:

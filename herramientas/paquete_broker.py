@@ -65,15 +65,21 @@ def clave_de_exe(ruta):
     return hashlib.md5(open(ruta, "rb").read() + b"\0").digest()
 
 
+_CLAVES_CACHE = None
+
 def claves_conocidas():
     """{nombre: clave} de los exes que hay a mano (el original y las copias de `_trabajo/juego`)
     más la de respaldo. El server prueba con todas: la magia dice cuál es la buena."""
+    global _CLAVES_CACHE
+    if _CLAVES_CACHE is not None:
+        return _CLAVES_CACHE
     out = {}
     for ruta in [os.path.join(RAIZ, "cliente", "EDA.exe")] + sorted(
             glob.glob(os.path.join(RAIZ, "_trabajo", "juego", "*.exe"))):
         if os.path.exists(ruta):
             out[os.path.basename(ruta)] = clave_de_exe(ruta)
     out["(respaldo)"] = CLAVE_RESPALDO
+    _CLAVES_CACHE = out
     return out
 
 

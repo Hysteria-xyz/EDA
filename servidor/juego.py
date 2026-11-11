@@ -731,6 +731,58 @@ def responder(cmd, cuerpo, conexion):
             r += [(0x1058, struct.pack("<BHB", yo, 1, estado), 0, n)
                   for n in s["miembros"] if n != conexion]
         return r
+    if cmd == 0x1049 and len(cuerpo) >= 3:                  # ★ CAMBIAR TÍTULO / PASSWORD DE SALA
+        # cuerpo: u8 jugador · u16 tipo (1 Title, 2 Password) · texto
+        tipo = struct.unpack_from("<H", cuerpo, 1)[0]
+        texto = cuerpo[3:]
+        num = p.get("sala")
+        s = SALAS.get(num) if num else None
+        r = [(0x104A, struct.pack("<HH", 1, tipo) + texto, 0)]
+        if s:
+            for n in s["miembros"]:
+                if n != conexion:
+                    r.append((0x104A, struct.pack("<HH", 1, tipo) + texto, 0, n))
+        return r
+    if cmd == 0x1045:                                       # ★ SALIR DE LA SALA (Leave Room)
+        # El cliente tocó «Leave Room»: espera 0x1046 (u16 1) para volver al lobby (pantalla 3)
+        num = p.pop("sala", None)
+        r = [(0x1046, struct.pack("<H", 1), 0)]
+        s = SALAS.get(num) if num else None
+        if s and conexion in s["miembros"]:
+            yo = s["miembros"].index(conexion)
+            s["miembros"].remove(conexion)
+            otros = list(s["miembros"])
+            if otros:
+                if s["anfitrion"] == conexion:
+                    s["anfitrion"] = otros[0]
+                nuevo_anf = s["miembros"].index(s["anfitrion"])
+                r += [(0x1058, struct.pack("<BHB", yo, 3, nuevo_anf), 0, n) for n in otros]
+            else:
+                del SALAS[num]
+        return r + avisar_lista()
+    if cmd == 0x1051 and len(cuerpo) >= 1:                  # ★ EXPULSIÓN DE LA SALA (Kick)
+        # El anfitrión expulsa a un jugador: cuerpo[0] = slot del expulsado (0..3)
+        slot_kicked = cuerpo[0]
+        num = p.get("sala")
+        s = SALAS.get(num) if num else None
+        r = []
+        if s and s["anfitrion"] == conexion and slot_kicked < len(s["miembros"]):
+            kicked_conn = s["miembros"][slot_kicked]
+            if kicked_conn != conexion:
+                # 1. Al anfitrión que pateó: 0x1052 para cerrar cuadro de espera (b"\0")
+                r.append((0x1052, b"\0", 0))
+                # 2. Al expulsado: 0x1054 para mandarlo de vuelta al lobby (pantalla 3)
+                p_kicked = PARTIDAS.get(kicked_conn, {})
+                p_kicked.pop("sala", None)
+                r.append((0x1054, struct.pack("<HB", 1, 0), 0, kicked_conn))
+                # 3. Remover de la sala
+                s["miembros"].remove(kicked_conn)
+                nuevo_anf = s["miembros"].index(s["anfitrion"])
+                # 4. Avisar a los restantes que el jugador se fue (tipo 3)
+                r += [(0x1058, struct.pack("<BHB", slot_kicked, 3, nuevo_anf), 0, n)
+                      for n in s["miembros"]]
+                r += avisar_lista()
+        return r
     if cmd == 0x100D and len(cuerpo) >= 13:                 # ★ CHAT (lobby / sala)
         # C→S (medido 18:19): u8 tipo (1) · u32 destino (FFFFFFFF = todos) · u32 0 · u32 largo en
         #   bytes · el texto UTF-16. S→C 0x1005 → la pantalla actual (`0x4DB6F0` → vt+0x80 =
@@ -1116,7 +1168,7 @@ def responder(cmd, cuerpo, conexion):
             if set(s["miembros"]) <= s["cargados"]:
                 return [(0x105E, struct.pack("<HI", 1, 600), 0, n) for n in s["miembros"]]
             return []
-        return None
+        return [(0x105E, struct.pack("<HI", 1, 600), 0)]
     if cmd == 0x1061:                                       # un NPC muerto [§5.11]
         p["muertos"] += 1
         return []
@@ -1584,6 +1636,23 @@ def control():
              sorted(x[3] for x in r if x[0] == 0x1058) == [301, 302]
              and all(x[1] == struct.pack("<BHB", 2, 1, 1) for x in r if x[0] == 0x1058))
     del SALAS[77]
+    # ★ SALIR DE SALA Y MIGRACIÓN DE ANFITRIÓN
+    SALAS[77] = {"sala": bytes(0x59), "anfitrion": 301, "miembros": [301, 302, 303]}
+    partida(301)["sala"] = 77
+    partida(302)["sala"] = 77
+    partida(303)["sala"] = 77
+    r = responder(0x1045, b"", 301)
+    chequear("0x1045 devuelve 0x1046 al saliente", any(x[0] == 0x1046 for x in r))
+    chequear("el anfitrión migra a 302 y 0x1058 (tipo 3, nuevo anfitrión 0) se envía a los otros",
+             SALAS[77]["anfitrion"] == 302 and
+             any(x[0] == 0x1058 and x[1] == struct.pack("<BHB", 0, 3, 0) and x[3] == 302 for x in r))
+    # ★ EXPULSIÓN DE LA SALA (Kick 0x1051)
+    r = responder(0x1051, b"\x01", 302)
+    chequear("0x1051 envía 0x1052 al anfitrión", any(x[0] == 0x1052 for x in r))
+    chequear("0x1051 envía 0x1054 al expulsado 303", any(x[0] == 0x1054 and x[3] == 303 for x in r))
+    chequear("303 queda sin sala y SALAS[77] sólo tiene [302]",
+             partida(303).get("sala") is None and SALAS[77]["miembros"] == [302])
+    del SALAS[77]
     chequear("sala → Inventory: 0x104C → 0x104D (u16 1 · u8)",
              responder(0x104C, b"\0", 203) == [(0x104D, b"\1\0\0", 0)])
     # ★ VERIFICAR un libro de habilidad (el 0x103B de verdad: libro 14, pergamino 13)
@@ -1665,7 +1734,7 @@ def preparar(nombre, clase, nivel_pedido):
             filas.append((clase_xml == b"ACTIVE", int(v.get(b"WEAPON", b"9")), int(v[b"ACQUIRE_LEVEL"]),
                           int(v[b"ID"])))
     for activa, arma, _, ident in sorted(filas, key=lambda f: (not f[0], f[1], f[2])):
-        a = atajo if activa and arma == 0 and atajo <= 8 else 0
+        a = atajo if activa and atajo <= 8 else 0
         atajo += 1 if a else 0
         habs.append([1000 + len(habs), 1 if activa else 2, ident, len(habs), a])
     c["habilidades"] = habs

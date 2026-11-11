@@ -76,10 +76,11 @@ def main():
     # ⚠ abrir enseguida después de matar a los anteriores: los nuevos se cayeron al arrancar en
     #   mss32.dll (el sonido, 17:55: 🟡 el dispositivo todavía tomado). Unos segundos de margen.
     time.sleep(6)
+    import eda_original
     pids = []
     for i in range(n):
-        p = subprocess.Popen([os.path.join(JUEGO, "EDA_limpio.exe")], cwd=JUEGO)
-        pids.append(p.pid)
+        pid = eda_original.lanzar(esperar=False, nombre="EDA_limpio.exe")
+        pids.append(pid)
         time.sleep(3)
     open(os.path.join(RAIZ, "_trabajo", "multi_pids.txt"), "w").write(" ".join(map(str, pids)))
     print("★ pids %s" % pids, flush=True)

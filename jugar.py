@@ -1,3 +1,4 @@
+#!python3.10
 r"""jugar.py -- EDA (Espada del Alma, Softnyx 2009) contra nuestro server, en tu PC. Sólo Windows.
 
     py jugar.py --preparar "C:\ruta\al\cliente"     # UNA vez: copia el juego a _trabajo\juego
@@ -109,17 +110,22 @@ def main():
     if not os.path.exists(REGLAS):                     # las respuestas del Broker (anuncio, lista)
         subprocess.run([sys.executable, os.path.join(HERR, "reglas_broker.py")], check=True)
     propio = None
+    propio_punch = None
     if server_andando():
         print("· el server ya estaba andando (127.0.0.1:25900)")
     else:
         log = open(os.path.join(RAIZ, "_trabajo", "server.txt"), "a", encoding="utf-8")
         propio = subprocess.Popen([sys.executable, os.path.join(HERR, "espiar_broker.py"), "sin_admin"],
                                   stdout=log, stderr=log, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+        env_punch = dict(os.environ, PYTHONIOENCODING="utf-8", EDA_PUNCH_ECO="1")
+        propio_punch = subprocess.Popen([sys.executable, os.path.join(HERR, "udp_punch.py"), "25001"],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env_punch)
         for _ in range(40):
             if server_andando():
                 break
             time.sleep(0.25)
         print("· server andando (127.0.0.1:25900) — su registro: _trabajo\\broker\\espia.log")
+        print("· servidor UDP Punch andando (127.0.0.1:25001)")
     import eda_original
     try:
         eda_original.lanzar(esperar=True, nombre=nombre)
@@ -127,6 +133,11 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if propio_punch:
+            try:
+                propio_punch.kill()
+            except Exception:
+                pass
         if propio:
             open(PARAR, "w").close()
             try:
