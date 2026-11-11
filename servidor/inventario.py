@@ -67,7 +67,7 @@ def guardar_inventario(cmd, cuerpo, conexion, c, p):
         sala[0x2D], sala[0x2E] = 1, len(s["miembros"])
         datos = (struct.pack("<BBBIBB", yo, yo, 0, 0x89A3B8, 0, 0) + bytes(sala)
                  + bytes([len(s["miembros"])])
-                 + b"".join(miembro(leer(n), s["miembros"].index(n), conexion=n)
+                 + b"".join(miembro(leer(n), s["miembros"].index(n), conexion=n, para=conexion)
                             for n in s["miembros"]))
         return [(0x102E, struct.pack("<HB", 1, 9) + datos + cola, 0)]
     canal = struct.pack("<BHHH", 1, 200, len(ASIGNADAS), 0)

@@ -62,6 +62,28 @@ def fotos(pids, paso):
         print("  %-10s %s" % (paso, ruta), flush=True)
 
 
+def contar(cmd):
+    """★ Cuántas veces vio el SERVER el comando `cmd` ("1017", "101d"…). Lee el registro que haya:
+      · EDA_MULTI_SSH="usuario@host contenedor" → `docker logs` de ese contenedor (un VPS; la llave,
+        si hace falta, en EDA_MULTI_LLAVE);
+      · EDA_MULTI_LOG=<archivo> → el registro de `servidor/red.py` (local);
+      · si no, el del espía de Windows (`_trabajo/broker/espia.log`).
+    ⚠ Antes leía SÓLO el del espía: contra red.py o un VPS nunca veía avanzar nada y repetía clics
+    que desarmaban la sala (medido 11-nov)."""
+    if os.environ.get("EDA_MULTI_SSH"):
+        destino, contenedor = os.environ["EDA_MULTI_SSH"].split()
+        llave = ["-i", os.environ["EDA_MULTI_LLAVE"]] if os.environ.get("EDA_MULTI_LLAVE") else []
+        t = subprocess.run(["ssh", "-o", "BatchMode=yes"] + llave + [destino, "docker logs %s 2>&1" % contenedor],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
+    else:
+        ruta = os.environ.get("EDA_MULTI_LOG") or os.path.join(RAIZ, "_trabajo", "broker", "espia.log")
+        try:
+            t = open(ruta, encoding="utf-8", errors="replace").read()
+        except OSError:
+            t = ""
+    return t.count("comando %s" % cmd) + t.count("← %s " % cmd)
+
+
 def piloto(pid, hasta, desde=None):
     env = dict(os.environ, EDA_PID=str(pid), PYTHONIOENCODING="utf-8")
     if desde:
@@ -84,10 +106,8 @@ def main():
         time.sleep(3)
     open(os.path.join(RAIZ, "_trabajo", "multi_pids.txt"), "w").write(" ".join(map(str, pids)))
     print("★ pids %s" % pids, flush=True)
-    log = os.path.join(RAIZ, "_trabajo", "broker", "espia.log")
-
     def entradas():
-        return open(log, encoding="utf-8", errors="replace").read().count("comando 1017")
+        return contar("1017")
     for pid in pids:
         # ⚠ el piloto a veces se queda en la lista de servidores o en SELECT CHARACTER (tiempos
         #   fijos): se verifica en el espía que ESTE cliente entró al lobby (un 0x1017 más) y si
@@ -111,8 +131,7 @@ def main():
     time.sleep(6)
     # ⚠ el doble clic en el marcador a veces no abre CREATE STAGE (medido): se reintenta hasta que
     #   el espía vea el 0x101D (la sala creada)
-    log = os.path.join(RAIZ, "_trabajo", "broker", "espia.log")
-    antes = open(log, encoding="utf-8", errors="replace").read().count("comando 101d")
+    antes = contar("101d")
     for _ in range(6):
         h = activar(anfitrion)
         for x in (60, 45, 37):                                # pasar por encima del marcador
@@ -126,7 +145,7 @@ def main():
         time.sleep(1)
         C.escribir(C.ventana(anfitrion), "Sala multi")
         time.sleep(4)
-        if open(log, encoding="utf-8", errors="replace").read().count("comando 101d") > antes:
+        if contar("101d") > antes:
             break
         print("  (la sala no se creó: otra vez)", flush=True)
     # los invitados: la primera fila de la lista + Enter

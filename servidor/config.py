@@ -42,6 +42,13 @@ RELAY_BANDERA = os.path.join(ESTADO, "modo_relay")
 RELAY_MAPA = os.path.join(ESTADO, "relay.json")
 RELAY_BASE = int(os.environ.get("EDA_RELAY_BASE") or 26000)
 PUNCH_PUERTO = int(os.environ.get("EDA_PUNCH_PUERTO") or 25001)   # `herramientas/udp_punch.py`
+# ★ Cómo se hablan los jugadores en la partida (MEDICIONES §39–40):
+#   "directo" = P2P de verdad: cada uno recibe la dirección del OTRO (la pública que vio el punch, o
+#     la privada si comparten IP pública) y su MAC real como identidad; el relay sólo para quien no
+#     mandó su MAC (un juego lanzado sin comillas). La latencia es la de ellos dos, no la del server.
+#   "relay" = todo pasa por el relay del server (lo de antes; para NAT que no se dejan atravesar).
+P2P = os.environ.get("EDA_P2P", "directo")
+PUNCH_MAPA = os.path.join(ESTADO, "punch.json")   # conexión → [IP, puerto] que vio el punch (relay_udp.py)
 
 # ★ para probar a mano: lo que se deje en este archivo ([["1069", "00"], …]) sale con el próximo
 #   «estoy vivo» (0x1001), y el archivo se borra

@@ -17,8 +17,8 @@ from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, partida
 from servidor.cuentas import EXPS, INICIO, cuenta_de, guardar, leer, nivel
 from servidor.datos import ESCENARIOS, NADA, PRECIOS, precios_venta, productos, puntos_de, tabla_habilidades, tabla_premios, tipos_item
 from servidor.objetos import PUNTOS_POR_NIVEL, casilleros_de, equipo, es_equipo, ficha, inventario, libre_en_bolsa, nivel_engarce, obj_habilidad, pj_cuenta, serial_nuevo, stats_de
-from servidor.relay import dir_udp, identidad_de, identidad_falsa, relay
-from servidor.salas import miembro
+from servidor.relay import dir_udp, escribir_relay, identidad_de, identidad_falsa, relay
+from servidor.salas import miembro, pares
 from servidor.partida import cuerpo_1072, dar_premio
 from servidor.juego import cerrada, responder
 
@@ -251,6 +251,60 @@ def control():
              json.load(open(config.RELAY_MAPA)).get("203", {}).get("falsa") == identidad_falsa(203))
     chequear("el 0x1012 lleva la conexión en +6 (el id del 0x3006)",
              struct.unpack_from("<I", responder(0x1011, b"\1\0\0\0", 203)[0][1], 6)[0] == 203)
+    # ★★ P2P DIRECTO (MEDICIONES §39–40): con la MAC del 0x100F y lo que vio el punch, cada uno recibe
+    #   la dirección del OTRO (pública, o privada si comparten IP pública); el relay sólo de respaldo
+    punch_real, p2p_real = config.PUNCH_MAPA, config.P2P
+    config.PUNCH_MAPA = os.path.join(config.CUENTAS, "punch.json")
+    config.P2P = "directo"
+
+    def quien(mac, ip_priv, puerto_priv):
+        b = bytearray(0xE9)
+        b[0x7A:0x7A + 34] = mac.encode("utf-16-le")[:34].ljust(34, b"\0")
+        struct.pack_into("<IH", b, 0xDD, ip_priv, puerto_priv)
+        return bytes(b)
+
+    def ip_int(t):
+        return struct.unpack(">I", bytes(int(x) for x in t.split(".")))[0]
+    macs = {401: "02:AA:00:00:00:01", 402: "02:AA:00:00:00:02", 403: "02:AA:00:00:00:03"}
+    for n, mac_n in macs.items():
+        responder(0x100F, quien(mac_n, ip_int("192.168.0.%d" % (n - 400)), 50000 + n), n)
+    basura = bytearray(quien("x", 0, 0))
+    basura[0x7A:0x7A + 34] = "H80:\u00d9089:\u008b5:6E:\u00e3".encode("utf-16-le")[:34].ljust(34, b"\0")
+    responder(0x100F, bytes(basura), 404)
+    chequear("el 0x100F trae la MAC (cuerpo +0x7A) → es su identidad", partida(401).get("mac") == macs[401]
+             and identidad_de(401) == macs[401])
+    chequear("★ el revés: con basura en ese lugar (juego sin comillas) NO hay MAC → la inventada",
+             partida(404).get("mac") is None and identidad_de(404) == identidad_falsa(404))
+    # el punch vio a 401 y 403 detrás de la MISMA IP pública (un cíber), y a 402 en otra casa
+    json.dump({"401": ["200.1.1.1", 40001], "402": ["190.2.2.2", 40002], "403": ["200.1.1.1", 40003],
+               "404": ["181.4.4.4", 40004]}, open(config.PUNCH_MAPA, "w"))
+    SALAS[88] = {"sala": bytes(0x59), "anfitrion": 401, "miembros": [401, 402, 403, 404]}
+    a = {x[3]: x[1] for x in pares(SALAS[88])}
+
+    def direccion_de(cuerpo, indice):
+        for k in range(cuerpo[0]):
+            i, ip, puerto = struct.unpack_from("<BIH", cuerpo, 7 + 7 * k)
+            if i == indice:
+                return ip, puerto
+    chequear("a 402 (otra casa) le llega la PÚBLICA de 401 (la que vio el punch)",
+             direccion_de(a[402], 0) == (ip_int("200.1.1.1"), 40001))
+    chequear("a 403 (mismo cíber que 401) le llega la PRIVADA de 401 (su 0x100F)",
+             direccion_de(a[403], 0) == (ip_int("192.168.0.1"), 50401))
+    chequear("★ el revés: 404 (sin MAC) va por el RELAY, para todos y todos hacia él",
+             direccion_de(a[401], 3) == (0x7F000001, config.RELAY_BASE + 1 + 404)
+             and direccion_de(a[404], 0) == (0x7F000001, config.RELAY_BASE + 1 + 401))
+    m = miembro(leer(401), 0, conexion=401, para=402)
+    chequear("el miembro lleva la MAC REAL en +0xA y la dirección directa en +0x48",
+             m[0xA:0xA + 34] == macs[401].encode("utf-16-le")
+             and struct.unpack_from("<IH", m, 0x48) == (ip_int("200.1.1.1"), 40001))
+    escribir_relay()
+    chequear("relay.json: la «falsa» de quien mandó su MAC es la real (el relay no la toca)",
+             json.load(open(config.RELAY_MAPA))["401"]["falsa"] == macs[401])
+    config.P2P = "relay"
+    chequear("★ el revés: con EDA_P2P=relay, todo por el relay aunque haya MAC",
+             dir_udp(401, 402) == (0x7F000001, config.RELAY_BASE + 1 + 401))
+    del SALAS[88]
+    config.PUNCH_MAPA, config.P2P = punch_real, p2p_real
     config.RELAY_BANDERA, config.RELAY_MAPA = bandera_real, mapa_real
     # ★ CREATE SOCKET (el 0x1037 de verdad: ítem 11, taladro 12)
     d = leer(203)

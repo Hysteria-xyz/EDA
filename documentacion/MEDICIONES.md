@@ -1937,3 +1937,29 @@ cliente reconoce a sus pares, y si el server puede saberla.
      igual que el juego).
 - ⚠ Privacidad: la MAC ya viajaba a los OTROS jugadores en cada saludo (así está hecho el juego); ahora
   además la ve el server. No se guarda en ningún lado ni va a los registros sin `EDA_LOG_HEX=1`.
+
+### 40 · P2P directo en el server (paso 2, a medias) y de dónde salen los «75 ms» del ping de la sala
+
+- **El server** (`servidor/relay.py`, `EDA_P2P=directo` por defecto): identidad de cada miembro = su
+  MAC del 0x100F; dirección para cada par = la pública que vio el punch (`punch.json`, lo escribe
+  `relay_udp.py`), la PRIVADA si comparten IP pública, y el relay sólo para quien no mandó su MAC.
+  Las pruebas (`juego.py control`) lo cubren con sus reveses.
+- ⚠ **Medido con el juego (dos clientes, server local)**: el `0x3006` del punch lo manda SÓLO el que
+  ENTRA a una sala, y llega en el mismo instante en que el server arma el `0x1059` (tarde); el
+  ANFITRIÓN no se anota nunca. ⏭ La pública de cada uno hay que tomarla al conectarse, como el
+  original: el `0x0607` («UDP label») tiene que apuntar al punch del server para que el cliente le
+  mande sus `0x3002` (hoy apunta al Broker muerto de 2009).
+- ★ **Los ~75 ms del ping de la sala NO son la red** (`herramientas/medir_udp.py`: `sendto` /
+  `recvfrom` de los dos juegos con QueryPerformanceCounter): el que recibe un ping lo CONTESTA en
+  0,1 ms (mediana), pero entre que un juego manda y el otro LEE pasan 30–39 ms de mediana (hasta
+  ~75) — **en la misma PC**. El dato llega a Windows enseguida y espera a que el juego lo lea: el
+  juego lee el UDP cuando su bucle principal da una vuelta (`recvfrom` sólo con datos, por
+  `WSAEventSelect` FD_READ|FD_WRITE, `0x750828`), y el bucle da **~32 vueltas por segundo**
+  (PeekMessage). Descartado, medido: la AFINIDAD (los dos juegos en los 16 núcleos, `0xFFFF`, y el
+  exe no importa `SetThreadAffinityMask`); el FOCO (con una ventana al frente: 32 vueltas/s y 39 ms,
+  igual); `ClientSleepMS`, `MaxFPS`, `LatencySim`, `DropRate` (en 0, en el archivo y en la memoria de
+  los dos); `alwaysfocused` (es del mouse/teclado, `0x419B85`). 🟡 Quién marca las ~32 vueltas por
+  segundo todavía no se sabe (¿el modo ventana / la sincronía vertical?).
+- `multi.py` lee ahora el registro del server que haya (`EDA_MULTI_LOG`, o `EDA_MULTI_SSH` para el
+  de un contenedor): contra red.py/el VPS leía sólo el del espía, nunca veía avanzar nada y repetía
+  clics que desarmaban la sala.
