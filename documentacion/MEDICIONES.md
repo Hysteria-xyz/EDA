@@ -2143,3 +2143,9 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   eda_d3d9.ini; 354.683.873 B) entra al server con el ticket. Sin `EDA.exe`, `GameGuard.des`, el
   Nyx launcher/patcher ni `img/`. El juego escribe `NetTrace.log`, `eda_d3d9.log` y, al cerrar,
   REESCRIBE `autoexec.cfg` (las teclas salen en otro orden): es del usuario.
+- ★ **Con el portero DE VERDAD** (su clave local de prueba y un pase firmado por él, de la sesión de
+  R2Beat; `sub` 999001, `iat` 1794000000, `exp` +300): con el reloj en 1794000010 → ticket. Los
+  reveses: con la hora real → «vencido»; un carácter cambiado en la firma → «firma»; en el medio
+  del payload → «formato» (el JSON se rompe antes); este server esperando otro `aud` → «audiencia».
+  En prod, `EDA_PORTERO_CLAVES=https://r2beatlatino.com/cuentas/clave-publica`. El portero también
+  da el manifest del cliente sólo a cuentas aprobadas (la descarga, del lado de R2Beat).
