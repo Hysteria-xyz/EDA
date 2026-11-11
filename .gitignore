@@ -1,0 +1,33 @@
+# ============================================================================
+#  Qué NO se sube a GitHub.
+#
+#  Dos motivos para que un archivo esté acá:
+#    1. Es PRIVADO  (cuentas, logs, capturas de red: pueden tener datos de tu PC).
+#    2. NO ES NUESTRO (el cliente de Softnyx y todo lo que sale de él).
+#
+#  Si dudás de un archivo, no lo subas: es más fácil agregarlo después que
+#  borrarlo del historial una vez publicado.
+# ============================================================================
+
+# --- todo lo de trabajo: el juego copiado, las cuentas, los logs, los datos ---
+_trabajo/
+
+# --- NO ES NUESTRO: el cliente, si alguien lo copia acá por error ---
+cliente/
+*.exe
+*.dll
+*.dat
+*.des
+*.dmp
+*.rpt
+*.flt
+*.asi
+*.ltb
+*.dds
+
+# --- basura ---
+__pycache__/
+*.py[cod]
+*.log
+*.bak
+*.tmp

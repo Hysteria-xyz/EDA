@@ -1,0 +1,82 @@
+# EDA — guía del proyecto
+
+## Qué anda hoy
+
+Probado con el cliente de 2009, pantalla por pantalla (cada cosa tiene su medición en
+[documentacion/MEDICIONES.md](documentacion/MEDICIONES.md)):
+
+| | |
+|---|---|
+| ✅ arranque | GameGuard pasado (en memoria), lista de servidores, anuncio |
+| ✅ personajes | crear (Warrior / Hunter), elegir, entrar al lobby |
+| ✅ lobby | lista de salas, lista de usuarios, chat, Select Character, botones |
+| ✅ salas | crear, entrar, listo / F9, chat de sala, hasta 3 jugadores |
+| ✅ stages | carga, largada, el combate (corre en el cliente), muerte, **revivir con moneda**, game over, salir |
+| ✅ fin de stage | resultado con rango, **cartas** (oro / plata / bronce), premios de `StageReward.xml` |
+| ✅ progreso | EXP y niveles (tabla de `Player.xml`), progresión de stages, **puntos de estadística** |
+| ✅ inventario | equipar (clic derecho), barra de pociones (teclas 1–6), todo guardado en la cuenta |
+| ✅ tienda | comprar, **Purchase All**, vender (precios de `Product.xml`) |
+| ✅ habilidades | verificar el libro con el pergamino, aprender (con oro y nivel), borrar, barra F1–F8 |
+| ✅ refinería | crear engarce, poner piedras (suman su bonus), refinar piedras, reparar |
+| ✅ multijugador | P2P en la misma PC (ping y movimiento); *relay* UDP para PCs distintas (probado en una PC) |
+
+## Qué NO anda (todavía)
+
+- ⛔ **Lanzar las habilidades jugando.** F1–F8 marcan la habilidad en la barra, pero no se dispara
+  (ni en el exe original). Es algo que el server no le manda y no se encontró qué. Lo descartado
+  está en MEDICIONES §34.
+- 🟡 La durabilidad no baja jugando; el oro que da una stage es inventado; los puntos por nivel
+  (3) y los lugares de habilidad (12) son nuestros: los de 2009 no se saben.
+- 🟡 El relay entre dos PCs de verdad no se probó.
+
+Todo lo que es deducción y no medición está marcado 🟡 en el código y en la documentación.
+
+## Cómo está hecho
+
+```
+jugar.py                 la entrada: prepara el juego, levanta el server y abre el cliente
+servidor/juego.py        ★ EL SERVER DE JUEGO: cuentas, salas, partidas, tienda, inventario…
+                         (`py servidor\juego.py control` = sus pruebas, con su caso al revés)
+herramientas/            el resto: ver herramientas/LEEME.md
+  espiar_broker.py       el oyente TCP: descifra cada paquete y se lo pasa a servidor/juego.py
+  paquete_broker.py      el formato y el cifrado de la red (AES-128 con la clave = MD5 del exe)
+  reglas_broker.py       las respuestas fijas del Broker (anuncio, lista de servidores)
+  eda_original.py        abre el EDA.exe de 2009 y lo ajusta en memoria (GameGuard, red, datos)
+  relay_udp.py           el relay del multijugador entre PCs
+  …                      y las de investigación: desempacar el exe, mirar la red, controlar el juego
+documentacion/
+  PROTOCOLO.md           ★ cada mensaje, con su formato y quién lo maneja en el exe
+  MEDICIONES.md          ★ el registro: qué se probó, qué salió, en orden (36 corridas)
+  HISTORIA.md            qué fue EDA, con fuentes
+  INVENTARIO_CLIENTE_2009.md   el md5 de cada archivo del cliente
+  APIS_A_MANO.md / CODIGO_ROBADO.md   lo que se resolvió a mano para desempacar el exe
+  SIGUIENTE_PASO_RED.md  la hoja de ruta de la red (histórica)
+```
+
+## El recorrido, en corto
+
+1. **El exe venía empaquetado con ASProtect** (sin texto legible, 694 llamadas a Windows desviadas a
+   una máquina virtual). Se volcó de la memoria y se rearmó un exe desempacado
+   (`volcar_exe.py`, `desempacar.py`, `emular_stub.py`…): el motor es **LithTech**.
+2. **GameGuard** cortaba el arranque buscando un server de actualización muerto: un `if` en
+   `0x403606`, el init de NPGameLib y un chequeo cada 10 s (`sin_gameguard.py`).
+3. **El Broker** estaba en `218.145.66.187:25000`, escondido en un XML comprimido dentro de
+   `Data.dat`. Su protocolo: **AES-128-ECB** con una magia por bloque, y la clave = **MD5 del
+   propio exe** (un control de integridad).
+4. Con eso se escribió el server mensaje por mensaje: cada respuesta se dedujo leyendo el
+   manejador del cliente en el exe y se comprobó en pantalla, con un **control al revés** (el caso
+   que tiene que fallar). Así se llegó al lobby, a la partida, al final de la stage y a todo lo demás.
+5. **El juego se maneja solo** para probar sin manos: clics por mensajes de ventana
+   (`clic_juego.py`), teclado y mouse inyectados en el DirectInput del juego (`control_partida.py`,
+   Frida) y un piloto que va del arranque a la partida (`piloto.py`, `multi.py`).
+6. Al final, **el exe original** pasó a abrirse directamente con los ajustes en memoria
+   (`eda_original.py`), sin repartir ningún exe modificado.
+
+## Reglas con las que se trabajó
+
+- **Medir antes que deducir.** Un desensamblado dice cómo se lee un dato, casi nunca quién lo
+  escribe. Si la primera hipótesis se cae: gancho y a medir.
+- **Toda prueba lleva su control al revés**, y lo esperado sale del generador (los XML del juego),
+  no se escribe a mano.
+- **Nada se afirma sin fuente**; lo deducido se marca 🟡.
+- **El cliente original no se toca**: se juega desde una copia, y los cambios van en memoria.

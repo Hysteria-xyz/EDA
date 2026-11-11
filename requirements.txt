@@ -1,0 +1,6 @@
+# Para jugar (jugar.py)
+frida>=16
+pycryptodome>=3.15
+
+# Sólo para las herramientas de investigación (desempacar el exe, mirar el protocolo, fotos):
+#   py -m pip install capstone pefile pillow unicorn pydivert
