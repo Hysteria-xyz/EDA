@@ -175,6 +175,23 @@ for (const n of ['GetACP', 'GetOEMCP']) Interceptor.attach(
     Process.getModuleByName('kernel32.dll').getExportByName(n), {onLeave(r) { r.replace(ptr(%d)); }});
 """
 
+# ★ Parches adicionales en memoria (D3D9 moderno WDDM y salas):
+# 1. 0x770a64: mov eax, 32 en vez de mov eax, 2 (b8 02 00 00 00 -> b8 20 00 00 00).
+#    En drivers modernos (D3D9Ex / WDDM), las texturas dinámicas tienen un pitch mínimo
+#    de 128 bytes por fila. Para glifos de 16x16 (pitch esperado 64 B), el hardware devuelve
+#    128 B (ratio 2.0x), comprimiendo verticalmente todas las letras a la mitad de altura.
+#    Al elevar el piso a 32x32, 32*4 = 128 B coincide exactamente con la alineación del driver
+#    y las letras se renderizan a altura 100% completa y nítida.
+# 2. 0x537586, 0x537630, 0x5376d9: push 0 en vez de push 3 (6a 03 -> 6a 00).
+#    Pone los indicadores de ping/latencia de la sala en verde (estado 0, 0-1 ms local)
+#    en lugar del estado 3 (rojo / sin señal).
+PARCHES_EXTRA = [
+    [0x770a64, "b802000000", "b820000000", "fuente 32x32 (pitch 128 B en WDDM/D3D9Ex, letras completas)"],
+    [0x537586, "6a03", "6a00", "ping de sala: slot propio en verde (0 ms)"],
+    [0x537630, "6a03", "6a00", "ping de sala: slot rival en verde"],
+    [0x5376d9, "6a03", "6a00", "ping de sala: otros slots en verde"],
+]
+
 
 def faltantes():
     return {r: n for r, n in XMLS.items() if not os.path.exists(os.path.join(DATOS, n + ".xml"))}
@@ -205,6 +222,8 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe", server=None):
         raise SystemExit("⛔ no está %s — corré primero: py jugar.py --preparar \"C:\\ruta\\al\\cliente\"" % exe)
     os.makedirs(DATOS, exist_ok=True)
     parches = [[va, viejo, nuevo] for va, viejo, nuevo, _ in SG.RECETAS["limpio"]]
+    for va, viejo, nuevo, _ in PARCHES_EXTRA:
+        parches.append([va, viejo, nuevo])
     js = JS % {"parches": json.dumps(parches), "xmls": json.dumps(faltantes()),
                "quien": json.dumps(BROKER), "aca": json.dumps(server or LOCAL), "inflate": INFLATE,
                "inflate_bytes": INFLATE_BYTES}
@@ -288,6 +307,7 @@ def control():
              salio.get("SHOP") == xml)
     chequear("y ya no se busca más (faltan vacío)", not faltan)
     chequear("la receta de GameGuard tiene sus 4 parches", len(SG.RECETAS["limpio"]) == 4)
+    chequear("los 4 parches de pantalla y sala están definidos", len(PARCHES_EXTRA) == 4)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
 
