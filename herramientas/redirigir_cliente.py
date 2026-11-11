@@ -32,7 +32,7 @@ if os.environ.get("EDA_SERVER"):
     # ★ a un server de OTRA PC (p. ej. el VPS): EDA_SERVER=IP[:PUERTO]
     _h, _, _p = os.environ["EDA_SERVER"].partition(":")
     LOCAL = (socket.gethostbyname(_h), int(_p or 25900))
-EXES =("EDA_limpio.exe", "EDA.exe")
+EXES = ("EDA_limpio.exe", "EDA.exe")
 
 JS = r"""
 const quien = [%s], aca = [%s];
