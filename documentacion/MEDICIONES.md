@@ -1829,3 +1829,52 @@ Tres errores nuestros y una pieza que faltaba, medidos con Frida en `sendto` / `
   4.º parche y no publicar un exe ajeno): md5 `0799387e23cadd355888bd712143f2d5`.
 - `eda_original.py` ahora AVISA en la consola si el juego cae en una trampa («sitio 0x…»): así
   el próximo que encuentre una sabe qué número reportar.
+
+### 38 · ★★ El server por MÓDULOS, el server para LINUX (Docker) y las PIEZAS contadas (11-nov)
+
+- **`servidor/juego.py` (1695 líneas) partido en módulos** por pantalla del juego (`entrada`,
+  `salas`, `inventario`, `tienda`, `habilidades`, `refineria`, `partida`, más `config`, `estado`,
+  `registro`, `cuentas`, `datos`, `objetos`, `relay`, `pruebas`). El corte lo hizo un script (`ast`):
+  cada función se copió TAL CUAL con sus comentarios, y cada `if cmd == …` de `responder` pasó a ser
+  una función con `@maneja(cmd)`. Medido, con el viejo guardado aparte:
+  · `py servidor\juego.py control`: **la misma salida, línea por línea** (100 pruebas);
+  · ★ los **3374 mensajes de verdad** de las capturas (`_trabajo/broker/con_*.bin`, 431 conexiones)
+    pasados por el viejo y por el nuevo, con el reloj congelado: **respuestas idénticas byte a
+    byte** (md5 de cada cuerpo). **El revés**: con un solo byte cambiado en el nuevo (el `0x1001`),
+    1247 respuestas salen distintas — la comparación sí ve un cambio.
+- **La recarga en caliente** ahora es del paquete entero (`servidor.cargar()`, la usan el espía y
+  `red.py`). ⚠ **Bug medido y arreglado**: al recargar quedaban **18 manejadores de 31**, porque
+  `from servidor import tienda` devolvía el módulo VIEJO (seguía como atributo del paquete y había
+  registrado sus funciones en el registro viejo). Borrando también el atributo: 31 después de cada
+  recarga, y el estado vivo (`_eda_partidas`) sobrevive.
+- **`servidor/red.py` = el server por la red** (lo mismo que `espiar_broker.py sin_admin`, sin nada
+  de Windows): escucha en 0.0.0.0, cada conexión toma el número MÁS CHICO libre (así los puertos del
+  relay, `RELAY_BASE + 1 + n`, quedan acotados) y el relay corre en un hilo. Las respuestas del
+  Broker salen de `reglas_broker.guion()` en memoria. `python -m servidor.red prueba IP:PUERTO`:
+  un `0x0604` con la clave del EDA.exe de 2009 → `0x0607`; **el revés**: con una clave que nadie
+  conoce, silencio.
+  ★ **Con el juego** (`py jugar.py --server 127.0.0.1:25950`, relay prendido, el piloto):
+  `0604 → 0607 0609 · 0708 → 0709 · 070a → 070b · 100f → 1010 · 1011 → 1012 · 1017 → 1018 ·
+  101d → 101e · 104e → 104f · 105f → 105e` y **rui en el mapa** con el reloj corriendo.
+- **Las claves sin exes**: un server en Linux no tiene los exes para sacar md5(exe + 00), así que
+  `paquete_broker.CLAVES_FIJAS` trae las dos que juega la gente (la del EDA.exe de 2009,
+  `a57ca836…`, y la del limpio `0799387e`, `2921cf26…`) y `EDA_CLAVES` agrega otras. **Comprobado**:
+  la fija «EDA.exe de 2009» abre las capturas reales del original (`paquete_broker.py control`).
+- **Docker** (`despliegue/`): la imagen corre `juego.py control` al armarse (si falla, no se arma),
+  `network_mode: host` (el relay usa un puerto UDP por jugador), las cuentas y los XML en carpetas
+  de afuera. Prod = `main` (25900 / UDP 26000–26200), prueba = `develop` (35900 / 36000–36200, se
+  actualiza sola cada 5 min y, si un cambio no pasa las pruebas, sigue la versión anterior).
+  ★ **Medido en Linux** (GitHub Actions, Ubuntu): la imagen se arma con las pruebas adentro, y el
+  server por la red contesta (y calla con la clave falsa).
+- **Las PIEZAS, contadas sobre el exe** (`herramientas/contar_piezas.py`, sin pefile):
+  · los mensajes que el cliente sabe RECIBIR salen de cómo los registra cada pantalla —
+    `mov edi, manejador · … · push cmd · push ebx · push edi · push esi · add ecx, 4 · call`
+    (el lobby, `0x5441FC`) — más la escena de carga (`mov [esp+X], cmd`: `0x105E`, `0x1058`):
+    **62**. El server manda **41** de esos. Faltan: 060B 1016 101A 1026 1030 1032 1046 104A 104B
+    1050 1052 1054 1056 105B 105D 1060 1062 1066 106C 106D 3003. Revés: los que manda el cliente
+    (`0x100F`, `0x1011`) NO aparecen como registrados.
+  · las llamadas a Windows sin resolver = los `call` que siguen yendo a la TRAMPA: **183** →
+    **511 de 694** resueltas (el «505» de antes era de una versión anterior del exe). Revés: el
+    EDA.exe de 2009 (empaquetado) tiene 0.
+- ⏭ Lo que falta: **cuentas de verdad** (en un server público cada conexión toma rui / kai / mio /
+  ren, la primera libre: no hay login) y **el relay entre dos casas** (sigue sin probarse).

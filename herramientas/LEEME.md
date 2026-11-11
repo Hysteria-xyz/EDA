@@ -85,3 +85,8 @@
 | **`relay_udp.py`** | ★★ el RELAY UDP para PCs distintas: el server inventa la identidad P2P de cada jugador y el relay reenvía cambiando la MAC real por la inventada (MEDICIONES §30–31). `control` |
 | **`eda_original.py`** | ★★ abre el **EDA.exe ORIGINAL** de 2009 listo para jugar, todo en memoria: GameGuard pasado, `connect` del Broker desviado a 127.0.0.1:25900 y los 4 XML que lee el server (Product, Skill, StageReward, ItemTypeList) guardados en `_trabajo/datos/` cuando el juego los descomprime (búsqueda nativa `Memory.scanSync`: la de JS byte a byte trababa el arranque). Lo usa `jugar.py`. `control` |
 | **`redirigir_cliente.py`** | ★ los clientes al server SIN WinDivert/UAC: engancha `ws2_32!connect` de cada `EDA_limpio.exe` / `EDA.exe` (Frida) y desvía 218.145.66.187:25000 → 127.0.0.1:25900. Va con `espiar_broker.py sin_admin` (el mismo oyente, sin límite de tiempo). `control` |
+| **`contar_piezas.py`** | ★ **cuánto falta, medido sobre el exe**: los mensajes del server que el cliente sabe recibir (de cómo los registra cada pantalla) contra los que manda `servidor/`, y las llamadas a Windows que siguen yendo a la trampa. `--readme` escribe la tabla del README público. `control` (con su revés) |
+
+★ **El server por la red** (Linux / Docker / un VPS) no está acá sino en `servidor/red.py`
+(`python -m servidor.red`, y `… prueba IP:PUERTO`); los jugadores llegan con
+`py jugar.py --server IP:PUERTO`. Ver `servidor/LEEME.md` y `publico/despliegue/LEEME.md`.

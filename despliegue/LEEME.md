@@ -131,5 +131,7 @@ callado.
   `mio` y `ren` (`servidor/cuentas.py`). En un server público, un jugador no tiene SU personaje.
   El cliente no manda usuario ni contraseña (eso lo hacía el launcher de Softnyx), así que hay que
   inventar cómo identificar a cada jugador.
-- **El relay entre PCs de verdad** se probó con dos clientes en una misma PC hablando con el VPS.
-  Falta probarlo entre dos casas distintas.
+- **El relay entre PCs de verdad** no se probó todavía: sólo con los dos clientes y el relay en la
+  misma PC (MEDICIONES §30–31). Lo que sí está medido es que el server en Docker se arma, pasa las
+  pruebas y contesta en Linux (las pruebas de GitHub), y que el juego llega a la partida por
+  `servidor/red.py` con el relay prendido (MEDICIONES §38).
