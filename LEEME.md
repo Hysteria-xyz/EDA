@@ -55,15 +55,17 @@ documentacion/
 
 ## Cómo se abre el EDA.exe ORIGINAL (el que tiene ASProtect)
 
-Es lo que hace `py jugar.py` (`herramientas/eda_original.py`); sin tocar el archivo:
+Es lo que hace `py jugar.py --original` (`herramientas/eda_original.py`); sin tocar el archivo:
 
 1. Se lanza `EDA.exe` **suspendido** con Frida (`frida.spawn`) desde `_trabajo\juego\` y se le
    inyecta un script antes de que corra una sola instrucción.
 2. El script engancha `ws2_32!connect`: la conexión a `218.145.66.187:25000` (el Broker de 2009,
    que sale de un XML adentro de `Data.dat`) va a `127.0.0.1:25900`, nuestro server.
-3. El juego arranca. ASProtect desempaca el código **en memoria**; el script mira cada 2 ms las
-   tres direcciones de GameGuard y, **apenas tienen sus bytes originales** (o sea, ya están
-   desempacadas y todavía no corrieron), les escribe los parches de `sin_gameguard.py limpio`:
+3. El juego arranca. ASProtect desempaca el código **en memoria**. Apenas el código del juego
+   llama a `GetCommandLineA` (el arranque de su CRT, ya desempacado) —y de nuevo en
+   `SetWindowLongA`, la instrucción de antes del chequeo— el script les escribe a las tres
+   direcciones de GameGuard los parches de `sin_gameguard.py limpio`, **si tienen sus bytes
+   originales** (un reloj de 2 ms queda de respaldo):
 
    | dirección | antes | después | qué hace |
    |---|---|---|---|
@@ -78,9 +80,9 @@ Es lo que hace `py jugar.py` (`herramientas/eda_original.py`); sin tocar el arch
 El cifrado de la red usa como clave el **MD5 del exe que habla** (`paquete_broker.py`): el
 server la calcula sola de los exes que hay en `_trabajo\juego\`, sea el original o el limpio.
 
-Si en alguna PC GameGuard gana la carrera (sale «Game guard error»), está
-`exe/EDA_limpio.exe` (`py jugar.py --limpio`), que ya trae todo eso en el archivo
-([exe/LEEME.md](exe/LEEME.md)).
+Por defecto `py jugar.py` no usa el original sino `exe/EDA_limpio.exe`, que ya trae todo eso en
+el archivo ([exe/LEEME.md](exe/LEEME.md)): con la versión anterior (sólo el reloj) en algunas
+PCs GameGuard ganaba la carrera («Game guard error : 45»).
 
 ## El recorrido, en corto
 

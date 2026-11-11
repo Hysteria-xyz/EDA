@@ -88,18 +88,13 @@ pociones de la barra derecha, **ESC** para salir de la stage.
 
 - **«no se puede conectar al servidor»** → el server no arrancó. Mirá `_trabajo\server.txt` y
   `_trabajo\broker\espia.log`. Si otro programa usa el puerto 25900, cerralo.
-- **«Game guard error : …»** (un número, por ejemplo 45) **en la ventana del juego** → en tu PC
-  GameGuard arrancó antes de que lo frenáramos en memoria. Usá el exe ya limpio que trae el
-  repositorio:
-
-  ```bat
-  py jugar.py --limpio
-  ```
-
-  (ver [exe/LEEME.md](exe/LEEME.md)). Si con ése también falla, abrí un issue con una foto del
-  mensaje y lo que dice la consola.
+- **«Game guard error : …»** (por ejemplo 45) → el juego se abrió **sin** `jugar.py` (doble
+  clic en el exe, o el launcher de Softnyx), o con `--original` en una PC donde GameGuard ganó la
+  carrera. Abrilo siempre con `py jugar.py` (usa `exe\EDA_limpio.exe`, que ya no trae GameGuard:
+  ver [exe/LEEME.md](exe/LEEME.md)). La consola dice qué exe abrió («· exe: …»). Si igual
+  falla, abrí un issue con una foto del mensaje y lo que dice la consola.
 - **«GameGuard: no se pudieron poner todos los parches»** (en la consola) → tu `EDA.exe` no es el
-  de 2009 que conocemos (comparalo con el md5 de arriba): probá `py jugar.py --limpio`.
+  de 2009 que conocemos (comparalo con el md5 de arriba): usá `py jugar.py` sin `--original`.
 - **El antivirus se queja de Frida** → Frida es una herramienta conocida de análisis que se mete en
   otros programas; es lo que permite no modificar el exe. Si no querés usarla, este proyecto no
   tiene otra forma de abrir el juego original.

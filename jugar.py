@@ -1,9 +1,9 @@
 r"""jugar.py -- EDA (Espada del Alma, Softnyx 2009) contra nuestro server, en tu PC. Sólo Windows.
 
     py jugar.py --preparar "C:\ruta\al\cliente"     # UNA vez: copia el juego a _trabajo\juego
-    py jugar.py                                      # el server + el juego (EDA.exe original)
-    py jugar.py --limpio                             # lo mismo con exe\EDA_limpio.exe (si el
-                                                     #   original da «Game guard error»)
+    py jugar.py                                      # el server + el juego (exe\EDA_limpio.exe)
+    py jugar.py --original                           # lo mismo con el EDA.exe de 2009 (con
+                                                     #   ASProtect), ajustado en memoria
 
 Qué hace (ver EMPEZAR.md):
   · `--preparar` copia tu cliente de 2009 a `_trabajo\juego\` (el original no se toca), verifica
@@ -88,7 +88,16 @@ def main():
         if len(a) < 2:
             raise SystemExit('uso: py jugar.py --preparar "C:\\ruta\\al\\cliente"')
         return preparar(a[1])
-    nombre = "EDA_limpio.exe" if "--limpio" in a else "EDA.exe"
+    # ★ por defecto el LIMPIO (si está): GameGuard ya sacado en el archivo, sin carreras.
+    #   --original = el EDA.exe de 2009 con ASProtect, ajustado en memoria
+    hay_limpio = (os.path.exists(os.path.join(RAIZ, "exe", "EDA_limpio.exe"))
+                  or os.path.exists(os.path.join(JUEGO, "EDA_limpio.exe")))
+    nombre = "EDA.exe" if "--original" in a or not hay_limpio else "EDA_limpio.exe"
+    print("· exe: %s" % nombre)
+    orig = os.path.join(JUEGO, "EDA.exe")
+    m = md5(orig)
+    print("· tu EDA.exe de 2009: md5 %s %s" % (m, "(✅ el conocido)" if m == MD5_2009 else
+          "(⚠ NO es el que conocemos, %s: si el juego falla, mandanos este md5)" % MD5_2009))
     if not os.path.exists(os.path.join(JUEGO, "EDA.exe")):
         raise SystemExit('⛔ falta el juego. Primero: py jugar.py --preparar "C:\\ruta\\al\\cliente"')
     if not os.path.exists(os.path.join(JUEGO, nombre)):

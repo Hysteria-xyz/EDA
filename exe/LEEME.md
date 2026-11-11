@@ -5,12 +5,13 @@
 ```
 
 Es el `EDA.exe` de 2009 (md5 `f0b12e6cddf3efdd0676b6491efe46be`) **desempacado** (sin
-ASProtect) y **sin GameGuard**. Sirve para las PCs donde el original, abierto con `py jugar.py`,
-muestra **«Game guard error : …»**: en ésas GameGuard alcanza a arrancar antes de que los parches en
-memoria se pongan. Éste ya los trae en el archivo.
+ASProtect) y **sin GameGuard**. Es el que abre `py jugar.py` por defecto: en algunas PCs el
+original, ajustado en memoria, mostraba **«Game guard error : 45»** (GameGuard alcanzaba a arrancar
+antes que los parches). Éste ya los trae en el archivo. El original sigue con `--original`.
 
 ```bat
-py jugar.py --limpio
+py jugar.py              (éste)
+py jugar.py --original   (el EDA.exe de 2009, con ASProtect)
 ```
 
 (`--preparar` lo copia a `_trabajo\juego\` junto con el resto del juego. Necesita **tu** cliente

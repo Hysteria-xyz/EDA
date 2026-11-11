@@ -113,7 +113,7 @@ function engancharInflate() {
 
 // --- 1. GameGuard (cuando ASProtect termina de desempacar) -------------------------------
 const hechos = {}; const t0 = Date.now(); let inflate_puesto = false;
-const vuelta = setInterval(function () {
+function ponerParches(desde) {          // devuelve cuántos faltan
     let faltan = 0;
     for (const [va, viejo, nuevo] of parches) {
         if (hechos[va]) continue;
@@ -123,9 +123,29 @@ const vuelta = setInterval(function () {
         if (actual === viejo) {
             const b = []; for (let i = 0; i < nuevo.length; i += 2) b.push(parseInt(nuevo.substr(i, 2), 16));
             Memory.patchCode(p, b.length, c => c.writeByteArray(b));
-            hechos[va] = true; send({t: 'parche', va: va, ms: Date.now() - t0});
+            hechos[va] = true; send({t: 'parche', va: va, ms: Date.now() - t0, desde: desde});
         } else if (actual === nuevo) { hechos[va] = true; } else { faltan++; }
     }
+    return faltan;
+}
+// ★ los parches tienen que estar ANTES de que corran (12-nov: en otras PCs salía «Game guard
+//   error : 45» = el juez de 0x403606 corrió antes que el temporizador). Dos ganchos deterministas,
+//   en el MISMO hilo del juego, cuando el código ya está desempacado:
+//   · GetCommandLineA = el arranque del CRT del juego (antes de todo);
+//   · SetWindowLongA desde 0x403601 = la instrucción de antes del juez (0x403606).
+//   El temporizador queda de respaldo.
+const k32 = Process.getModuleByName('kernel32.dll');
+const u32 = Process.findModuleByName('user32.dll') || Module.load('user32.dll');
+for (const [m, n] of [[k32, 'GetCommandLineA'], [k32, 'GetCommandLineW'], [u32, 'SetWindowLongA']]) {
+    let f = null;
+    try { f = m.getExportByName(n); } catch (e) { continue; }
+    // ⚠ sin filtrar por quién llama: en el original las llamadas pasan por los stubs de ASProtect
+    //   (la dirección de vuelta no es del juego). Alcanza con que los bytes ya sean los originales
+    //   desempacados, que ponerParches verifica antes de escribir.
+    Interceptor.attach(f, {onEnter() { if (Object.keys(hechos).length < parches.length) ponerParches(n); }});
+}
+const vuelta = setInterval(function () {
+    const faltan = ponerParches('reloj');
     if (!inflate_puesto && Object.keys(faltan_xml).length) {
         try { if (hex(ptr(%(inflate)d), 8) === '%(inflate_bytes)s') { engancharInflate(); inflate_puesto = true; } }
         catch (e) {}
@@ -177,6 +197,8 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
         elif p.get("t") == "tiempo":
             avisar("  ⛔ GameGuard: no se pudieron poner todos los parches (%s). ¿Es el EDA.exe de "
                    "2009 sin tocar? (md5 f0b12e6cddf3efdd0676b6491efe46be)" % p.get("hechos"))
+        elif p.get("t") == "parche":
+            avisar("  · parche 0x%X puesto (%s, %d ms)" % (p["va"], p.get("desde"), p["ms"]))
         elif p.get("t") == "listo":
             avisar("  ✅ GameGuard pasado (%d ms)" % p["ms"])
 

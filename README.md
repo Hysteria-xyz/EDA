@@ -39,12 +39,9 @@ py jugar.py
 ```
 
 **Sólo Windows**, con **Python 3.10 o más nuevo**. No hace falta ser administrador, y el juego
-original no se modifica: el exe de 2009 (con su ASProtect) se abre tal cual y los cambios se
-hacen en memoria (`herramientas/eda_original.py`).
+original no se modifica. `py jugar.py` abre [exe/EDA_limpio.exe](exe/LEEME.md) (el de 2009
+desempacado y sin GameGuard); `py jugar.py --original` abre el `EDA.exe` de 2009 con su ASProtect
+tal cual y lo ajusta en memoria (`herramientas/eda_original.py`).
 
-Si en tu PC el juego dice **«Game guard error»**, usá el exe ya desempacado y sin GameGuard que
-viene en [exe/](exe/LEEME.md):
-
-```bat
-py jugar.py --limpio
-```
+⚠ No abras el juego con doble clic ni con el launcher de Softnyx: así sale **«Game guard
+error»** y no encuentra el server. Siempre `py jugar.py`.
