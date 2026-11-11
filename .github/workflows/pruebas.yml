@@ -1,0 +1,46 @@
+# Las pruebas del server en cada PR y en cada push a develop / main. Sin el juego: lo que se puede
+# probar en Linux (el server, el relay, el conteo de piezas, la imagen de Docker).
+# Un PR con una prueba en rojo no se tendría que fusionar (ver CONTRIBUIR.md).
+name: pruebas
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install "pycryptodome==3.24.1"
+
+      - name: el server de juego (cada prueba con su revés)
+        run: python servidor/juego.py control
+
+      - name: el relay UDP
+        run: python herramientas/relay_udp.py control
+
+      - name: las piezas (mensajes y llamadas, medidas sobre exe/EDA_limpio.exe)
+        run: |
+          python herramientas/contar_piezas.py control
+          python herramientas/contar_piezas.py >> "$GITHUB_STEP_SUMMARY"
+
+      - name: el server por la red contesta (y no contesta con una clave falsa)
+        run: |
+          EDA_ESTADO="$RUNNER_TEMP/estado" python -m servidor.red > "$RUNNER_TEMP/red.log" 2>&1 &
+          sleep 3
+          python -m servidor.red prueba 127.0.0.1:25900 || (cat "$RUNNER_TEMP/red.log"; exit 1)
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: la imagen se arma (y adentro pasan las pruebas)
+        run: docker build -f despliegue/Dockerfile -t eda-server:ci .

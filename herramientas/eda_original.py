@@ -184,9 +184,19 @@ def _avisar(t):
     print(t, flush=True)
 
 
-def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
+def destino(texto):
+    """«IP» o «IP:PUERTO» → ([a, b, c, d], puerto) para el desvío del connect. Un nombre (p. ej. un
+    dominio) se resuelve acá, una vez: el juego recibe la IP."""
+    import socket
+    host, _, puerto = texto.strip().rpartition(":") if ":" in texto else (texto.strip(), "", "")
+    ip = socket.gethostbyname(host)
+    return [int(x) for x in ip.split(".")], int(puerto or LOCAL[1])
+
+
+def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe", server=None):
     """Abre `_trabajo/juego/EDA.exe` con todo puesto. Devuelve el pid. Con `esperar`, se queda
-    hasta que el juego se cierra (guardando los XML que vayan saliendo)."""
+    hasta que el juego se cierra (guardando los XML que vayan saliendo). `server` = ([IP], puerto)
+    adonde va el juego (por defecto este PC, 127.0.0.1:25900)."""
     import frida
     # nombre: "EDA.exe" (el original, con ASProtect) o "EDA_limpio.exe" (desempacado y sin
     #   GameGuard: los parches ya están en el archivo, y se reconocen como hechos)
@@ -196,7 +206,7 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
     os.makedirs(DATOS, exist_ok=True)
     parches = [[va, viejo, nuevo] for va, viejo, nuevo, _ in SG.RECETAS["limpio"]]
     js = JS % {"parches": json.dumps(parches), "xmls": json.dumps(faltantes()),
-               "quien": json.dumps(BROKER), "aca": json.dumps(LOCAL), "inflate": INFLATE,
+               "quien": json.dumps(BROKER), "aca": json.dumps(server or LOCAL), "inflate": INFLATE,
                "inflate_bytes": INFLATE_BYTES}
     js += JS_TRAMPA
     if os.environ.get("EDA_SIMULAR_ACP"):                  # p. ej. 1252 = una PC en español

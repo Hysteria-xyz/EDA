@@ -4,6 +4,8 @@ r"""jugar.py -- EDA (Espada del Alma, Softnyx 2009) contra nuestro server, en tu
     py jugar.py                                      # el server + el juego (exe\EDA_limpio.exe)
     py jugar.py --original                           # lo mismo con el EDA.exe de 2009 (con
                                                      #   ASProtect), ajustado en memoria
+    py jugar.py --server IP[:PUERTO]                 # ★ a un server de OTRA PC (un VPS): no
+                                                     #   levanta el server local (puerto 25900)
 
 Qué hace (ver EMPEZAR.md):
   · `--preparar` copia tu cliente de 2009 a `_trabajo\juego\` (el original no se toca), verifica
@@ -106,6 +108,23 @@ def main():
             shutil.copy2(lim, os.path.join(JUEGO, nombre))
         else:
             raise SystemExit("⛔ no está %s" % os.path.join(JUEGO, nombre))
+    import eda_original
+    remoto = None
+    if "--server" in a:
+        # ★ un server de OTRA PC (p. ej. el VPS, `despliegue/`): no se levanta nada acá
+        i = a.index("--server")
+        if i + 1 >= len(a):
+            raise SystemExit("uso: py jugar.py --server IP[:PUERTO]   (PUERTO por defecto 25900)")
+        remoto = eda_original.destino(a[i + 1])
+        print("· server: %s:%d" % (".".join(map(str, remoto[0])), remoto[1]))
+        try:
+            socket.create_connection((".".join(map(str, remoto[0])), remoto[1]), timeout=5).close()
+        except OSError as e:
+            raise SystemExit("⛔ el server %s:%d no contesta (%s). ¿Está andando? ¿El firewall?"
+                             % (".".join(map(str, remoto[0])), remoto[1], e))
+        eda_original.lanzar(esperar=True, nombre=nombre, server=remoto)
+        print("· el juego se cerró")
+        return 0
     if not os.path.exists(REGLAS):                     # las respuestas del Broker (anuncio, lista)
         subprocess.run([sys.executable, os.path.join(HERR, "reglas_broker.py")], check=True)
     propio = None
@@ -120,7 +139,6 @@ def main():
                 break
             time.sleep(0.25)
         print("· server andando (127.0.0.1:25900) — su registro: _trabajo\\broker\\espia.log")
-    import eda_original
     try:
         eda_original.lanzar(esperar=True, nombre=nombre)
         print("· el juego se cerró")

@@ -35,10 +35,17 @@ Todo lo que es deducción y no medición está marcado 🟡 en el código y en l
 
 ```
 jugar.py                 la entrada: prepara el juego, levanta el server y abre el cliente
-servidor/juego.py        ★ EL SERVER DE JUEGO: cuentas, salas, partidas, tienda, inventario…
+                         (`--server IP:PUERTO` = jugar contra un server de otra PC)
+servidor/                ★ EL SERVER DE JUEGO, por módulos (servidor/LEEME.md): cuentas, salas,
+                         partida, tienda, inventario, habilidades, refinería…
+  juego.py               la entrada: a qué módulo le toca cada mensaje
                          (`py servidor\juego.py control` = sus pruebas, con su caso al revés)
+  red.py                 el server por la red, para Linux / Docker / un VPS
+despliegue/              Docker y los scripts del VPS: prod (main) y prueba (develop)
 herramientas/            el resto: ver herramientas/LEEME.md
-  espiar_broker.py       el oyente TCP: descifra cada paquete y se lo pasa a servidor/juego.py
+  espiar_broker.py       el oyente TCP de Windows (el de jugar.py): descifra cada paquete y se lo
+                         pasa a servidor/
+  contar_piezas.py       ★ cuántos mensajes y llamadas faltan, medido sobre el exe (la tabla del README)
   paquete_broker.py      el formato y el cifrado de la red (AES-128 con la clave = MD5 del exe)
   reglas_broker.py       las respuestas fijas del Broker (anuncio, lista de servidores)
   eda_original.py        abre el EDA.exe de 2009 y lo ajusta en memoria (GameGuard, red, datos)
@@ -78,7 +85,9 @@ Es lo que hace `py jugar.py --original` (`herramientas/eda_original.py`); sin to
    `_trabajo\datos\` los 4 XML que lee el server, la primera vez que el juego los descomprime.
 
 El cifrado de la red usa como clave el **MD5 del exe que habla** (`paquete_broker.py`): el
-server la calcula sola de los exes que hay en `_trabajo\juego\`, sea el original o el limpio.
+server la calcula sola de los exes que hay en `_trabajo\juego\`, sea el original o el limpio, y
+además trae fijas las de los dos exes conocidos (`CLAVES_FIJAS`), así un server en Linux, sin
+ningún exe, los entiende igual.
 
 Por defecto `py jugar.py` no usa el original sino `exe/EDA_limpio.exe`, que ya trae todo eso en
 el archivo ([exe/LEEME.md](exe/LEEME.md)): con la versión anterior (sólo el reloj) en algunas

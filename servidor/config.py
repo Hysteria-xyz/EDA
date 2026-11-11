@@ -1,0 +1,45 @@
+r"""servidor/config.py -- DÓNDE vive cada cosa y en qué puertos escucha el server.
+
+Todo sale de variables de entorno (las usa Docker, `despliegue/`) con un valor por defecto que es
+el de siempre en Windows (`_trabajo/…`). El resto del server lee estos nombres como `config.X` en
+el momento de usarlos (no los copia), así las pruebas los cambian en caliente.
+
+    EDA_ESTADO      dónde se guardan las cuentas y lo del relay     (_trabajo/servidor)
+    EDA_DATOS       los XML del juego que lee el server             (_trabajo/datos)
+    EDA_RELAY_IP    la IP PÚBLICA del server: prende el relay UDP   (sin ella: archivo modo_relay)
+    EDA_RELAY_BASE  el 1er puerto UDP del relay                     (26000)
+    EDA_PUNCH_PUERTO el puerto UDP de punch sin relay               (25001)
+"""
+import os
+import sys
+
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(RAIZ, "herramientas"))
+import paquete_broker as P                                   # noqa: E402,F401
+
+ESTADO = os.environ.get("EDA_ESTADO") or os.path.join(RAIZ, "_trabajo", "servidor")
+DATOS = os.environ.get("EDA_DATOS") or os.path.join(RAIZ, "_trabajo", "datos")
+
+# ★ La cuenta de cada jugador: `<ESTADO>/cuentas/<nombre>.json` (la vieja `cuenta.json` pasa a ser
+#   la de «rui»; se puede borrar: vuelve al inicio)
+CUENTA = os.path.join(ESTADO, "cuenta.json")
+CUENTAS = os.path.join(ESTADO, "cuentas")
+
+# ★ El modo relay (ver `servidor/relay.py`): con EDA_RELAY_IP, o con el archivo `modo_relay` (adentro:
+#   la IP del relay; vacío = 127.0.0.1)
+RELAY_IP = os.environ.get("EDA_RELAY_IP", "")
+RELAY_BANDERA = os.path.join(ESTADO, "modo_relay")
+RELAY_MAPA = os.path.join(ESTADO, "relay.json")
+RELAY_BASE = int(os.environ.get("EDA_RELAY_BASE") or 26000)
+PUNCH_PUERTO = int(os.environ.get("EDA_PUNCH_PUERTO") or 25001)   # `herramientas/udp_punch.py`
+
+# ★ para probar a mano: lo que se deje en este archivo ([["1069", "00"], …]) sale con el próximo
+#   «estoy vivo» (0x1001), y el archivo se borra
+EMPUJAR = os.path.join(ESTADO, "empujar.json")
+
+# Los XML del juego (de `Data.dat`, con `herramientas/sacar_xml.py`). ⛔ Son de Softnyx: NO van al
+#   repositorio; cada server los saca de su propio cliente (ver despliegue/LEEME.md)
+PRODUCTOS_XML = os.path.join(DATOS, "Product.xml")
+HABILIDADES_XML = os.path.join(DATOS, "Skill.xml")
+PREMIOS_XML = os.path.join(DATOS, "StageReward.xml")
+TIPOS_XML = os.path.join(DATOS, "ItemTypeList.xml")

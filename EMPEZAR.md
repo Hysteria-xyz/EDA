@@ -99,9 +99,17 @@ pociones de la barra derecha, **ESC** para salir de la stage.
   otros programas; es lo que permite no modificar el exe. Si no querés usarla, este proyecto no
   tiene otra forma de abrir el juego original.
 
-## Varios jugadores
+## Jugar en un server (con otros)
 
-En una misma PC, ver [LEEME.md](LEEME.md) (`herramientas\multi.py`). Entre PCs distintas hay un
-*relay* UDP (`herramientas\relay_udp.py`): está explicado en
-[documentacion/PROTOCOLO.md](documentacion/PROTOCOLO.md) §5.16 y en MEDICIONES §30–31, y todavía no
-se probó entre dos PCs de verdad.
+Si alguien tiene el server andando en un VPS ([despliegue/LEEME.md](despliegue/LEEME.md)), en
+vez del Paso 3:
+
+```bat
+py jugar.py --server IP_DEL_SERVER:25900
+```
+
+(`:35900` es el server de prueba, con lo último). El multijugador entre PCs pasa por un *relay*
+UDP del server ([documentacion/PROTOCOLO.md](documentacion/PROTOCOLO.md) §5.16, MEDICIONES §30–31 y
+§38).
+
+En una misma PC, varios juegos a la vez: ver [LEEME.md](LEEME.md) (`herramientas\multi.py`).

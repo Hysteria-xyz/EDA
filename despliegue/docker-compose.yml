@@ -1,0 +1,34 @@
+# El server de EDA. UN archivo para los dos entornos: cada uno con su .env (ver despliegue/LEEME.md)
+#
+#   prod   (rama main)    → puerto 25900, relay UDP 26000-26200
+#   prueba (rama develop) → puerto 35900, relay UDP 36000-36200
+#
+#   docker compose -p eda-prod   --env-file /opt/eda/prod.env   -f despliegue/docker-compose.yml up -d --build
+#   docker compose -p eda-prueba --env-file /opt/eda/prueba.env -f despliegue/docker-compose.yml up -d --build
+services:
+  eda:
+    build:
+      context: ..
+      dockerfile: despliegue/Dockerfile
+    image: eda-server:${EDA_ENTORNO:-local}
+    container_name: eda-${EDA_ENTORNO:-local}
+    # ★ la red del VPS tal cual: el relay abre un puerto UDP por jugador, y mapear cientos de
+    #   puertos con Docker es lento y frágil. Por eso los puertos se eligen con las variables.
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      EDA_PUERTO: ${EDA_PUERTO:-25900}
+      EDA_RELAY_IP: ${EDA_RELAY_IP:-}
+      EDA_RELAY_BASE: ${EDA_RELAY_BASE:-26000}
+      EDA_MAX_CONEXIONES: ${EDA_MAX_CONEXIONES:-200}
+      EDA_ANUNCIO: ${EDA_ANUNCIO:-}
+      EDA_CLAVES: ${EDA_CLAVES:-}
+    volumes:
+      # las cuentas de los jugadores: AFUERA del contenedor (y de la copia del repo), para que
+      #   sobrevivan a cada actualización y se puedan llevar a otro VPS
+      - ${EDA_ESTADO_DIR:-./estado}:/eda/estado
+      # los XML del juego (Product.xml, Skill.xml…): sólo lectura. ⛔ No van al repositorio
+      - ${EDA_DATOS_DIR:-./datos}:/eda/datos:ro
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}

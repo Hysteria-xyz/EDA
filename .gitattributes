@@ -1,0 +1,7 @@
+# los scripts de Linux con fin de línea Unix aunque se clone en Windows (si no, bash falla con «\r»)
+*.sh text eol=lf
+despliegue/Dockerfile text eol=lf
+despliegue/*.yml text eol=lf
+despliegue/*.env text eol=lf
+.github/** text eol=lf
+*.exe binary

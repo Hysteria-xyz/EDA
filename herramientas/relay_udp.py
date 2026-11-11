@@ -36,9 +36,12 @@ except Exception:                                            # noqa: BLE001
     pass
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MAPA = os.path.join(RAIZ, "_trabajo", "servidor", "relay.json")
-LOG = os.path.join(RAIZ, "_trabajo", "broker", "relay.log")
-RELAY_BASE = 26000
+# (con EDA_ESTADO / EDA_RELAY_BASE: los mismos que lee `servidor/config.py`; así anda en Docker)
+_ESTADO = os.environ.get("EDA_ESTADO") or os.path.join(RAIZ, "_trabajo", "servidor")
+MAPA = os.path.join(_ESTADO, "relay.json")
+LOG = (os.path.join(_ESTADO, "relay.log") if os.environ.get("EDA_ESTADO")
+       else os.path.join(RAIZ, "_trabajo", "broker", "relay.log"))
+RELAY_BASE = int(os.environ.get("EDA_RELAY_BASE") or 26000)
 MAC = re.compile(rb"[0-9A-F]{2}(?::[0-9A-F]{2}){5}")
 MAC16 = re.compile(rb"(?:[0-9A-F]\x00){2}(?::\x00(?:[0-9A-F]\x00){2}){5}")
 
@@ -111,6 +114,9 @@ def main(ip="0.0.0.0"):
                     n = int.from_bytes(datos[4:8], "little")
                     if dir_de.get(n) != quien:
                         anotar("jugador %d está en %s:%d" % (n, quien[0], quien[1]))
+                        # ⚠ el server REUSA los números de conexión (`servidor/red.py`): uno nuevo
+                        #   en el mismo número no tiene la MAC del anterior
+                        real_de.pop(n, None)
                     dir_de[n], de_dir[quien] = quien, n
                 continue
             destino = next(k for k, v in socks.items() if v is s)

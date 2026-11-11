@@ -245,23 +245,17 @@ def contestar_a(cli, n, pkt):
 
 
 SERVIDOR = os.path.join(RAIZ, "servidor", "juego.py")
-_SV = {"m": None, "t": None}
 
 
 def servidor():
-    """Carga `servidor/juego.py` (de nuevo si cambió su fecha). None si no existe."""
-    try:
-        t = os.path.getmtime(SERVIDOR)
-    except OSError:
+    """El server de juego (`servidor/`, por módulos), recargado si cambió cualquier archivo suyo.
+    None si no existe."""
+    if not os.path.exists(SERVIDOR):
         return None
-    if _SV["m"] is None or t != _SV["t"]:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("servidor_juego", SERVIDOR)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _SV.update(m=mod, t=t)
-        log("[oyente] servidor/juego.py (re)cargado")
-    return _SV["m"]
+    if RAIZ not in sys.path:
+        sys.path.insert(0, RAIZ)
+    import servidor as paquete
+    return paquete.cargar(avisar=lambda t: log("[oyente] " + t))
 
 
 def oyente():
