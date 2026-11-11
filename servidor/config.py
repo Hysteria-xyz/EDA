@@ -50,6 +50,18 @@ PUNCH_PUERTO = int(os.environ.get("EDA_PUNCH_PUERTO") or 25001)   # `herramienta
 P2P = os.environ.get("EDA_P2P", "directo")
 PUNCH_MAPA = os.path.join(ESTADO, "punch.json")   # conexión → [IP, puerto] que vio el punch (relay_udp.py)
 
+# ★ EL LOGIN (servidor/porteria.py, MEDICIONES §45):
+#   "abierto" = como siempre: las cuentas rui / kai / mio / ren por orden de llegada (jugar en casa)
+#   "pase"    = sólo entra quien trae un TICKET en el 0x100F. El launcher lo consigue canjeando acá
+#               (POST /eda/pase) el PASE firmado del portero de R2Beat (Chile), que sale sólo para
+#               cuentas aprobadas para EDA. La cuenta pasa a ser `r2b_<uid de R2Beat>`.
+LOGIN = os.environ.get("EDA_LOGIN", "abierto")
+PORTERO_CLAVES = os.environ.get("EDA_PORTERO_CLAVES", "")   # el JWKS del portero: un archivo o una URL https
+PORTERO_EMISOR = "r2beat-portero"
+PORTERO_AUDIENCIA = "eda"
+PORTERIA = os.path.join(ESTADO, "porteria.db")              # los tickets dados y los pases ya usados
+TICKET_HORAS = float(os.environ.get("EDA_TICKET_HORAS") or 12)
+
 # ★ para probar a mano: lo que se deje en este archivo ([["1069", "00"], …]) sale con el próximo
 #   «estoy vivo» (0x1001), y el archivo se borra
 EMPUJAR = os.path.join(ESTADO, "empujar.json")

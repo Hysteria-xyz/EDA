@@ -26,6 +26,7 @@
  */
 #include <winsock2.h>
 #include <windows.h>
+#include <iphlpapi.h>
 #include <stdio.h>
 
 #define VT(o) (*(void ***)(o))             /* la vtable de un objeto COM */
@@ -528,6 +529,100 @@ static int WSAAPI mi_connect(SOCKET s, const struct sockaddr *sa, int largo)
     return g_connect_real(s, sa, largo);
 }
 
+/* ── ★ EL LOGIN DEL LAUNCHER (12-nov) ──────────────────────────────────────
+ * El juego lee su línea de comandos en `0x6229F0` (PROTOCOLO §5.1): `"exe" <BLOQUE>`, con BLOQUE =
+ * hexadecimal de XOR("<A> <B>", la MAC en texto, en ciclo) → A a cuenta+0xF0 y B a +0x11A, y los dos
+ * viajan al server en el 0x100F. Para que el launcher no tenga que saber de MAC ni de XOR, recibe
+ * texto plano y la dll arma el bloque:
+ *     "EDA_limpio.exe" <usuario> <ticket> [host:puerto]
+ * (usuario = el uid de R2Beat; ticket = el que dio el server a cambio del pase del portero; el 3º, si
+ * está, es el server: manda sobre el ini). Y si el juego se lanzó SIN comillas (que pisaba la MAC,
+ * MEDICIONES §39), la dll le muestra la línea con comillas. En los demás casos, la línea no se toca. */
+static char g_linea[1024];
+static LPSTR WINAPI mi_get_command_line(void) { return g_linea; }
+
+static int es_dato(const char *s, int n)
+{
+    if (n < 1 || n > 20) return 0;                   /* A y B: 21 caracteres UTF-16 con el 0 final */
+    for (int i = 0; i < n; i++) {
+        char c = s[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '-' || c == '_'))
+            return 0;
+    }
+    return 1;
+}
+
+/* la MAC como la arma el juego: el 1er adaptador de GetAdaptersInfo, "%02X:%02X:…" */
+static int mac_texto(char *out)
+{
+    ULONG largo = 0;
+    if (GetAdaptersInfo(NULL, &largo) != ERROR_BUFFER_OVERFLOW || !largo) return 0;
+    IP_ADAPTER_INFO *a = (IP_ADAPTER_INFO *)HeapAlloc(GetProcessHeap(), 0, largo);
+    if (!a) return 0;
+    int ok = GetAdaptersInfo(a, &largo) == ERROR_SUCCESS && a->AddressLength >= 6;
+    if (ok) wsprintfA(out, "%02X:%02X:%02X:%02X:%02X:%02X", a->Address[0], a->Address[1], a->Address[2],
+                      a->Address[3], a->Address[4], a->Address[5]);
+    HeapFree(GetProcessHeap(), 0, a);
+    return ok;
+}
+
+static void preparar_linea(void)
+{
+    const char *real = GetCommandLineA();
+    const char *resto;
+    char exe[MAX_PATH];
+    int con_comillas = real[0] == '"';
+    if (con_comillas) {
+        const char *fin = strchr(real + 1, '"');
+        resto = fin ? fin + 1 : real + lstrlenA(real);
+    } else {
+        resto = real;
+        while (*resto && *resto != ' ' && *resto != '\t') resto++;
+    }
+    /* los argumentos, separados por espacios */
+    const char *arg[4]; int largo[4], n = 0;
+    for (const char *s = resto; *s && n < 4;) {
+        while (*s == ' ' || *s == '\t') s++;
+        if (!*s) break;
+        arg[n] = s;
+        while (*s && *s != ' ' && *s != '\t') s++;
+        largo[n] = (int)(s - arg[n]);
+        n++;
+    }
+    int login = n >= 2 && es_dato(arg[0], largo[0]) && es_dato(arg[1], largo[1]);
+    if (!login && con_comillas) return;              /* nada que hacer: la línea queda como vino */
+    if (!GetModuleFileNameA(NULL, exe, MAX_PATH)) return;
+    wsprintfA(g_linea, "\"%s\"", exe);
+    if (login) {
+        char mac[24], plano[48];
+        if (!mac_texto(mac)) {
+            apuntar("  ⛔ login: no pude leer la MAC (GetAdaptersInfo): el juego entra sin usuario");
+        } else {
+            /* ⚠ wsprintfA no entiende «%.*s»: a mano (largo[0], largo[1] ≤ 20, ya verificados) */
+            memcpy(plano, arg[0], largo[0]);
+            plano[largo[0]] = ' ';
+            memcpy(plano + largo[0] + 1, arg[1], largo[1]);
+            plano[largo[0] + 1 + largo[1]] = 0;
+            int lm = lstrlenA(mac), lp = lstrlenA(plano);
+            char *p = g_linea + lstrlenA(g_linea);
+            *p++ = ' ';
+            for (int i = 0; i < lp; i++, p += 2)
+                wsprintfA(p, "%02X", (BYTE)(plano[i] ^ mac[i % lm]));
+            apuntar("  login: usuario %.*s y su ticket → el bloque del launcher (%d bytes)", largo[0], arg[0], lp);
+        }
+        if (n >= 3 && largo[2] < (int)sizeof(g_server) && !GetEnvironmentVariableA("EDA_SERVER", NULL, 0))
+        {
+            memcpy(g_server, arg[2], largo[2]);          /* el server del launcher (EDA_SERVER manda) */
+            g_server[largo[2]] = 0;
+        }
+    } else {
+        lstrcpynA(g_linea + lstrlenA(g_linea), resto, (int)sizeof(g_linea) - lstrlenA(g_linea));
+        apuntar("  línea de comandos SIN comillas: el juego la ve con comillas (si no, pisaba la MAC)");
+    }
+    void *viejo = parchear_iat("KERNEL32.DLL", "GetCommandLineA", (void *)mi_get_command_line);
+    if (!viejo) apuntar("  ⛔ no encontré GetCommandLineA en el exe: el login no llega");
+}
+
 /* ★ las TRAMPAS del desempacado (sin Frida): una llamada que no se pudo resolver salta a
  *   0xD0000000 + sitio − 0x400000 y el juego se cae. Queda anotado QUÉ sitio en eda_d3d9.log, para
  *   que un jugador lo pueda mandar (documentacion/APIS_A_MANO.md). No cambia nada: sigue la caída. */
@@ -807,6 +902,7 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
         g_wsaes_real = (M_WSAES)parchear_iat("WS2_32.dll", "WSAEventSelect", (void *)mi_wsa_event_select);
         apuntar("  red inmediata: %s", g_wsaes_real ? "WSAEventSelect enganchado" : "⚠ no encontré WSAEventSelect en el exe");
     }
+    preparar_linea();                                /* ★ el login del launcher (y puede traer el server) */
     if (g_server[0]) {
         g_connect_real = (M_CONNECT)parchear_iat("WS2_32.dll", "connect", (void *)mi_connect);
         apuntar("  server: %s → %s", g_server, g_connect_real ? "connect enganchado"

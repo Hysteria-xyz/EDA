@@ -60,7 +60,7 @@ def compilar():
     if os.path.exists(dll):
         os.remove(dll)
     r = subprocess.run([ZIG, "cc", "-target", "x86-windows-gnu", "-shared", "-O2", "-s", "-o", "d3d9.dll",
-                        "eda_d3d9.c", "d3d9.def", "-lkernel32", "-luser32", "-lwinmm", "-lws2_32"],
+                        "eda_d3d9.c", "d3d9.def", "-lkernel32", "-luser32", "-lwinmm", "-lws2_32", "-liphlpapi"],
                        cwd=SALIDA, capture_output=True, text=True)
     if r.returncode or not os.path.isfile(dll):
         raise SystemExit("⛔ no compiló:\n" + (r.stderr or r.stdout)[-3000:])

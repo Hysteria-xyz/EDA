@@ -39,6 +39,7 @@ def nivel(exp):
 #   lo mismo en el 0x100F), cada conexión toma el primer nombre libre de la lista. Cada cuenta en
 #   `_trabajo/servidor/cuentas/<nombre>.json` (la vieja `cuenta.json` pasa a ser la de «rui»).
 NOMBRES = ["rui", "kai", "mio", "ren"]
+SIN_LOGIN = "_sin_login"         # (config.LOGIN == "pase") una conexión que todavía no mostró su ticket
 
 
 def ruta_cuenta(nombre):
@@ -49,6 +50,8 @@ def cuenta_de(conexion):
     """El nombre de la cuenta de esa conexión (le asigna el primero libre si no tiene)."""
     if conexion is None:
         return NOMBRES[0]
+    if config.LOGIN == "pase" and conexion not in ASIGNADAS:
+        return SIN_LOGIN                       # ★ con login nadie cae en rui/kai: la pone entrada.py
     if conexion not in ASIGNADAS:
         usados = set(ASIGNADAS.values())
         ASIGNADAS[conexion] = next((x for x in NOMBRES if x not in usados), NOMBRES[-1])

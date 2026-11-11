@@ -23,6 +23,9 @@ services:
       EDA_MAX_CONEXIONES: ${EDA_MAX_CONEXIONES:-200}
       EDA_ANUNCIO: ${EDA_ANUNCIO:-}
       EDA_CLAVES: ${EDA_CLAVES:-}
+      EDA_LOGIN: ${EDA_LOGIN:-abierto}
+      EDA_PORTERO_CLAVES: ${EDA_PORTERO_CLAVES:-}
+      EDA_HTTP_PUERTO: ${EDA_HTTP_PUERTO:-}
     volumes:
       # las cuentas de los jugadores: AFUERA del contenedor (y de la copia del repo), para que
       #   sobrevivan a cada actualización y se puedan llevar a otro VPS

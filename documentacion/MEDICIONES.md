@@ -2108,3 +2108,38 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   `JS_TRAMPA` de `eda_original.py`: un jugador puede mandar ese número. No cambia la caída.
 - ⚠ Con el `EDA.exe` ORIGINAL (ASProtect) esto no aplica: sus importaciones las arma ASProtect; ese
   sigue con `jugar.py --original`.
+
+### 45 · ★★ EL LOGIN: el pase del portero de R2Beat → un ticket → el 0x100F (12-nov)
+
+- **Lo decidido** (El tester, por la sesión de R2Beat): R2Beat arma un PORTERO aparte en su VPS (Chile)
+  que da un **pase** firmado (JWT Ed25519: `iss` r2beat-portero, `aud` eda, `sub` = uid, `exp` +300 s,
+  `jti`) sólo a las cuentas APROBADAS para EDA. Nuestro server no le pregunta nada a Chile: comprueba
+  la firma con la clave pública (JWKS) y da un **ticket** de 20 letras (`servidor/porteria.py`, HTTP
+  `POST /eda/pase` en `servidor/red.py`). El contrato para el launcher: la carpeta de notas de la
+  sesión, `EDA_PARA_EL_LAUNCHER.md`.
+- **El bloque del launcher lo arma la dll**: `"EDA_limpio.exe" <usuario> <ticket> [host:puerto]` →
+  la dll lee la MAC como el juego (1er adaptador de `GetAdaptersInfo`, `%02X:`…), hace
+  hex(XOR("usuario ticket", MAC)) y le devuelve esa línea al juego desde `GetCommandLineA` (su
+  entrada en la tabla de importaciones). El 3º, el server. Medido: el log de la dll dice «el bloque
+  del launcher (15 bytes)» para `12345 Tk9abcDEF`, y el server lo recibe.
+- ★ **Dónde llegan A y B, medido** (antes 🟡): en el **mensaje** `0x100F`, A en `+0x08` y B en
+  `+0x32` (en el cuerpo, `+0x04` y `+0x2E`), UTF-16. Después del 0 final hay basura (no se limpia el
+  campo). ⚠ **Con 20 caracteres justos NO viene el 0**: el ticket de 20 llegó seguido de `9b 8d`
+  (otro campo); leyendo 42 bytes salía un carácter de más y el server rechazaba el ticket bueno (el
+  juego decía «Can't Connect»). Se lee hasta 40 bytes; la prueba arma el 0x100F igual que el juego
+  (sin 0 con 20) y el lector viejo la falla. La MAC (`+0x7E`) llega intacta con el bloque.
+- **Medido con el juego** (server local con `EDA_LOGIN=pase` y un portero de mentira con clave propia):
+  el pase → `POST /eda/pase` → ticket → el juego entra a SELECT CHARACTER como **`r2b_4242`**.
+  ★ **El revés**: el mismo usuario con un ticket inventado → `0x1010` con error y el juego muestra
+  «Can't Connect to server. Refreshing Server list.». Con `0x66` y `0x89A` sale ese texto; con `0x899`
+  no salió nada (se queda `0x66`). En modo `pase`, una conexión sin ticket no recibe nada más (ni las
+  reglas fijas). En modo `abierto` (el de siempre), todo como antes: rui / kai… por orden.
+- **Las pruebas** (`py servidor\juego.py control`): 21 nuevas, cada rechazo del pase con su revés
+  (repetido, firma cambiada, otra clave, kid desconocido, `alg` none, otra audiencia, otro emisor,
+  vencido 31 s / no vencido 29 s, `sub` que no es un uid, basura) y el 0x100F (ticket inventado, de
+  otra cuenta, sin bloque, vencido, anulado por uno nuevo).
+- ★ **El cliente para repartir, medido**: una carpeta con SÓLO 16 archivos (Data.dat, EDA_limpio.exe,
+  EdaENGTest.ini, LTMsg.dll, d3dx9_29.dll, mss32.dll, redist/ ×7, autoexec.cfg, d3d9.dll,
+  eda_d3d9.ini; 354.683.873 B) entra al server con el ticket. Sin `EDA.exe`, `GameGuard.des`, el
+  Nyx launcher/patcher ni `img/`. El juego escribe `NetTrace.log`, `eda_d3d9.log` y, al cerrar,
+  REESCRIBE `autoexec.cfg` (las teclas salen en otro orden): es del usuario.

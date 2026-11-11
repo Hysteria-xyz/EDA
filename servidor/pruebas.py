@@ -516,12 +516,124 @@ def control():
                  struct.unpack_from("<H", r[0][1], 7)[0] == 1 and r[0][1][-13:] == obj_habilidad(d["habilidades"][0]))
     PARTIDAS.clear()
     ASIGNADAS.clear()
+    pruebas_login(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
     shutil.rmtree(config.CUENTAS, ignore_errors=True)
     if saltadas:
         print("\n  (%d pruebas; saltadas las de %s: faltan los XML del juego)"
               % (len(ok), ", ".join(saltadas)))
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
+
+
+def cuerpo_100f(usuario="", ticket="", mac="AA:BB:CC:DD:EE:01"):
+    """Un 0x100F como lo arma el juego (237 B con la cabecera): el bloque del launcher en +0x04 y
+    +0x2E (UTF-16 hasta el 0, y BASURA después, como se midió), la MAC en +0x7A y su UDP en +0xDD."""
+    c = bytearray(b"\x9b\x8d\x98\x37" * 59)[:0xE9]
+    for desde, texto in ((0x04, usuario), (0x2E, ticket), (0x7A, mac)):
+        # ⚠ con 20 caracteres el juego NO deja el 0 (medido): lo que sigue es basura de otro campo
+        b = texto.encode("utf-16-le") + (b"\0\0" if len(texto) < 20 else b"")
+        c[desde:desde + len(b)] = b
+    struct.pack_into("<IHIH", c, 0xDD, 0x0100007F, 57654, 0x0100007F, 57654)
+    return bytes(c)
+
+
+def pruebas_login(chequear):
+    """★ El LOGIN (servidor/porteria.py): el pase del portero → el ticket → el 0x100F. Con una clave
+    Ed25519 de prueba, cada rechazo del pase con su revés, y el modo «abierto» como antes."""
+    import base64
+    from Crypto.PublicKey import ECC
+    from Crypto.Signature import eddsa
+    from servidor import porteria
+
+    def b64(x):
+        return base64.urlsafe_b64encode(x).rstrip(b"=").decode()
+
+    def firmar(clave, datos, kid="k1", alg="EdDSA"):
+        h = b64(json.dumps({"alg": alg, "typ": "JWT", "kid": kid}).encode())
+        d = b64(json.dumps(datos).encode())
+        return h + "." + d + "." + b64(eddsa.new(clave, "rfc8032").sign((h + "." + d).encode()))
+
+    def rechazo(pase, ahora=None):
+        try:
+            porteria.canjear(pase, ahora)
+            return None
+        except porteria.Rechazo as e:
+            return e.codigo
+
+    guardado = (config.LOGIN, config.PORTERO_CLAVES, config.PORTERIA)
+    clave, otra = ECC.generate(curve="Ed25519"), ECC.generate(curve="Ed25519")
+    jwks = os.path.join(config.ESTADO, "control_jwks_%d.json" % os.getpid())
+    json.dump({"keys": [{"kty": "OKP", "crv": "Ed25519", "kid": "k1",
+                         "x": b64(clave.public_key().export_key(format="raw"))}]}, open(jwks, "w"))
+    config.PORTERO_CLAVES = jwks
+    config.PORTERIA = os.path.join(config.ESTADO, "control_porteria.db")
+    if os.path.exists(config.PORTERIA):
+        os.remove(config.PORTERIA)
+    try:
+        ahora = time.time()
+        datos = {"iss": "r2beat-portero", "aud": "eda", "sub": "4242", "iat": int(ahora),
+                 "exp": int(ahora) + 300, "jti": "j-1"}
+        pase = firmar(clave, datos)
+        r = porteria.canjear(pase, ahora)
+        chequear("login: el pase del portero → usuario 4242 y un ticket de 20 letras/números",
+                 r["usuario"] == "4242" and re.fullmatch(r"[A-Za-z0-9]{20}", r["ticket"]), r)
+        chequear("★ el revés: el MISMO pase otra vez → «repetido» (su jti ya se usó)", rechazo(pase, ahora) == "repetido")
+        h, d, f = firmar(clave, dict(datos, jti="j-2")).split(".")
+        d2 = b64(json.dumps(dict(datos, jti="j-2", sub="1")).encode())
+        chequear("★ el revés: cambiarle la cuenta al pase (sin volver a firmar) → «firma»",
+                 rechazo(h + "." + d2 + "." + f, ahora) == "firma")
+        chequear("★ el revés: firmado con OTRA clave (mismo kid) → «firma»",
+                 rechazo(firmar(otra, dict(datos, jti="j-3")), ahora) == "firma")
+        chequear("★ el revés: un kid que no está en el JWKS → «clave»",
+                 rechazo(firmar(clave, dict(datos, jti="j-4"), kid="k9"), ahora) == "clave")
+        sin_firma = b64(b'{"alg":"none","kid":"k1"}') + "." + b64(json.dumps(dict(datos, jti="j-5")).encode()) + "."
+        chequear("★ el revés: alg «none» → «algoritmo»", rechazo(sin_firma, ahora) == "algoritmo")
+        chequear("★ el revés: para otro juego (aud) → «audiencia»",
+                 rechazo(firmar(clave, dict(datos, jti="j-6", aud="r2beat")), ahora) == "audiencia")
+        chequear("★ el revés: de otro emisor (iss) → «emisor»",
+                 rechazo(firmar(clave, dict(datos, jti="j-7", iss="otro")), ahora) == "emisor")
+        chequear("★ el revés: vencido hace 31 s → «vencido»",
+                 rechazo(firmar(clave, dict(datos, jti="j-8", exp=int(ahora) - 31)), ahora) == "vencido")
+        chequear("…y vencido hace 29 s todavía entra (tolerancia de reloj)",
+                 rechazo(firmar(clave, dict(datos, jti="j-9", exp=int(ahora) - 29)), ahora) is None)
+        chequear("★ el revés: una cuenta que no es un uid → «cuenta»",
+                 rechazo(firmar(clave, dict(datos, jti="j-10", sub="rui")), ahora) == "cuenta")
+        chequear("★ el revés: basura → «formato»", rechazo("no.es.unpase!", ahora) == "formato")
+        r = porteria.canjear(firmar(clave, dict(datos, jti="j-11")), ahora)   # el ticket que vale
+
+        config.LOGIN = "pase"
+        rr = responder(0x100F, cuerpo_100f("4242", r["ticket"]), 301)
+        chequear("login: 0x100F con usuario y ticket → 0x1010 resultado 1, cuenta r2b_4242",
+                 rr[0][0] == 0x1010 and rr[0][1][:2] == b"\1\0" and ASIGNADAS.get(301) == "r2b_4242")
+        rr = responder(0x1011, b"\1\0\0\0", 301)
+        chequear("…y su SELECT CHARACTER es el de esa cuenta", rr and rr[0][0] == 0x1012 and leer(301)["nombre"] == "r2b_4242")
+        for n, (u, t, que) in enumerate((("4242", "X" * 20, "un ticket inventado"),
+                                         ("4243", r["ticket"], "el ticket de OTRA cuenta"),
+                                         ("", "", "sin bloque del launcher"))):
+            rr = responder(0x100F, cuerpo_100f(u, t), 302 + n)
+            chequear("★ el revés: %s → 0x1010 con error 0x66 y sin cuenta" % que,
+                     struct.unpack_from("<H", rr[0][1])[0] == 0x66 and 302 + n not in ASIGNADAS)
+        chequear("★ el revés: sin login, el 0x1011 no se atiende (ni las reglas fijas)",
+                 responder(0x1011, b"\1\0\0\0", 302) == [])
+        chequear("★ el revés: el ticket vencido (TICKET_HORAS después) ya no vale",
+                 not porteria.ticket_valido("4242", r["ticket"], ahora + config.TICKET_HORAS * 3600 + 1))
+        nuevo = porteria.canjear(firmar(clave, dict(datos, jti="j-12")), ahora)
+        chequear("★ el revés: un ticket nuevo de la cuenta anula el anterior",
+                 porteria.ticket_valido("4242", nuevo["ticket"], ahora)
+                 and not porteria.ticket_valido("4242", r["ticket"], ahora))
+        config.LOGIN = "abierto"
+        ASIGNADAS.clear()
+        rr = responder(0x100F, cuerpo_100f(), 310)
+        chequear("modo abierto (jugar en casa): sin ticket entra, como rui",
+                 rr[0][1][:2] == b"\1\0" and cuenta_de(310) == "rui")
+    finally:
+        config.LOGIN, config.PORTERO_CLAVES, config.PORTERIA = guardado
+        ASIGNADAS.clear()
+        for x in (jwks, os.path.join(config.ESTADO, "control_porteria.db")):
+            if os.path.exists(x):
+                os.remove(x)
 
 
 # El casillero de EQUIPO de cada familia de ítem (medido con el 0x102D, MEDICIONES §27)

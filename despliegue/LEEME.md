@@ -114,28 +114,26 @@ callado.
 
 ## Lo que todavía no está
 
-### Las cuentas (lo próximo)
+### Las cuentas y el login
 
-**Hoy** no hay login. Cada conexión toma la primera cuenta libre de `rui`, `kai`, `mio` y `ren`
-(`servidor/cuentas.py`), guardada como un JSON en `/opt/eda/estado-*/cuentas/`. Sirve para probar,
-pero en un server público ningún jugador tiene SU personaje. Y el juego no puede pedir usuario y
-contraseña: en 2009 eso lo hacía el launcher de Softnyx (`NyxLauncher`), que le pasaba los datos al
-juego por la línea de comandos.
+**El login ya está del lado de este server** (MEDICIONES §45, `servidor/porteria.py`); se prende con
+`EDA_LOGIN=pase`. Sin eso (`abierto`, el de siempre) cada conexión toma la primera cuenta libre de
+`rui`, `kai`, `mio` y `ren`: sirve para probar.
 
-**El plan** (más adelante; nada de esto está hecho):
+Cómo entra un jugador con login:
 
-1. **SQLite** en vez de un JSON por cuenta: un archivo `eda.db` por entorno, con las cuentas, los
-   personajes, el inventario y las habilidades. Se lleva a otro VPS copiando ese archivo, y aguanta
-   varios jugadores guardando a la vez. Todo pasa por `servidor/cuentas.py` (`leer` / `guardar`),
-   así que el resto del server no cambia.
-2. **El login y la descarga, desde el launcher web de R2Beat**: el jugador entra con su usuario en
-   la web, baja de ahí el juego y `jugar.py`, y el launcher abre el juego con un pase de esa sesión
-   (como hacía `NyxLauncher` en 2009). El server valida el pase contra la base y le da a esa
-   conexión **su** cuenta, en vez de la primera libre.
+1. El **launcher de R2Beat** entra al **portero** de R2Beat, que le da un **pase** firmado (Ed25519)
+   sólo si su cuenta está aprobada para EDA.
+2. El launcher manda el pase a este server (`POST /eda/pase`, en `EDA_PUERTO + 1`) y recibe un
+   **ticket**. Este server sólo comprueba la firma con la clave PÚBLICA del portero
+   (`EDA_PORTERO_CLAVES`, un JWKS): no le pregunta nada a nadie.
+3. El launcher abre `"EDA_limpio.exe" <usuario> <ticket> <IP:PUERTO>`; nuestra `d3d9.dll` se lo pasa
+   al juego como en 2009 lo hacía el `NyxLauncher`, y el juego lo manda en el `0x100F`. La conexión
+   recibe **su** cuenta (`r2b_<uid>`).
 
-Lo que hay que averiguar antes: qué parte del `0x100F` («quién soy») sirve para llevar ese pase
-desde el juego hasta el server. El exe ya tiene `IsLobbyLaunched` / `GetLobbyLaunchInfo`, la puerta
-que usaba el launcher original ([PROTOCOLO.md](../documentacion/PROTOCOLO.md)).
+Lo que falta: **HTTPS** para el `/eda/pase` (un dominio y Caddy u otro proxy delante; hoy escucha en
+127.0.0.1, porque el ticket es un secreto), el portero de verdad, y el launcher. Y más adelante,
+**SQLite** en vez de un JSON por cuenta (un `eda.db` por entorno, detrás de `servidor/cuentas.py`).
 
 ### El relay entre dos casas
 

@@ -14,7 +14,8 @@ lo pasa a la función registrada para ese comando con `@maneja(0x....)` (`regist
 | `datos.py` | las tablas del juego (escenarios, `Product.xml`, `Skill.xml`…) | — |
 | `objetos.py` | los BYTES de lo que tiene un jugador: ítems, fichas, equipo, personaje | — |
 | `relay.py` | el modo relay (jugadores en PCs distintas) | — |
-| `entrada.py` | entrar al server de juego | `100F` quién soy · `1011` elegir personaje |
+| `porteria.py` | ★ el LOGIN: el pase del portero de R2Beat → un ticket (`POST /eda/pase` en `red.py`); `EDA_LOGIN=pase` | — |
+| `entrada.py` | entrar al server de juego (con login: el ticket del 0x100F) | `100F` quién soy · `1011` elegir personaje |
 | `salas.py` | lobby y salas | `1017` lobby · `101D` crear · `101F` entrar · `1047` listo · `104E` largar · `100D` chat · `1023` `1027` `104C` pantallas |
 | `inventario.py` | equipar, la barra de pociones, repartir estadísticas | `102B` `102D` |
 | `tienda.py` | comprar y vender | `103F` `1041` |

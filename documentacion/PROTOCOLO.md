@@ -115,8 +115,8 @@ Lo arma `0x549940` copiando campos de la cuenta (`0x623E60()`), en lugares fijos
 
 | mensaje | de la cuenta | qué es |
 |---|---|---|
-| `+0x08` (UTF-16) | `+0xF0` | ★ **el 1er dato del LAUNCHER** (el mismo de la «huella» del `0x0604` y del UDP `0x3002`) |
-| `+0x32` 🟡 (UTF-16) | `+0x11A` | ★ **el 2º dato del LAUNCHER** (🟡 el lugar: deducido = `+0x08` + los 0x2A del 1º; a medir con un bloque de verdad) |
+| `+0x08` (UTF-16, ≤20 car.) | `+0xF0` | ★ **el 1er dato del LAUNCHER** = el **usuario** del login (el mismo de la «huella» del `0x0604` y del UDP `0x3002`) |
+| `+0x32` (UTF-16, ≤20 car.) | `+0x11A` | ★ **el 2º dato del LAUNCHER** = el **ticket** (medido con un bloque de verdad, MEDICIONES §45). ⚠ Con 20 caracteres no viene el 0 final; después del 0 hay basura |
 | (UTF-16) | `+0x144` | la IP privada |
 | **`+0x7E`** (UTF-16, 17 car.) | `+0x166` | ★★ **la MAC = la IDENTIDAD P2P** (la misma que va en los saludos `C354`) |
 | (ASCII, 32) | `+0x1A6` | el MD5 del exe |
@@ -141,7 +141,9 @@ Al arrancar, `0x6229F0` (método de la cuenta) primero pide la MAC a Windows (`G
 
 Por eso, lanzado SIN comillas (Python `Popen([ruta])`), la ruta se «decodifica» como bloque: A y B
 salen basura (la «huella» rara, con pedazos de la MAC: XOR contra ceros) y la copia se pasa de largo
-y **pisa la MAC de `+0x166`**. ★ Es la puerta para el LOGIN del launcher web (A = usuario, B = pase).
+y **pisa la MAC de `+0x166`**. ★ Es la puerta del LOGIN (A = usuario, B = ticket): el bloque lo arma
+nuestra `d3d9.dll` desde `"EDA_limpio.exe" <usuario> <ticket> [host:puerto]` y el server lo valida en
+`servidor/porteria.py` (MEDICIONES §45). Si no vale, `0x1010` con `0x66` → «Can't Connect to server».
 
 ### 5.2 · `0x1010` S→C — entrada (12 B)
 `u16 resultado` (1 = OK; `0x66`, `0x899`, `0x89A` = errores) · `u32 🟡` (→ `+0x2B8` de la
