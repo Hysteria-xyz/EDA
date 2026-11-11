@@ -2022,3 +2022,38 @@ cliente reconoce a sus pares, y si el server puede saberla.
 - ⏭ **La solución, sin Vulkan**: una `d3d9.dll` NUESTRA (como en R2Beat, Zig 0.16) que reenvíe al
   d3d9 de Windows y ponga un **tope de cuadros confiable** en `Present`, para cada juego abierto. Y en
   la misma DLL: **soltar el mouse** al perder el foco en la partida.
+
+### 42 · ★★★ NUESTRA `d3d9.dll`: tope fijo, búferes rápidos y la red inmediata (11-nov)
+
+`herramientas/dll_d3d9/` (`eda_d3d9.c`, Zig 0.16 con la receta de R2Beat; `jugar.py` la pone sola al
+lado del juego, `--sin-dll` la saca). Reenvía al d3d9 de Windows y engancha Present / Reset /
+CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de importaciones).
+- **Tope + contador**: con UN juego en la lista de servidores, 120 cuadros/s exactos (antes ~900) y
+  la placa de ~155 W a 85–108 W; «FPS 120» arriba a la izquierda (rectángulos, sin fuentes).
+- ★★★ **EL CULPABLE DEL «LAG»** (con dos juegos en la sala seguían a **14 cuadros/s y 164 W** aun con
+  el tope, y `backbuffer_rapido` —sin LOCKABLE, DISCARD— no cambió nada): sondeando el dispositivo
+  del juego andando, cada dibujo bloquea su **búfer de vértices ENTERO** (96.000 B, POOL_DEFAULT,
+  WRITEONLY, FVF 0x142) con **`Lock(0, 0, …, flags 0)`: ~4.200 veces por segundo, ~290 por cuadro**;
+  sin flags, cada uno hace esperar a que la placa termine con el búfer. La salida en la dll: esos
+  búferes se crean `DYNAMIC` y cada `Lock(0,0,0)` pasa a `DISCARD` (el juego siempre escribe desde el
+  principio lo que va a dibujar). **Dos juegos en la sala: 120 cuadros/s cada uno, la placa de 164 W a
+  46 W (P5), la espera de red de 30–80 ms a 7,3**. En la partida se ve bien (sin piezas rotas).
+- ★★ **La red ya no depende de los cuadros**: el juego lee el UDP una vez por cuadro (a 120 → ping 8;
+  a 480 → ping 2). La dll se queda con el evento que el juego registra para su socket UDP
+  (`WSAEventSelect`, FD_READ) y espera el cuadro ESCUCHANDO ese evento: si llega un mensaje, suelta al
+  juego en el acto. Con tope ESTRICTO (por defecto) ese cuadro adelantado **gasta el turno siguiente**:
+  el promedio queda exacto. **A 60 cuadros/s: ping de sala 1 ms / 0 ms**, 60 exactos en los dos, sin
+  congelarse; en la partida (≈3.000 mensajes/s) la espera es de un cuadro como mucho (7,7 ms de
+  mediana a 60) y la placa ~80 W con dos juegos.
+- ⛔ **Probado y descartado: llamar al bombeo de red del juego desde la espera.** `0x74D530` (thiscall,
+  objeto GLOBAL `0x948F90`: mira el evento del socket +0xAC sin esperar y llama a `0x750110` =
+  WSAEnumNetworkEvents → leer) corre en el hilo principal, una vez por cuadro (medido con Frida). Pero
+  llamado desde adentro del Present, **los dos juegos se CONGELARON** apenas se usó en la sala (1 y
+  después 12 bombeos). Queda detrás de `bombeo_red=0`.
+- ⚠ Dos errores míos en el camino, medidos y arreglados: el juego crea OTRO dispositivo al entrar a la
+  partida, y la dll aplicaba el «state block» del contador del dispositivo VIEJO (glitches gráficos y
+  el contador que desaparecía) → ahora cada uno el suyo. Y el piloto: a 60 cuadros/s `multi.py` creía
+  que un juego no había entrado al lobby (el 0x1017 llegaba después de su plazo fijo), repetía el
+  piloto entero y «Enter Lobby» caía sobre «Search User» (un diálogo abierto). Ahora
+  **`herramientas/pantallas.py`** reconoce la pantalla por una huella (zona achicada a 16×6 en
+  grises: 0 contra sí misma, ≥17 contra las otras) y `multi.py` espera cada pantalla antes de apretar.

@@ -27,6 +27,9 @@ cliente/
 
 # Excepción: el exe desempacado y sin GameGuard (ver exe/LEEME.md y AVISO-LEGAL.md)
 !exe/EDA_limpio.exe
+# Excepción: NUESTRA d3d9.dll (tope de cuadros, búferes rápidos, red inmediata, contador). El fuente
+# está en herramientas/dll_d3d9/; ésta es la compilada, para quien no tiene Zig
+!exe/d3d9.dll
 
 # --- basura ---
 __pycache__/
