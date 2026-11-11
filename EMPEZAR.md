@@ -70,9 +70,8 @@ Eso levanta el server y abre el juego. La primera vez:
 3. Desde el lobby: **Create Stage** → **doble clic** en el marcador de la stage → un título → la
    sala → **F9 Start Game**.
 
-La primera vez, el juego tiene que pasar una vez por la **tienda** para que el server aprenda sus
-precios (los saca de tu copia del juego, ver [AVISO-LEGAL.md](AVISO-LEGAL.md)): entrá a **Shop**
-desde el lobby antes de comprar nada.
+Los precios de la tienda, las habilidades y los premios salen de las tablas del juego que trae el
+repo ([datos/](datos/LEEME.md)).
 
 Cuando cerrás el juego, el server se apaga solo. Tu cuenta (nivel, oro, ítems) queda guardada en
 `_trabajo\servidor\cuentas\`.

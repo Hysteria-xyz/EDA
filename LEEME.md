@@ -28,6 +28,9 @@ Probado con el cliente de 2009, pantalla por pantalla (cada cosa tiene su medici
 - 🟡 La durabilidad no baja jugando; el oro que da una stage es inventado; los puntos por nivel
   (3) y los lugares de habilidad (12) son nuestros: los de 2009 no se saben.
 - 🟡 El relay entre dos PCs de verdad no se probó.
+- ⏭ **Cuentas de verdad**: hoy cada conexión toma la primera libre (rui, kai, mio, ren). El plan
+  (más adelante) es SQLite y el login y la descarga desde el launcher web de R2Beat:
+  [despliegue/LEEME.md → Las cuentas](despliegue/LEEME.md#las-cuentas-lo-próximo).
 
 Todo lo que es deducción y no medición está marcado 🟡 en el código y en la documentación.
 

@@ -24,7 +24,7 @@ fi
 command -v git >/dev/null || apt-get install -y -qq git >/dev/null
 
 echo "· 2/5 carpetas en $BASE"
-mkdir -p "$BASE/datos" "$BASE/estado-prod" "$BASE/estado-prueba"
+mkdir -p "$BASE/estado-prod" "$BASE/estado-prueba"
 
 echo "· 3/5 las dos copias del repositorio"
 for par in prod:main prueba:develop; do
@@ -70,9 +70,5 @@ cat <<FIN
    prod:   py jugar.py --server $IP:25900
    prueba: py jugar.py --server $IP:35900
 
-⚠ Falta (una vez):
-   1. Los XML del juego en $BASE/datos (Product.xml, Skill.xml, StageReward.xml, ItemTypeList.xml).
-      Salen de TU cliente: en Windows, 'py jugar.py' los guarda en _trabajo\\datos. Copialos con
-      scp _trabajo/datos/*.xml root@$IP:$BASE/datos/   y después: bash $BASE/prod/despliegue/actualizar.sh prod --forzar
-   2. Si el VPS tiene firewall (el del proveedor o ufw), abrir: TCP 25900 y 35900, UDP 26000-26200 y 36000-36200.
+⚠ Si el VPS tiene firewall (el del proveedor o ufw), abrir: TCP 25900 y 35900, UDP 26000-26200 y 36000-36200.
 FIN

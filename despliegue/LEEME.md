@@ -52,22 +52,8 @@ Eso deja todo armado:
 - arranca los dos contenedores (`eda-prod`, `eda-prueba`) y prueba que contesten;
 - deja un cron que actualiza el de prueba.
 
-**Después, una sola vez — los XML del juego.** El server lee `Product.xml` (precios),
-`Skill.xml`, `StageReward.xml` y `ItemTypeList.xml`. Son de Softnyx y **no están en el repo**.
-Salen de tu cliente: `py jugar.py` los guarda la primera vez en `_trabajo\datos\`. Copialos desde
-tu PC:
-
-```bash
-scp _trabajo/datos/*.xml root@IP_DEL_VPS:/opt/eda/datos/
-```
-
-Y en el VPS:
-
-```bash
-bash /opt/eda/prod/despliegue/actualizar.sh prod --forzar
-```
-
-Sin los XML el server anda igual, pero la tienda sale vacía y las stages no dan ítems.
+No hay que copiar nada más: las tablas del juego que lee el server (precios, habilidades,
+premios) vienen en el repo, en [`datos/`](../datos/LEEME.md), y entran en la imagen.
 
 **Firewall:** si el proveedor del VPS tiene uno (o usás `ufw`), abrí TCP **25900** y **35900** y
 UDP **26000–26200** y **36000–36200**.
@@ -89,10 +75,10 @@ de prueba.
 ## Mudarse a otro VPS
 
 1. En el VPS **nuevo**: el `curl … instalar.sh | bash` de arriba.
-2. Copiar las cuentas y los XML del viejo al nuevo:
+2. Copiar las cuentas del viejo al nuevo:
 
    ```bash
-   rsync -a root@VPS_VIEJO:/opt/eda/{datos,estado-prod,estado-prueba} /opt/eda/
+   rsync -a root@VPS_VIEJO:/opt/eda/{estado-prod,estado-prueba} /opt/eda/
    ```
 
 3. En el nuevo, rearmar los dos entornos:
@@ -103,7 +89,8 @@ de prueba.
 
 4. Avisar la IP nueva (`--server IP_NUEVA:25900`) y apagar el viejo: `docker compose -p eda-prod down`.
 
-Son tres carpetas: nada más guarda estado.
+Son dos carpetas: nada más guarda estado. (Con las cuentas en SQLite, ver abajo, va a ser **un
+archivo** por entorno.)
 
 ## Sin Docker
 
@@ -127,11 +114,32 @@ callado.
 
 ## Lo que todavía no está
 
-- **Cuentas de verdad.** No hay login. Cada conexión toma la primera cuenta libre de `rui`, `kai`,
-  `mio` y `ren` (`servidor/cuentas.py`). En un server público, un jugador no tiene SU personaje.
-  El cliente no manda usuario ni contraseña (eso lo hacía el launcher de Softnyx), así que hay que
-  inventar cómo identificar a cada jugador.
-- **El relay entre PCs de verdad** no se probó todavía: sólo con los dos clientes y el relay en la
+### Las cuentas (lo próximo)
+
+**Hoy** no hay login. Cada conexión toma la primera cuenta libre de `rui`, `kai`, `mio` y `ren`
+(`servidor/cuentas.py`), guardada como un JSON en `/opt/eda/estado-*/cuentas/`. Sirve para probar,
+pero en un server público ningún jugador tiene SU personaje. Y el juego no puede pedir usuario y
+contraseña: en 2009 eso lo hacía el launcher de Softnyx (`NyxLauncher`), que le pasaba los datos al
+juego por la línea de comandos.
+
+**El plan** (más adelante; nada de esto está hecho):
+
+1. **SQLite** en vez de un JSON por cuenta: un archivo `eda.db` por entorno, con las cuentas, los
+   personajes, el inventario y las habilidades. Se lleva a otro VPS copiando ese archivo, y aguanta
+   varios jugadores guardando a la vez. Todo pasa por `servidor/cuentas.py` (`leer` / `guardar`),
+   así que el resto del server no cambia.
+2. **El login y la descarga, desde el launcher web de R2Beat**: el jugador entra con su usuario en
+   la web, baja de ahí el juego y `jugar.py`, y el launcher abre el juego con un pase de esa sesión
+   (como hacía `NyxLauncher` en 2009). El server valida el pase contra la base y le da a esa
+   conexión **su** cuenta, en vez de la primera libre.
+
+Lo que hay que averiguar antes: qué parte del `0x100F` («quién soy») sirve para llevar ese pase
+desde el juego hasta el server. El exe ya tiene `IsLobbyLaunched` / `GetLobbyLaunchInfo`, la puerta
+que usaba el launcher original ([PROTOCOLO.md](../documentacion/PROTOCOLO.md)).
+
+### El relay entre dos casas
+
+**El relay entre PCs de verdad** no se probó todavía: sólo con los dos clientes y el relay en la
   misma PC (MEDICIONES §30–31). Lo que sí está medido es que el server en Docker se arma, pasa las
   pruebas y contesta en Linux (las pruebas de GitHub), y que el juego llega a la partida por
   `servidor/red.py` con el relay prendido (MEDICIONES §38).

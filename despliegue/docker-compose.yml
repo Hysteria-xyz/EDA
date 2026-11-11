@@ -27,8 +27,7 @@ services:
       # las cuentas de los jugadores: AFUERA del contenedor (y de la copia del repo), para que
       #   sobrevivan a cada actualización y se puedan llevar a otro VPS
       - ${EDA_ESTADO_DIR:-./estado}:/eda/estado
-      # los XML del juego (Product.xml, Skill.xml…): sólo lectura. ⛔ No van al repositorio
-      - ${EDA_DATOS_DIR:-./datos}:/eda/datos:ro
+      # (los XML del juego van ADENTRO de la imagen, de datos/ del repo)
     logging:
       driver: json-file
       options: {max-size: "10m", max-file: "3"}

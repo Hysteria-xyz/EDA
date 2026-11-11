@@ -74,8 +74,9 @@ Son las que hicieron que esto funcione. Están explicadas en [LEEME.md](LEEME.md
 - **Toda prueba lleva su control al revés**: el caso que TIENE que fallar (sin oro no compra, una
   clave falsa no abre). Una prueba que nunca puede fallar no prueba nada.
 - **Lo esperado sale del generador** (los XML del juego, las tablas), no se copia a mano.
-- ⛔ **Nada del cliente de Softnyx entra al repo**: ni `Data.dat`, ni los XML, ni capturas de
-  pantalla del juego. El único binario es `exe/EDA_limpio.exe` (ver [AVISO-LEGAL.md](AVISO-LEGAL.md)).
+- ⛔ **Nada más del cliente de Softnyx entra al repo**: ni `Data.dat`, ni gráficos, ni sonido, ni
+  capturas de pantalla del juego. Las únicas excepciones son `exe/EDA_limpio.exe` y las cuatro
+  tablas de `datos/` (ver [AVISO-LEGAL.md](AVISO-LEGAL.md)); una tabla nueva se discute en un issue.
 - ⛔ **Nada de datos personales**: ni tu IP, ni tu MAC, ni rutas con tu usuario de Windows en el
   código o en los documentos.
 

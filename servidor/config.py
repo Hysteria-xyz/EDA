@@ -5,7 +5,7 @@ el de siempre en Windows (`_trabajo/…`). El resto del server lee estos nombres
 el momento de usarlos (no los copia), así las pruebas los cambian en caliente.
 
     EDA_ESTADO      dónde se guardan las cuentas y lo del relay     (_trabajo/servidor)
-    EDA_DATOS       los XML del juego que lee el server             (_trabajo/datos)
+    EDA_DATOS       los XML del juego que lee el server             (_trabajo/datos, o datos/)
     EDA_RELAY_IP    la IP PÚBLICA del server: prende el relay UDP   (sin ella: archivo modo_relay)
     EDA_RELAY_BASE  el 1er puerto UDP del relay                     (26000)
     EDA_PUNCH_PUERTO el puerto UDP de punch sin relay               (25001)
@@ -18,7 +18,17 @@ sys.path.insert(0, os.path.join(RAIZ, "herramientas"))
 import paquete_broker as P                                   # noqa: E402,F401
 
 ESTADO = os.environ.get("EDA_ESTADO") or os.path.join(RAIZ, "_trabajo", "servidor")
-DATOS = os.environ.get("EDA_DATOS") or os.path.join(RAIZ, "_trabajo", "datos")
+
+def _datos():
+    """Los XML del juego: EDA_DATOS si está; si no, los que guardó TU juego (`_trabajo/datos`, los
+    escribe `eda_original.py`); si no, los que trae el repositorio (`datos/`)."""
+    if os.environ.get("EDA_DATOS"):
+        return os.environ["EDA_DATOS"]
+    propios = os.path.join(RAIZ, "_trabajo", "datos")
+    return propios if os.path.exists(os.path.join(propios, "Product.xml")) else os.path.join(RAIZ, "datos")
+
+
+DATOS = _datos()
 
 # ★ La cuenta de cada jugador: `<ESTADO>/cuentas/<nombre>.json` (la vieja `cuenta.json` pasa a ser
 #   la de «rui»; se puede borrar: vuelve al inicio)
@@ -37,8 +47,8 @@ PUNCH_PUERTO = int(os.environ.get("EDA_PUNCH_PUERTO") or 25001)   # `herramienta
 #   «estoy vivo» (0x1001), y el archivo se borra
 EMPUJAR = os.path.join(ESTADO, "empujar.json")
 
-# Los XML del juego (de `Data.dat`, con `herramientas/sacar_xml.py`). ⛔ Son de Softnyx: NO van al
-#   repositorio; cada server los saca de su propio cliente (ver despliegue/LEEME.md)
+# Los XML del juego (de `Data.dat`, con `herramientas/sacar_xml.py`). Son de Softnyx; el repositorio
+#   público los trae en `datos/` (lo pidió el dueño del proyecto, 11-nov: ver AVISO-LEGAL.md)
 PRODUCTOS_XML = os.path.join(DATOS, "Product.xml")
 HABILIDADES_XML = os.path.join(DATOS, "Skill.xml")
 PREMIOS_XML = os.path.join(DATOS, "StageReward.xml")

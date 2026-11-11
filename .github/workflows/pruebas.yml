@@ -21,8 +21,8 @@ jobs:
           python-version: "3.13"
       - run: pip install "pycryptodome==3.24.1"
 
-      - name: el server de juego (cada prueba con su revés)
-        run: python servidor/juego.py control
+      - name: el server de juego (cada prueba con su revés; todas, con los XML de datos/)
+        run: EDA_EXIGIR_DATOS=1 python servidor/juego.py control
 
       - name: el relay UDP
         run: python herramientas/relay_udp.py control
