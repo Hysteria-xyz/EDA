@@ -53,6 +53,35 @@ documentacion/
   SIGUIENTE_PASO_RED.md  la hoja de ruta de la red (histórica)
 ```
 
+## Cómo se abre el EDA.exe ORIGINAL (el que tiene ASProtect)
+
+Es lo que hace `py jugar.py` (`herramientas/eda_original.py`); sin tocar el archivo:
+
+1. Se lanza `EDA.exe` **suspendido** con Frida (`frida.spawn`) desde `_trabajo\juego\` y se le
+   inyecta un script antes de que corra una sola instrucción.
+2. El script engancha `ws2_32!connect`: la conexión a `218.145.66.187:25000` (el Broker de 2009,
+   que sale de un XML adentro de `Data.dat`) va a `127.0.0.1:25900`, nuestro server.
+3. El juego arranca. ASProtect desempaca el código **en memoria**; el script mira cada 2 ms las
+   tres direcciones de GameGuard y, **apenas tienen sus bytes originales** (o sea, ya están
+   desempacadas y todavía no corrieron), les escribe los parches de `sin_gameguard.py limpio`:
+
+   | dirección | antes | después | qué hace |
+   |---|---|---|---|
+   | `0x7CE890` | `a1 30 9e 94 00` | `33 c0 c3 90 90` | el init de NPGameLib devuelve 0: GameGuard no se crea ni se lanza |
+   | `0x403606` | `e8 a5 f5 ff ff` | `b0 01 90 90 90` | el «juez» de GameGuard no se llama (`mov al, 1`) |
+   | `0x402EC4` | `74 0c` | `eb 0c` | el chequeo de cada 10 s no cierra el juego |
+
+   Medido: los tres entran a los ~60 ms. Si un byte no es el esperado, **no se escribe** (y avisa).
+4. Cuando `inflate` (zlib, `0x788260`) ya está desempacado, se engancha para guardar en
+   `_trabajo\datos\` los 4 XML que lee el server, la primera vez que el juego los descomprime.
+
+El cifrado de la red usa como clave el **MD5 del exe que habla** (`paquete_broker.py`): el
+server la calcula sola de los exes que hay en `_trabajo\juego\`, sea el original o el limpio.
+
+Si en alguna PC GameGuard gana la carrera (sale «Game guard error»), está
+`exe/EDA_limpio.exe` (`py jugar.py --limpio`), que ya trae todo eso en el archivo
+([exe/LEEME.md](exe/LEEME.md)).
+
 ## El recorrido, en corto
 
 1. **El exe venía empaquetado con ASProtect** (sin texto legible, 694 llamadas a Windows desviadas a

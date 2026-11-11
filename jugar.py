@@ -1,7 +1,9 @@
 r"""jugar.py -- EDA (Espada del Alma, Softnyx 2009) contra nuestro server, en tu PC. Sólo Windows.
 
     py jugar.py --preparar "C:\ruta\al\cliente"     # UNA vez: copia el juego a _trabajo\juego
-    py jugar.py                                      # el server + el juego
+    py jugar.py                                      # el server + el juego (EDA.exe original)
+    py jugar.py --limpio                             # lo mismo con exe\EDA_limpio.exe (si el
+                                                     #   original da «Game guard error»)
 
 Qué hace (ver EMPEZAR.md):
   · `--preparar` copia tu cliente de 2009 a `_trabajo\juego\` (el original no se toca), verifica
@@ -55,6 +57,10 @@ def preparar(origen):
         raise SystemExit("⛔ el origen ya es _trabajo\\juego")
     print("copiando %s → %s …" % (origen, JUEGO))
     shutil.copytree(origen, JUEGO, dirs_exist_ok=True)
+    limpio = os.path.join(RAIZ, "exe", "EDA_limpio.exe")
+    if os.path.exists(limpio):
+        shutil.copy2(limpio, os.path.join(JUEGO, "EDA_limpio.exe"))
+        print("  + EDA_limpio.exe (para «py jugar.py --limpio»)")
     cfg = os.path.join(JUEGO, "autoexec.cfg")
     if os.path.exists(cfg):
         t = open(cfg, encoding="latin-1").read()
@@ -82,8 +88,15 @@ def main():
         if len(a) < 2:
             raise SystemExit('uso: py jugar.py --preparar "C:\\ruta\\al\\cliente"')
         return preparar(a[1])
+    nombre = "EDA_limpio.exe" if "--limpio" in a else "EDA.exe"
     if not os.path.exists(os.path.join(JUEGO, "EDA.exe")):
         raise SystemExit('⛔ falta el juego. Primero: py jugar.py --preparar "C:\\ruta\\al\\cliente"')
+    if not os.path.exists(os.path.join(JUEGO, nombre)):
+        lim = os.path.join(RAIZ, "exe", "EDA_limpio.exe")
+        if nombre == "EDA_limpio.exe" and os.path.exists(lim):
+            shutil.copy2(lim, os.path.join(JUEGO, nombre))
+        else:
+            raise SystemExit("⛔ no está %s" % os.path.join(JUEGO, nombre))
     if not os.path.exists(REGLAS):                     # las respuestas del Broker (anuncio, lista)
         subprocess.run([sys.executable, os.path.join(HERR, "reglas_broker.py")], check=True)
     propio = None
@@ -100,7 +113,7 @@ def main():
         print("· server andando (127.0.0.1:25900) — su registro: _trabajo\\broker\\espia.log")
     import eda_original
     try:
-        eda_original.lanzar(esperar=True)
+        eda_original.lanzar(esperar=True, nombre=nombre)
         print("· el juego se cerró")
     except KeyboardInterrupt:
         pass

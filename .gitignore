@@ -25,6 +25,9 @@ cliente/
 *.ltb
 *.dds
 
+# Excepción: el exe desempacado y sin GameGuard (ver exe/LEEME.md y AVISO-LEGAL.md)
+!exe/EDA_limpio.exe
+
 # --- basura ---
 __pycache__/
 *.py[cod]

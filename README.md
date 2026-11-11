@@ -39,4 +39,12 @@ py jugar.py
 ```
 
 **Sólo Windows**, con **Python 3.10 o más nuevo**. No hace falta ser administrador, y el juego
-original no se modifica: el exe de 2009 se abre tal cual y los cambios se hacen en memoria.
+original no se modifica: el exe de 2009 (con su ASProtect) se abre tal cual y los cambios se
+hacen en memoria (`herramientas/eda_original.py`).
+
+Si en tu PC el juego dice **«Game guard error»**, usá el exe ya desempacado y sin GameGuard que
+viene en [exe/](exe/LEEME.md):
+
+```bat
+py jugar.py --limpio
+```

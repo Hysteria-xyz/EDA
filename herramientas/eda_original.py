@@ -146,11 +146,13 @@ def _avisar(t):
     print(t, flush=True)
 
 
-def lanzar(esperar=True, avisar=_avisar):
+def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
     """Abre `_trabajo/juego/EDA.exe` con todo puesto. Devuelve el pid. Con `esperar`, se queda
     hasta que el juego se cierra (guardando los XML que vayan saliendo)."""
     import frida
-    exe = os.path.join(JUEGO, "EDA.exe")
+    # nombre: "EDA.exe" (el original, con ASProtect) o "EDA_limpio.exe" (desempacado y sin
+    #   GameGuard: los parches ya están en el archivo, y se reconocen como hechos)
+    exe = os.path.join(JUEGO, nombre)
     if not os.path.exists(exe):
         raise SystemExit("⛔ no está %s — corré primero: py jugar.py --preparar \"C:\\ruta\\al\\cliente\"" % exe)
     os.makedirs(DATOS, exist_ok=True)
@@ -182,7 +184,7 @@ def lanzar(esperar=True, avisar=_avisar):
     ses.on("detached", lambda *a: estado.update(vivo=False))
     sc.load()
     frida.resume(pid)
-    avisar("★ EDA.exe abierto (pid %d)" % pid)
+    avisar("★ %s abierto (pid %d)" % (nombre, pid))
     open(os.path.join(RAIZ, "_trabajo", "multi_pids.txt"), "w").write(str(pid))
     if esperar:
         while estado["vivo"]:

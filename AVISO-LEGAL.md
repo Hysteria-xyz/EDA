@@ -32,11 +32,18 @@ copia del juego** la primera vez que el juego las abre. Nadie te está dando nad
 
 ## El juego original no se modifica
 
-`jugar.py` abre el `EDA.exe` de 2009 tal cual. Lo que hace falta cambiar (saltear GameGuard, que
-busca un server que ya no existe, y llevar la conexión a tu PC) se hace **en memoria**, mientras
-corre, y se pierde al cerrarlo. Las herramientas de investigación que sí arman un exe desempacado
-(`desempacar.py`, `sin_gameguard.py`) trabajan sobre **tu** copia y dejan el resultado en tu disco;
-ese resultado tampoco se distribuye.
+`py jugar.py` abre el `EDA.exe` de 2009 tal cual. Lo que hace falta cambiar (saltear GameGuard,
+que busca un server que ya no existe, y llevar la conexión a tu PC) se hace **en memoria**,
+mientras corre, y se pierde al cerrarlo.
+
+## La única excepción: `exe/EDA_limpio.exe`
+
+En algunas PCs GameGuard alcanza a arrancar antes que los cambios en memoria («Game guard
+error»). Para esas, el repositorio incluye **un** ejecutable: `exe/EDA_limpio.exe`, el `EDA.exe`
+de Softnyx **desempacado y sin GameGuard** (cómo se armó: [exe/LEEME.md](exe/LEEME.md)). **No es
+nuestro**: es su programa de 2009 con esos cambios, publicado sólo para preservar un juego que
+nunca salió de beta. No sirve solo (hace falta tu propio cliente, con `Data.dat`) y no está bajo
+la AGPL. Si Softnyx pide sacarlo, se saca.
 
 ## Este proyecto no cobra
 
