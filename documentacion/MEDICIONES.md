@@ -1980,6 +1980,19 @@ cliente reconoce a sus pares, y si el server puede saberla.
   juego en la sala daba ~60 vueltas/s; con dos, ~25–30 cada uno — de ahí el «lag» con dos juegos
   abiertos y los ~75 ms del ping. ⏭ Encontrar QUÉ dibuja la sala que cuesta tanto (y arreglarlo
   con una d3d9.dll nuestra, como en R2Beat: el proxy y Zig 0.16 ya están en ese proyecto).
+- ★ **QUÉ dibuja** (`herramientas/medir_dibujo.py`, cada pedido a Direct3D 9 y a GDI, por segundo, con
+  el piloto de la lista a la partida): **NO es GDI** (27 llamadas al arrancar y nada más), **NO hay
+  lecturas de la imagen** al procesador (`GetRenderTargetData`, `LockRect` = 0) ni copias
+  (`StretchRect` = 0), y **NO dibuja cuadros escondidos** (un `Clear` por cada `Present`). Por cuadro:
+  ~120 dibujos en la lista de servidores, ~720 en el selector de stage (que baja a **12 cuadros/s**),
+  ~480 en la partida (40–108 cuadros/s). Pocos para una placa moderna.
+- ★★ **Pero cada cuadro le cuesta caro a la placa**: con UN solo EDA en la lista de servidores la
+  placa pasa a máxima potencia (P0, 1.695 MHz) y de **85 W a 157 W (+70 W)** para ~69 cuadros/s
+  (`nvidia-smi --query-gpu=pstate,clocks.gr,power.draw`). No es el porcentaje engañoso de un reloj
+  bajo: es trabajo de verdad, y la cantidad de dibujos no lo explica. ⏭ Encontrar el costo por
+  descarte en memoria (sacar grupos de dibujos, cambiar el filtrado de texturas…), o probar DXVK (un
+  d3d9.dll libre que traduce a Vulkan). Y aparte, para la misma DLL: **la partida no suelta el mouse**
+  aunque se cambie de ventana (El tester, 11-nov: sólo lo suelta con el menú de ESC).
 - 🧹 Ese rato la PC tenía además 4 `find /` huérfanos de otra sesión (25 % de CPU desde las 13:27):
   cerrados con permiso. Cuidado al medir rendimiento: mirar antes `nvidia-smi` y la CPU.
 - `multi.py` lee ahora el registro del server que haya (`EDA_MULTI_LOG`, o `EDA_MULTI_SSH` para el
