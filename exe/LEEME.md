@@ -1,7 +1,7 @@
 # EDA_limpio.exe
 
 ```
-d1889597cfa734e7a44a5db742589d01   EDA_limpio.exe   (6.139.904 bytes)
+0799387e23cadd355888bd712143f2d5   EDA_limpio.exe   (6.139.904 bytes)
 ```
 
 Es el `EDA.exe` de 2009 (md5 `f0b12e6cddf3efdd0676b6491efe46be`) **desempacado** (sin
@@ -30,6 +30,11 @@ Con las herramientas de este repositorio, sobre una copia del cliente de 2009:
 4. `sin_gameguard.py limpio` — los 4 cambios (12 bytes): `0x7CE890` (NPGameLib no se crea),
    `0x403606` (el juez de GameGuard no se llama), `0x402EC4` y `0x402EFB` (el chequeo de cada
    10 s —GameGuard y que el render sea «d3d9.dll»— no cierra el juego).
+
+★ **Aporte de Urek-Mazinoo (PR #1):** en las PCs que no son coreanas el exe moría antes del menú en
+una llamada sin resolver, `0x7EE13C` = `GetCPInfo` (la CRT la saltea con la página de códigos
+949, que es la de la PC donde se armó, y la llama con 1252). Ahora está resuelta, y el exe se
+marca sin reubicaciones (`IMAGE_FILE_RELOCS_STRIPPED`).
 
 Todo eso está contado paso a paso en `documentacion/MEDICIONES.md` (corridas 13 a 16).
 

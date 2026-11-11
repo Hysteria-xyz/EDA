@@ -158,6 +158,24 @@ const vuelta = setInterval(function () {
 """
 
 
+# ★ si el exe limpio llega a una llamada que el desempacado no pudo resolver, salta a la TRAMPA
+#   (0xD0000000 + sitio − 0x400000) y se cae: se avisa QUÉ sitio, para resolverlo (así encontró
+#   Urek-Mazinoo el de 0x7EE13C, PR #1 del repo público).
+JS_TRAMPA = r"""
+Process.setExceptionHandler(function (d) {
+    const eip = d.context.pc;
+    if (eip.compare(ptr('0xD0000000')) >= 0 && eip.compare(ptr('0xD0600000')) < 0)
+        send({t: 'trampa', sitio: eip.sub(ptr('0xD0000000')).add(0x400000).toInt32()});
+    return false;
+});
+"""
+# 🟡 para PROBAR en una PC coreana (página 949) lo que ve una en español (1252): EDA_SIMULAR_ACP=1252
+JS_ACP = r"""
+for (const n of ['GetACP', 'GetOEMCP']) Interceptor.attach(
+    Process.getModuleByName('kernel32.dll').getExportByName(n), {onLeave(r) { r.replace(ptr(%d)); }});
+"""
+
+
 def faltantes():
     return {r: n for r, n in XMLS.items() if not os.path.exists(os.path.join(DATOS, n + ".xml"))}
 
@@ -180,6 +198,9 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
     js = JS % {"parches": json.dumps(parches), "xmls": json.dumps(faltantes()),
                "quien": json.dumps(BROKER), "aca": json.dumps(LOCAL), "inflate": INFLATE,
                "inflate_bytes": INFLATE_BYTES}
+    js += JS_TRAMPA
+    if os.environ.get("EDA_SIMULAR_ACP"):                  # p. ej. 1252 = una PC en español
+        js += JS_ACP % int(os.environ["EDA_SIMULAR_ACP"])
     pid = frida.spawn([exe], cwd=JUEGO, stdio="pipe")
     ses = frida.attach(pid)
     sc = ses.create_script(js)
@@ -197,6 +218,9 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
         elif p.get("t") == "tiempo":
             avisar("  ⛔ GameGuard: no se pudieron poner todos los parches (%s). ¿Es el EDA.exe de "
                    "2009 sin tocar? (md5 f0b12e6cddf3efdd0676b6491efe46be)" % p.get("hechos"))
+        elif p.get("t") == "trampa":
+            avisar("  ⛔ el juego llegó a una llamada de Windows SIN RESOLVER: sitio 0x%X. Abrí un issue "
+                   "con este número (ver documentacion/APIS_A_MANO.md)." % p["sitio"])
         elif p.get("t") == "parche":
             avisar("  · parche 0x%X puesto (%s, %d ms)" % (p["va"], p.get("desde"), p["ms"]))
         elif p.get("t") == "listo":

@@ -1813,3 +1813,19 @@ Tres errores nuestros y una pieza que faltaba, medidos con Frida en `sendto` / `
   Empty Slot Available» porque **`cuenta+0x2CC` = LUGARES LIBRES de la bolsa** venía en 0: es el
   byte **+0x1A del `0x1012`** (+6 = +0x2B8, medido; nadie más lo escribe, `0x54DCEA`). Con 150 −
   los ocupados: «Selected Item has been successfully purchased», oro 77500 → 76900 (21:42).
+
+### 37 · ★★ Por qué en OTRAS PCs el limpio no arrancaba: `GetCPInfo` (aporte externo, PR #1)
+
+- Un usuario del repo público (Urek-Mazinoo, PR #1) encontró que el `EDA_limpio.exe` moría antes
+  del menú en la TRAMPA de **`0x7EE13C`**, y lo resolvió como **`GetCPInfo`**. Verificado: es
+  `_setmbcp` de la CRT: si la página de códigos está en su tabla de 4 (932, 936, **949**, 950) no
+  llama a nada; si no, `GetCPInfo(página, &cpinfo)` y lee `MaxCharSize` / `LeadByte`. ★ Esta PC
+  tiene la página **949** (coreana): por eso acá nunca pasó y en las PCs en español (1252) sí.
+- Control al revés (simulando 1252 con Frida, `EDA_SIMULAR_ACP=1252`): el exe anterior se cae a
+  los **0,3 s con EIP `0xD03EE13C`** (la trampa de ese sitio); el nuevo sigue vivo y, con
+  `jugar.py`, llega a la partida (pelea incluida) sin otra trampa.
+- También aportó marcar el exe sin reubicaciones (`IMAGE_FILE_RELOCS_STRIPPED`). Se aceptó el
+  código y la documentación; el binario se rearmó acá con las herramientas (para que incluya el
+  4.º parche y no publicar un exe ajeno): md5 `0799387e23cadd355888bd712143f2d5`.
+- `eda_original.py` ahora AVISA en la consola si el juego cae en una trampa («sitio 0x…»): así
+  el próximo que encuentre una sabe qué número reportar.
