@@ -1,7 +1,7 @@
 r"""eda_original -- abrir el EDA.exe ORIGINAL de 2009 (con ASProtect) listo para jugar contra nuestro server.
 
 Todo pasa EN MEMORIA, el archivo no se toca:
-  1. GameGuard: apenas ASProtect desempaca el código, se le ponen los 3 parches de la receta
+  1. GameGuard: apenas ASProtect desempaca el código, se le ponen los 4 parches de la receta
      `limpio` de `sin_gameguard.py` (con sus bytes originales verificados antes de escribir).
   2. La red: `ws2_32!connect` a 218.145.66.187:25000 (el Broker de 2009) se desvía a
      127.0.0.1:25900, donde escucha `espiar_broker.py sin_admin`.
@@ -249,7 +249,7 @@ def control():
     chequear("un XML partido en 3 bloques (con «<SHOPPING» antes) sale entero",
              salio.get("SHOP") == xml)
     chequear("y ya no se busca más (faltan vacío)", not faltan)
-    chequear("la receta de GameGuard tiene sus 3 parches", len(SG.RECETAS["limpio"]) == 3)
+    chequear("la receta de GameGuard tiene sus 4 parches", len(SG.RECETAS["limpio"]) == 4)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
 

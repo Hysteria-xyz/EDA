@@ -61,19 +61,19 @@ Es lo que hace `py jugar.py --original` (`herramientas/eda_original.py`); sin to
    inyecta un script antes de que corra una sola instrucción.
 2. El script engancha `ws2_32!connect`: la conexión a `218.145.66.187:25000` (el Broker de 2009,
    que sale de un XML adentro de `Data.dat`) va a `127.0.0.1:25900`, nuestro server.
-3. El juego arranca. ASProtect desempaca el código **en memoria**. Apenas el código del juego
-   llama a `GetCommandLineA` (el arranque de su CRT, ya desempacado) —y de nuevo en
-   `SetWindowLongA`, la instrucción de antes del chequeo— el script les escribe a las tres
-   direcciones de GameGuard los parches de `sin_gameguard.py limpio`, **si tienen sus bytes
-   originales** (un reloj de 2 ms queda de respaldo):
+3. El juego arranca. ASProtect desempaca el código **en memoria**; un reloj de 2 ms mira las
+   cuatro direcciones y, **apenas tienen sus bytes originales** (ya desempacadas, todavía sin
+   correr), les escribe los parches de `sin_gameguard.py limpio` (también se intenta desde
+   `GetCommandLineA` y `SetWindowLongA`, pero ASProtect emula esas funciones y no llegan):
 
    | dirección | antes | después | qué hace |
    |---|---|---|---|
    | `0x7CE890` | `a1 30 9e 94 00` | `33 c0 c3 90 90` | el init de NPGameLib devuelve 0: GameGuard no se crea ni se lanza |
    | `0x403606` | `e8 a5 f5 ff ff` | `b0 01 90 90 90` | el «juez» de GameGuard no se llama (`mov al, 1`) |
-   | `0x402EC4` | `74 0c` | `eb 0c` | el chequeo de cada 10 s no cierra el juego |
+   | `0x402EC4` | `74 0c` | `eb 0c` | el chequeo de GameGuard de cada 10 s no cierra el juego |
+   | `0x402EFB` | `74 0c` | `eb 0c` | el otro chequeo de cada 10 s («d3ddevice» = «d3d9.dll») tampoco: bajo Frida a veces fallaba y el juego se cerraba solo a los 10 s |
 
-   Medido: los tres entran a los ~60 ms. Si un byte no es el esperado, **no se escribe** (y avisa).
+   Medido: los cuatro entran a los ~60 ms. Si un byte no es el esperado, **no se escribe** (y avisa).
 4. Cuando `inflate` (zlib, `0x788260`) ya está desempacado, se engancha para guardar en
    `_trabajo\datos\` los 4 XML que lee el server, la primera vez que el juego los descomprime.
 

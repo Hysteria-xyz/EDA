@@ -100,6 +100,12 @@ RECETAS = {
         #   («d3ddevice» == «d3d9.dll») no se toca.
         (0x402EC4, "740c", "eb0c",
          "je -> jmp -- el chequeo de cada 10 s de GameGuard no cierra el juego"),
+        # ★★ el CUARTO (12-nov): la otra mitad de ese chequeo: si la variable de consola
+        #   «d3ddevice» no es «d3d9.dll» (`0x7D4B10`) también llama a Shutdown ([+0x94]). Bajo
+        #   Frida a veces no coincide y el juego se cerraba SOLO a los 10,0 s, sin reporte de caída
+        #   (medido 3 veces con jugar.py desde una copia limpia del repo público). `je` -> `jmp`.
+        (0x402EFB, "740c", "eb0c",
+         "je -> jmp -- el chequeo de «d3ddevice» de cada 10 s no cierra el juego"),
     ],
     "fuera": [
         (0x7CE890, "a1309e9400", "33c0c39090",

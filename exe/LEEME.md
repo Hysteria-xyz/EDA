@@ -1,7 +1,7 @@
 # EDA_limpio.exe
 
 ```
-2473759a282c78d96a89d77d563af3e0   EDA_limpio.exe   (6.139.904 bytes)
+d1889597cfa734e7a44a5db742589d01   EDA_limpio.exe   (6.139.904 bytes)
 ```
 
 Es el `EDA.exe` de 2009 (md5 `f0b12e6cddf3efdd0676b6491efe46be`) **desempacado** (sin
@@ -27,9 +27,9 @@ Con las herramientas de este repositorio, sobre una copia del cliente de 2009:
    resueltas; las demás llevan una «trampa» que dice cuál se alcanzó si el juego llega ahí).
 3. `desempacar.py construir` — rearma el exe: imports, código robado
    (`documentacion/CODIGO_ROBADO.md`), datos iniciales.
-4. `sin_gameguard.py limpio` — los 3 cambios de GameGuard (11 bytes):
-   `0x7CE890` (NPGameLib no se crea), `0x403606` (el juez no se llama) y `0x402EC4` (el chequeo
-   de cada 10 s no cierra el juego).
+4. `sin_gameguard.py limpio` — los 4 cambios (12 bytes): `0x7CE890` (NPGameLib no se crea),
+   `0x403606` (el juez de GameGuard no se llama), `0x402EC4` y `0x402EFB` (el chequeo de cada
+   10 s —GameGuard y que el render sea «d3d9.dll»— no cierra el juego).
 
 Todo eso está contado paso a paso en `documentacion/MEDICIONES.md` (corridas 13 a 16).
 
