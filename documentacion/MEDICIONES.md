@@ -1876,5 +1876,19 @@ Tres errores nuestros y una pieza que faltaba, medidos con Frida en `sendto` / `
   · las llamadas a Windows sin resolver = los `call` que siguen yendo a la TRAMPA: **183** →
     **511 de 694** resueltas (el «505» de antes era de una versión anterior del exe). Revés: el
     EDA.exe de 2009 (empaquetado) tiene 0.
+- ★★ **EL VPS** (11-nov, Ubuntu 26.04): `curl … instalar.sh | bash` desde GitHub instaló Docker y
+  levantó `eda-prod` (main, 25900) y `eda-prueba` (develop, 35900); las dos imágenes se armaron con
+  TODAS las pruebas adentro (los XML ya vienen en `datos/` del repo). Desde esta PC, por internet:
+  `servidor.red prueba` ✅ en los dos (y el revés: con la clave falsa, silencio). ★ **Con el juego**
+  (`py jugar.py --server <VPS>:25900` + el piloto): el registro del contenedor tiene
+  `0604 → 0607 0609 · 0708 → 0709 · 070a → 070b · 100f → 1010 · 1011 → 1012 · 1017 → 1018 ·
+  101d → 101e · 104e → 104f · 105f → 105e` y la foto: **rui en el mapa, reloj en 0:00:11**, sin un
+  solo «⛔» en el registro.
+- ⚠ **`multi.py` contra el VPS NO llegó a la sala** (dos clientes en el lobby, ningún `101D`): el
+  piloto aprieta con TIEMPOS FIJOS medidos contra un server local; por internet las respuestas
+  tardan más y los clics caen antes de tiempo (las fotos del piloto, además, salen atrasadas). No es
+  el server: falta que el piloto ESPERE cada respuesta. `redirigir_cliente.py` ahora acepta
+  `EDA_SERVER=IP:PUERTO` (para multi.py contra un VPS).
 - ⏭ Lo que falta: **cuentas de verdad** (en un server público cada conexión toma rui / kai / mio /
-  ren, la primera libre: no hay login) y **el relay entre dos casas** (sigue sin probarse).
+  ren, la primera libre: no hay login; el plan, para más adelante: SQLite y el login / descarga desde
+  el launcher web de R2Beat) y **el relay entre dos PCs** (sigue sin probarse).
