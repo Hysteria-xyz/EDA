@@ -2083,3 +2083,28 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   vértices), en el próximo lugar libre (NOOVERWRITE; lleno → DISCARD), corriéndole el vértice base.
   Medido: la puerta entera, ~117 B por subida, 120 cuadros/s en los dos juegos en la partida (la placa
   ~152 W con dos juegos a 120 en la partida; la versión con la puerta rota daba ~90: a afinar).
+
+### 44 · ★★ El juego SIN PYTHON: la `d3d9.dll` lo lleva al server (12-nov)
+
+- **Para qué**: hasta acá, conectarse pedía Python + Frida (`redirigir_cliente.py` / `eda_original.py`
+  desvían el `connect` al Broker de 2009). Un jugador común no puede tener eso: el cliente para
+  repartir (vía launcher) tiene que ser **una carpeta y un doble clic**.
+- **Cómo**: `EDA_limpio.exe` pide `ws2_32!connect` **por nombre** (2º descriptor de WS2_32; medido con
+  pefile), así que la dll cambia esa entrada de la tabla de importaciones, igual que `WSAEventSelect`
+  (§42). Sólo el destino `218.145.66.187:25000` (IP y puerto exactos, IPv4) y sólo si
+  `eda_d3d9.ini` tiene `[red] server=host[:puerto]` (o `EDA_SERVER`, que manda); un nombre se resuelve
+  en el primer `connect` (no en `DllMain`). El server de juego que da la lista apunta al MISMO destino
+  (`reglas_broker.py`), así que un solo desvío cubre las dos conexiones.
+- **Medido** (EDA_limpio.exe abierto a pelo, `Popen('"ruta"')`, SIN Frida, `redirigir_cliente` cerrado):
+  `EDA_SERVER=<VPS>:35900` → la LISTA DE SERVIDORES del server de prueba («EDA vuelve»), ENTER →
+  **SELECT CHARACTER** con rui; en `eda_d3d9.log`, dos desvíos («connect a 218.145.66.187:25000 →
+  …:35900 (1)» y «(2)»). ★ **El revés**: el mismo exe y la misma dll sin server → «Can't connect to
+  server». Con `jugar.py` (Frida) también anda: `eda_original.lanzar` le pasa `EDA_SERVER` con el
+  mismo destino, así un ini con otro server no lo desvía a otra parte.
+- **La identidad P2P (§39)**: abrir el exe por el shell (`Invoke-Item`, lo mismo que el doble clic)
+  deja la línea de comandos `"C:\…\EDA_limpio.exe"`, CON comillas: la MAC llega al server.
+- **De paso, las trampas sin Frida**: un manejador de excepciones de la dll anota en `eda_d3d9.log` el
+  sitio de una llamada SIN RESOLVER (salto a `0xD0000000 + sitio − 0x400000`), como hacía
+  `JS_TRAMPA` de `eda_original.py`: un jugador puede mandar ese número. No cambia la caída.
+- ⚠ Con el `EDA.exe` ORIGINAL (ASProtect) esto no aplica: sus importaciones las arma ASProtect; ese
+  sigue con `jugar.py --original`.

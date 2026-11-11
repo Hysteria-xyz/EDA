@@ -211,7 +211,11 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe", server=None):
     js += JS_TRAMPA
     if os.environ.get("EDA_SIMULAR_ACP"):                  # p. ej. 1252 = una PC en español
         js += JS_ACP % int(os.environ["EDA_SIMULAR_ACP"])
-    pid = frida.spawn([exe], cwd=JUEGO, stdio="pipe")
+    # ★ la d3d9.dll también desvía el connect si su ini tiene [red] server= (MEDICIONES §44): se le
+    #   pasa EDA_SERVER (que manda sobre el ini) con el MISMO destino, así los dos dicen lo mismo
+    dest = server or LOCAL
+    env = {"EDA_SERVER": "%s:%d" % (".".join(map(str, dest[0])), dest[1])}
+    pid = frida.spawn([exe], cwd=JUEGO, stdio="pipe", env=env)
     ses = frida.attach(pid)
     sc = ses.create_script(js)
     estado = {"vivo": True}

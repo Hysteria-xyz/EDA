@@ -111,4 +111,17 @@ py jugar.py --server IP_DEL_SERVER:25900
 UDP del server ([documentacion/PROTOCOLO.md](documentacion/PROTOCOLO.md) §5.16, MEDICIONES §30–31 y
 §38).
 
+### ★ Sin Python (lo que va a usar el launcher)
+
+Para jugar en un server de otra PC no hace falta Python: alcanza con la carpeta del juego,
+`EDA_limpio.exe` y nuestra `d3d9.dll` (las dos están en `exe\`) al lado, y en `eda_d3d9.ini`:
+
+```ini
+[red]
+server=IP_DEL_SERVER:25900
+```
+
+Después, doble clic en `EDA_limpio.exe`. La dll lleva al juego a ese server (el de Corea de 2009 ya
+no existe); si algo falla, `eda_d3d9.log` dice qué pasó (MEDICIONES §44).
+
 En una misma PC, varios juegos a la vez: ver [LEEME.md](LEEME.md) (`herramientas\multi.py`).

@@ -465,6 +465,81 @@ static void *parchear_iat(const char *dll, const char *funcion, void *nueva)
     return NULL;
 }
 
+/* ── ★ EL SERVER, SIN PYTHON (12-nov) ──────────────────────────────────────
+ * El cliente se conecta al Broker de 2009 (218.145.66.187:25000, de un XML de Data.dat), y el server
+ * de juego que le da la lista apunta al MISMO lugar (herramientas/reglas_broker.py). Hasta acá eso lo
+ * desviaba Frida (redirigir_cliente.py / eda_original.py). Ahora lo hace la DLL: el exe pide
+ * `connect` por NOMBRE (EDA_limpio.exe, 2º descriptor de WS2_32), así que alcanza con su entrada de
+ * la tabla de importaciones. Adónde: [red] server=host[:puerto] del ini (o EDA_SERVER, que manda);
+ * vacío = no se desvía nada (el juego como antes). Sólo ESE destino: cualquier otro pasa igual. */
+typedef int (WSAAPI *M_CONNECT)(SOCKET, const struct sockaddr *, int);
+static M_CONNECT g_connect_real;
+static char g_server[256];
+static struct sockaddr_in g_destino;
+static int g_destino_listo;
+static long g_desviados;
+static const BYTE BROKER_IP[4] = {218, 145, 66, 187};
+#define BROKER_PUERTO 25000
+
+static int resolver_server(void)
+{
+    if (g_destino_listo) return 1;
+    char host[256];
+    lstrcpynA(host, g_server, sizeof(host));
+    int puerto = 25900;
+    char *dp = strrchr(host, ':');
+    if (dp) { *dp = 0; puerto = atoi(dp + 1); }
+    unsigned long ip = inet_addr(host);
+    if (ip == INADDR_NONE) {                         /* un nombre (un dominio): se resuelve acá */
+        struct hostent *h = gethostbyname(host);
+        if (h && h->h_addrtype == AF_INET && h->h_addr_list[0]) memcpy(&ip, h->h_addr_list[0], 4);
+    }
+    if (ip == INADDR_NONE || puerto <= 0 || puerto > 65535) {
+        apuntar("  ⛔ server: no pude resolver «%s» (el juego va a 218.145.66.187, que no existe)", g_server);
+        return 0;                                    /* sin guardar: el próximo connect reintenta */
+    }
+    memset(&g_destino, 0, sizeof(g_destino));
+    g_destino.sin_family = AF_INET;
+    g_destino.sin_port = htons((u_short)puerto);
+    g_destino.sin_addr.s_addr = ip;
+    g_destino_listo = 1;
+    return 1;
+}
+
+/* ¿es el connect al Broker de 2009? (sólo IPv4, IP y puerto exactos) */
+static int es_broker(const struct sockaddr *sa, int largo)
+{
+    const struct sockaddr_in *in = (const struct sockaddr_in *)sa;
+    return sa && largo >= (int)sizeof(*in) && in->sin_family == AF_INET
+        && ntohs(in->sin_port) == BROKER_PUERTO && !memcmp(&in->sin_addr, BROKER_IP, 4);
+}
+
+static int WSAAPI mi_connect(SOCKET s, const struct sockaddr *sa, int largo)
+{
+    if (es_broker(sa, largo) && resolver_server()) {
+        struct sockaddr_in nuevo = *(const struct sockaddr_in *)sa;   /* ⚠ una copia: el del juego no se toca */
+        nuevo.sin_port = g_destino.sin_port;
+        nuevo.sin_addr = g_destino.sin_addr;
+        g_desviados++;
+        apuntar("  server: connect a 218.145.66.187:25000 → %s:%u (%ld)", inet_ntoa(nuevo.sin_addr),
+                (unsigned)ntohs(nuevo.sin_port), g_desviados);
+        return g_connect_real(s, (const struct sockaddr *)&nuevo, sizeof(nuevo));
+    }
+    return g_connect_real(s, sa, largo);
+}
+
+/* ★ las TRAMPAS del desempacado (sin Frida): una llamada que no se pudo resolver salta a
+ *   0xD0000000 + sitio − 0x400000 y el juego se cae. Queda anotado QUÉ sitio en eda_d3d9.log, para
+ *   que un jugador lo pueda mandar (documentacion/APIS_A_MANO.md). No cambia nada: sigue la caída. */
+static LONG WINAPI mi_excepcion(EXCEPTION_POINTERS *e)
+{
+    DWORD eip = (DWORD)(ULONG_PTR)e->ExceptionRecord->ExceptionAddress;
+    if (eip >= 0xD0000000u && eip < 0xD0600000u)
+        apuntar("⛔ el juego llegó a una llamada de Windows SIN RESOLVER: sitio 0x%lX (abrí un issue con "
+                "este número)", (unsigned long)(eip - 0xD0000000u + 0x400000u));
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 /* ★ esperar hasta el próximo cuadro. Sin eventos de red: Sleep mientras falte más de ~2 ms (con
  *   timeBeginPeriod(1), Sleep(1) ≈ 1 ms) y girar el último tramo. CON eventos: esperarlos con el tiempo
  *   que falta como plazo; si llega un mensaje, soltar YA (sin correr la grilla de los cuadros). */
@@ -701,6 +776,10 @@ static void leer_ajustes(HMODULE self)
     g_rapido = GetPrivateProfileIntA("video", "backbuffer_rapido", 0, ini);
     if (GetEnvironmentVariableA("EDA_BACKBUFFER_RAPIDO", v, sizeof(v))) g_rapido = atoi(v);
     if (g_tope < 0) g_tope = 0;
+    GetPrivateProfileStringA("red", "server", "", g_server, sizeof(g_server), ini);
+    char env[256];                                   /* ⚠ un dominio no entra en los 32 de `v` */
+    DWORD n = GetEnvironmentVariableA("EDA_SERVER", env, sizeof(env));
+    if (n && n < sizeof(env)) lstrcpyA(g_server, env);
 }
 
 BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
@@ -728,5 +807,11 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
         g_wsaes_real = (M_WSAES)parchear_iat("WS2_32.dll", "WSAEventSelect", (void *)mi_wsa_event_select);
         apuntar("  red inmediata: %s", g_wsaes_real ? "WSAEventSelect enganchado" : "⚠ no encontré WSAEventSelect en el exe");
     }
+    if (g_server[0]) {
+        g_connect_real = (M_CONNECT)parchear_iat("WS2_32.dll", "connect", (void *)mi_connect);
+        apuntar("  server: %s → %s", g_server, g_connect_real ? "connect enganchado"
+                : "⛔ no encontré connect en el exe (¿el EDA.exe con ASProtect? ese va con jugar.py)");
+    }
+    AddVectoredExceptionHandler(0, mi_excepcion);
     return TRUE;
 }
