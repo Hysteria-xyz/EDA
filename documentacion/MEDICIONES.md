@@ -1970,6 +1970,18 @@ cliente reconoce a sus pares, y si el server puede saberla.
   ping de la sala tendría que dar ~16–33 ms MÁS la red. Los «0–3 ms» de los cíber de 2009 pedían
   muchos más cuadros (pantalla completa sin sincronía, Windows XP sin compositor). ⏭ Medir con un
   juego a pantalla completa.
+- ★★ **Corregido (11-nov, `herramientas/medir_vsync.py`)**: EDA **NO pide sincronía**: su `CreateDevice`
+  pide `PresentationInterval = 0x80000000` (IMMEDIATE), ventana, `SwapEffect` 3 (COPY), 1 búfer,
+  `Flags` 1 (LOCKABLE_BACKBUFFER). En la LISTA DE SERVIDORES el bucle da **190–900 vueltas/s**;
+  sacarle el búfer bloqueable y pasar a `SWAP_DISCARD` NO cambia nada (A/B alternado: 190 / 183 /
+  196 / 182) → no es eso. Lo que pasa es que **la SALA (y la partida) gastan la placa de video**:
+  `nvidia-smi pmon` con dos EDA en la sala: **31–39 % de una RTX 3090 CADA UNO** dibujando ~25
+  cuadros/s; la placa al 94 % (168 W). Cerrando los dos EDA: 44 % (83 W, lo demás). Con un solo
+  juego en la sala daba ~60 vueltas/s; con dos, ~25–30 cada uno — de ahí el «lag» con dos juegos
+  abiertos y los ~75 ms del ping. ⏭ Encontrar QUÉ dibuja la sala que cuesta tanto (y arreglarlo
+  con una d3d9.dll nuestra, como en R2Beat: el proxy y Zig 0.16 ya están en ese proyecto).
+- 🧹 Ese rato la PC tenía además 4 `find /` huérfanos de otra sesión (25 % de CPU desde las 13:27):
+  cerrados con permiso. Cuidado al medir rendimiento: mirar antes `nvidia-smi` y la CPU.
 - `multi.py` lee ahora el registro del server que haya (`EDA_MULTI_LOG`, o `EDA_MULTI_SSH` para el
   de un contenedor): contra red.py/el VPS leía sólo el del espía, nunca veía avanzar nada y repetía
   clics que desarmaban la sala.
