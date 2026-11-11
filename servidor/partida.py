@@ -71,14 +71,25 @@ def cuerpo_1072(conexion, p):
 def termino_de_cargar(cmd, cuerpo, conexion, c, p):
     """terminó de cargar: corre el reloj"""
     p.update(inicio=time.time(), muertos=0, golpes=0, revividas=0)
+    # ★ 0x106C (aporte de Hysteria-xyz, PR #3): «activar al jugador en la stage». El manejador del
+    #   cliente (`0x547A60`) lee u8 JUGADOR · u8; si el 1º no es su número (cuenta+0x706) no hace nada;
+    #   si lo es, entre otras cosas manda «CursorCenter 1» (agarra el mouse). Según el PR, sin él las
+    #   habilidades (F1–F8) no se lanzan. ⛔ MEDIDO (MEDICIONES §43): con y sin él, F1 / F2 / F1+clic
+    #   derecho NO gastan MP (la barra queda en 210 píxeles) con un Warrior nivel 10 con sus habilidades
+    #   en la barra. Como además agarra el mouse, va APAGADO: se prende con <EDA_ESTADO>/con_106c.
+    def activar(destinos, total):
+        if not os.path.exists(os.path.join(config.ESTADO, "con_106c")):
+            return []
+        return [(0x106C, struct.pack("<BB", i, i), 0, n) for n in destinos for i in range(total)]
     # ★ con varios: la largada (0x105E) recién cuando cargaron TODOS, y a todos juntos
     s = SALAS.get(p.get("sala"))
     if s and len(s["miembros"]) > 1:
         s.setdefault("cargados", set()).add(conexion)
         if set(s["miembros"]) <= s["cargados"]:
-            return [(0x105E, struct.pack("<HI", 1, 600), 0, n) for n in s["miembros"]]
+            return ([(0x105E, struct.pack("<HI", 1, 600), 0, n) for n in s["miembros"]]
+                    + activar(s["miembros"], len(s["miembros"])))
         return []
-    return None
+    return [(0x105E, struct.pack("<HI", 1, 600), 0)] + activar([conexion], 1)
 
 
 @maneja(0x1061)

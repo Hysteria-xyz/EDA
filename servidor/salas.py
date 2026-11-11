@@ -170,6 +170,68 @@ def entrar_sala(cmd, cuerpo, conexion, c, p):
             + pares(s, 500) + avisar_lista(salvo=conexion))
 
 
+@maneja(0x1049)
+def cambiar_sala(cmd, cuerpo, conexion, c, p):
+    """★ CAMBIAR TÍTULO / CONTRASEÑA de la sala (aporte de Hysteria-xyz, PR #3). Cuerpo: u8 jugador ·
+    u16 tipo (1 título, 2 contraseña) · texto. Respuesta 0x104A (manejador `0x54E3D0`): u16 1 · u16
+    tipo · texto, a él y a los demás de la sala. 🟡 sin medir en pantalla."""
+    if not (len(cuerpo) >= 3):
+        return None
+    tipo = struct.unpack_from("<H", cuerpo, 1)[0]
+    texto = cuerpo[3:]
+    s = SALAS.get(p.get("sala"))
+    r = [(0x104A, struct.pack("<HH", 1, tipo) + texto, 0)]
+    if s:
+        r += [(0x104A, struct.pack("<HH", 1, tipo) + texto, 0, n) for n in s["miembros"] if n != conexion]
+    return r
+
+
+def _sacar_de_sala(s, num, conexion):
+    """Saca a `conexion` de la sala; si era el anfitrión, el mando pasa al siguiente. Devuelve los
+    avisos 0x1058 tipo 3 («se fue», con el número del NUEVO anfitrión) para los que quedan."""
+    yo = s["miembros"].index(conexion)
+    s["miembros"].remove(conexion)
+    if not s["miembros"]:
+        del SALAS[num]
+        return []
+    if s["anfitrion"] == conexion:
+        s["anfitrion"] = s["miembros"][0]
+    nuevo = s["miembros"].index(s["anfitrion"])
+    return [(0x1058, struct.pack("<BHB", yo, 3, nuevo), 0, n) for n in s["miembros"]]
+
+
+@maneja(0x1045)
+def salir_sala(cmd, cuerpo, conexion, c, p):
+    """★ LEAVE ROOM (aporte de Hysteria-xyz, PR #3): sin respuesta el cliente se quedaba en «Waiting for
+    Response from Server». 0x1046 (manejador `0x54E380`): u16 1 → de vuelta al lobby. A los que
+    quedan, 0x1058 tipo 3 (y si se fue el anfitrión, el mando pasa al siguiente)."""
+    num = p.pop("sala", None)
+    r = [(0x1046, struct.pack("<H", 1), 0)]
+    s = SALAS.get(num)
+    if s and conexion in s["miembros"]:
+        r += _sacar_de_sala(s, num, conexion)
+    return r + avisar_lista()
+
+
+@maneja(0x1051)
+def echar(cmd, cuerpo, conexion, c, p):
+    """★ KICK (aporte de Hysteria-xyz, PR #3): el anfitrión echa al jugador del lugar cuerpo[0]. Al
+    anfitrión 0x1052 (`0x550780`, cierra su cuadro de espera); al echado 0x1054 (`0x546D90`: u16 1 ·
+    u8 → al lobby); a los que quedan 0x1058 tipo 3. Sólo el anfitrión puede, y no a sí mismo."""
+    if not (len(cuerpo) >= 1):
+        return None
+    num = p.get("sala")
+    s = SALAS.get(num)
+    if not s or s["anfitrion"] != conexion or cuerpo[0] >= len(s["miembros"]):
+        return [(0x1052, b"\0", 0)]
+    echado = s["miembros"][cuerpo[0]]
+    if echado == conexion:
+        return [(0x1052, b"\0", 0)]
+    partida(echado).pop("sala", None)
+    return ([(0x1052, b"\0", 0), (0x1054, struct.pack("<HB", 1, 0), 0, echado)]
+            + _sacar_de_sala(s, num, echado) + avisar_lista())
+
+
 @maneja(0x1047)
 def listo(cmd, cuerpo, conexion, c, p):
     """★ F9 READY (el que no es anfitrión)"""
