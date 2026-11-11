@@ -1958,8 +1958,18 @@ cliente reconoce a sus pares, y si el server puede saberla.
   (PeekMessage). Descartado, medido: la AFINIDAD (los dos juegos en los 16 núcleos, `0xFFFF`, y el
   exe no importa `SetThreadAffinityMask`); el FOCO (con una ventana al frente: 32 vueltas/s y 39 ms,
   igual); `ClientSleepMS`, `MaxFPS`, `LatencySim`, `DropRate` (en 0, en el archivo y en la memoria de
-  los dos); `alwaysfocused` (es del mouse/teclado, `0x419B85`). 🟡 Quién marca las ~32 vueltas por
-  segundo todavía no se sabe (¿el modo ventana / la sincronía vertical?).
+  los dos); `alwaysfocused` (es del mouse/teclado, `0x419B85`).
+- ★ **Quién marca el ritmo: la SINCRONÍA CON EL MONITOR** (esperas contadas en 5 s con Frida): en el
+  hilo principal, `nvd3dum.dll` (el driver de NVIDIA) espera de a 1 ms ~2.700 veces por segundo, y
+  `mss32` da una vuelta por cuadro (~28/s). Con UN solo juego abierto el bucle da **60 vueltas/s**
+  (= el refresco del monitor); con DOS en la misma PC se reparten el refresco: **30 cada uno**. O sea:
+  la red se lee una vez por cuadro y cada cuadro espera al monitor. `"VSyncOnFlip" "0"` en
+  `autoexec.cfg` NO cambió nada (30 vueltas/s y 30,6 ms de mediana, igual): 🟡 o no se aplica o el
+  driver sincroniza igual.
+  ⇒ En una partida de verdad (un juego por PC, monitor de 60 Hz) cada lado espera hasta ~16 ms: el
+  ping de la sala tendría que dar ~16–33 ms MÁS la red. Los «0–3 ms» de los cíber de 2009 pedían
+  muchos más cuadros (pantalla completa sin sincronía, Windows XP sin compositor). ⏭ Medir con un
+  juego a pantalla completa.
 - `multi.py` lee ahora el registro del server que haya (`EDA_MULTI_LOG`, o `EDA_MULTI_SSH` para el
   de un contenedor): contra red.py/el VPS leía sólo el del espía, nunca veía avanzar nada y repetía
   clics que desarmaban la sala.
