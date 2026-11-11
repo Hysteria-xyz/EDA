@@ -13,6 +13,7 @@ cambia el destino por 127.0.0.1:25900, donde escucha el oyente de `espiar_broker
   y un cliente que se reconecte iría al Broker de verdad, que no existe).
 """
 import os
+import socket
 import struct
 import subprocess
 import sys
@@ -27,6 +28,10 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG = os.path.join(RAIZ, "_trabajo", "broker", "redirigir.log")
 BROKER = ("218.145.66.187", 25000)
 LOCAL = ("127.0.0.1", 25900)
+if os.environ.get("EDA_SERVER"):
+    # ★ a un server de OTRA PC (p. ej. el VPS): EDA_SERVER=IP[:PUERTO]
+    _h, _, _p = os.environ["EDA_SERVER"].partition(":")
+    LOCAL = (socket.gethostbyname(_h), int(_p or 25900))
 EXES = ("EDA_limpio.exe", "EDA.exe")
 
 JS = r"""

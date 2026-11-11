@@ -1,10 +1,13 @@
-#!python3.10
 r"""jugar.py -- EDA (Espada del Alma, Softnyx 2009) contra nuestro server, en tu PC. Sólo Windows.
 
     py jugar.py --preparar "C:\ruta\al\cliente"     # UNA vez: copia el juego a _trabajo\juego
     py jugar.py                                      # el server + el juego (exe\EDA_limpio.exe)
     py jugar.py --original                           # lo mismo con el EDA.exe de 2009 (con
                                                      #   ASProtect), ajustado en memoria
+    py jugar.py --server IP[:PUERTO]                 # ★ a un server de OTRA PC (un VPS): no
+                                                     #   levanta el server local (puerto 25900)
+    py jugar.py --sin-dll                            # sin nuestra d3d9.dll (tope de cuadros,
+                                                     #   red inmediata): el juego como en 2009
 
 Qué hace (ver EMPEZAR.md):
   · `--preparar` copia tu cliente de 2009 a `_trabajo\juego\` (el original no se toca), verifica
@@ -75,6 +78,29 @@ def preparar(origen):
     print("✅ listo. Ahora: py jugar.py")
 
 
+def poner_dll(sacar=False):
+    """★ NUESTRA d3d9.dll al lado del juego (herramientas/dll_d3d9, MEDICIONES §41–42): tope de cuadros
+    (sin él EDA dibuja cientos por segundo y la placa va al máximo), búferes rápidos (cada dibujo
+    frenaba la placa: con dos juegos caían a ~14 cuadros/s), la red inmediata (la latencia ya no
+    depende de los cuadros) y el contador «FPS» arriba a la izquierda. Ajustes en
+    _trabajo\\juego\\eda_d3d9.ini. Con `--sin-dll` se saca y el juego vuelve al d3d9 de Windows."""
+    destino = os.path.join(JUEGO, "d3d9.dll")
+    if sacar:
+        if os.path.exists(destino):
+            os.remove(destino)
+            print("· d3d9.dll de EDA: sacada (el juego usa el d3d9 de Windows)")
+        return
+    for carpeta in (os.path.join(RAIZ, "exe"), os.path.join(RAIZ, "_trabajo", "dll")):
+        dll = os.path.join(carpeta, "d3d9.dll")
+        if os.path.exists(dll):
+            shutil.copy2(dll, destino)
+            ini = os.path.join(carpeta, "eda_d3d9.ini")
+            if os.path.exists(ini) and not os.path.exists(os.path.join(JUEGO, "eda_d3d9.ini")):
+                shutil.copy2(ini, JUEGO)
+            print("· d3d9.dll de EDA: puesta (tope de cuadros, red inmediata; ajustes en eda_d3d9.ini)")
+            return
+
+
 def server_andando():
     try:
         socket.create_connection(("127.0.0.1", 25900), timeout=0.5).close()
@@ -107,37 +133,44 @@ def main():
             shutil.copy2(lim, os.path.join(JUEGO, nombre))
         else:
             raise SystemExit("⛔ no está %s" % os.path.join(JUEGO, nombre))
+    poner_dll(sacar="--sin-dll" in a)
+    import eda_original
+    remoto = None
+    if "--server" in a:
+        # ★ un server de OTRA PC (p. ej. el VPS, `despliegue/`): no se levanta nada acá
+        i = a.index("--server")
+        if i + 1 >= len(a):
+            raise SystemExit("uso: py jugar.py --server IP[:PUERTO]   (PUERTO por defecto 25900)")
+        remoto = eda_original.destino(a[i + 1])
+        print("· server: %s:%d" % (".".join(map(str, remoto[0])), remoto[1]))
+        try:
+            socket.create_connection((".".join(map(str, remoto[0])), remoto[1]), timeout=5).close()
+        except OSError as e:
+            raise SystemExit("⛔ el server %s:%d no contesta (%s). ¿Está andando? ¿El firewall?"
+                             % (".".join(map(str, remoto[0])), remoto[1], e))
+        eda_original.lanzar(esperar=True, nombre=nombre, server=remoto)
+        print("· el juego se cerró")
+        return 0
     if not os.path.exists(REGLAS):                     # las respuestas del Broker (anuncio, lista)
         subprocess.run([sys.executable, os.path.join(HERR, "reglas_broker.py")], check=True)
     propio = None
-    propio_punch = None
     if server_andando():
         print("· el server ya estaba andando (127.0.0.1:25900)")
     else:
         log = open(os.path.join(RAIZ, "_trabajo", "server.txt"), "a", encoding="utf-8")
         propio = subprocess.Popen([sys.executable, os.path.join(HERR, "espiar_broker.py"), "sin_admin"],
                                   stdout=log, stderr=log, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
-        env_punch = dict(os.environ, PYTHONIOENCODING="utf-8", EDA_PUNCH_ECO="1")
-        propio_punch = subprocess.Popen([sys.executable, os.path.join(HERR, "udp_punch.py"), "25001"],
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env_punch)
         for _ in range(40):
             if server_andando():
                 break
             time.sleep(0.25)
         print("· server andando (127.0.0.1:25900) — su registro: _trabajo\\broker\\espia.log")
-        print("· servidor UDP Punch andando (127.0.0.1:25001)")
-    import eda_original
     try:
         eda_original.lanzar(esperar=True, nombre=nombre)
         print("· el juego se cerró")
     except KeyboardInterrupt:
         pass
     finally:
-        if propio_punch:
-            try:
-                propio_punch.kill()
-            except Exception:
-                pass
         if propio:
             open(PARAR, "w").close()
             try:

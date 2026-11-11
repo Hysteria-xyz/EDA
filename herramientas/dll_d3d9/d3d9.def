@@ -1,0 +1,6 @@
+; ⚠ EL NOMBRE TIENE QUE SALIR LIMPIO (aprendido en R2Beat): `Direct3DCreate9` es stdcall y en x86 el
+;   compilador la exportaría como `_Direct3DCreate9@4`. El exe la busca por el nombre pelado: sin este
+;   archivo la DLL carga pero GetProcAddress no la encuentra y el juego no abre.
+LIBRARY d3d9
+EXPORTS
+    Direct3DCreate9

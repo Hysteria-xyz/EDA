@@ -65,21 +65,37 @@ def clave_de_exe(ruta):
     return hashlib.md5(open(ruta, "rb").read() + b"\0").digest()
 
 
-_CLAVES_CACHE = None
+# ★ Las claves de los dos exes que juega la gente, FIJAS: así un server SIN los exes (Linux, Docker)
+#   abre igual sus paquetes. Son md5(exe + 00) de:
+#     · el EDA.exe de 2009 (md5 f0b12e6cddf3efdd0676b6491efe46be): `jugar.py --original`
+#     · exe/EDA_limpio.exe (md5 0799387e23cadd355888bd712143f2d5): `jugar.py` (por defecto)
+#   ⚠ Si se rearma el limpio, cambia su clave: se agrega acá (o en EDA_CLAVES, sin tocar el código).
+CLAVES_FIJAS = {
+    "EDA.exe de 2009": bytes.fromhex("a57ca836788301a9aff975159cbcbe97"),
+    "EDA_limpio.exe (0799387e)": bytes.fromhex("2921cf268c0d66325864aec9ab4fc7f4"),
+}
+_CACHE_CLAVES = {}
+
 
 def claves_conocidas():
-    """{nombre: clave} de los exes que hay a mano (el original y las copias de `_trabajo/juego`)
-    más la de respaldo. El server prueba con todas: la magia dice cuál es la buena."""
-    global _CLAVES_CACHE
-    if _CLAVES_CACHE is not None:
-        return _CLAVES_CACHE
-    out = {}
+    """{nombre: clave}: las FIJAS, las de EDA_CLAVES (hex separadas por coma), las de los exes que
+    haya a mano (el original, `exe/` y las copias de `_trabajo/juego`) y la de respaldo. El server
+    prueba con todas: la magia dice cuál es la buena. (El md5 de cada exe se calcula UNA vez por
+    fecha de archivo: antes se releían ~10 exes de 2 MB por paquete.)"""
+    out = dict(CLAVES_FIJAS)
+    for i, h in enumerate(x.strip() for x in os.environ.get("EDA_CLAVES", "").split(",") if x.strip()):
+        out["EDA_CLAVES[%d]" % i] = bytes.fromhex(h)
     for ruta in [os.path.join(RAIZ, "cliente", "EDA.exe")] + sorted(
-            glob.glob(os.path.join(RAIZ, "_trabajo", "juego", "*.exe"))):
-        if os.path.exists(ruta):
-            out[os.path.basename(ruta)] = clave_de_exe(ruta)
+            glob.glob(os.path.join(RAIZ, "exe", "*.exe"))
+            + glob.glob(os.path.join(RAIZ, "_trabajo", "juego", "*.exe"))):
+        try:
+            t = os.path.getmtime(ruta)
+        except OSError:
+            continue
+        if _CACHE_CLAVES.get(ruta, (None,))[0] != t:
+            _CACHE_CLAVES[ruta] = (t, clave_de_exe(ruta))
+        out[os.path.relpath(ruta, RAIZ)] = _CACHE_CLAVES[ruta][1]
     out["(respaldo)"] = CLAVE_RESPALDO
-    _CLAVES_CACHE = out
     return out
 
 

@@ -110,8 +110,38 @@ Con el primer byte en 0, el panel NOTICE queda vacío.
 ## 5 · Server de juego
 
 ### 5.1 · `0x100F` C→S — quién soy (237 B)
-IP local (UTF-16), una MAC (UTF-16), **el MD5 del exe en texto ASCII** (32 hexa), las
-direcciones que dio el NAT, y basura de la pila.
+Lo arma `0x549940` copiando campos de la cuenta (`0x623E60()`), en lugares fijos. Desplazamientos
+**del mensaje** (contando su `u16 largo · u16 comando`), medidos (MEDICIONES §39):
+
+| mensaje | de la cuenta | qué es |
+|---|---|---|
+| `+0x08` (UTF-16) | `+0xF0` | ★ **el 1er dato del LAUNCHER** (el mismo de la «huella» del `0x0604` y del UDP `0x3002`) |
+| `+0x32` 🟡 (UTF-16) | `+0x11A` | ★ **el 2º dato del LAUNCHER** (🟡 el lugar: deducido = `+0x08` + los 0x2A del 1º; a medir con un bloque de verdad) |
+| (UTF-16) | `+0x144` | la IP privada |
+| **`+0x7E`** (UTF-16, 17 car.) | `+0x166` | ★★ **la MAC = la IDENTIDAD P2P** (la misma que va en los saludos `C354`) |
+| (ASCII, 32) | `+0x1A6` | el MD5 del exe |
+| `+0xDD`… | `+0x2B0` | las direcciones UDP privada y pública (§5.16) |
+
+⚠ La MAC llega bien SÓLO si el juego se lanzó con la ruta **entre comillas** y sin bloque del
+launcher (o con uno válido): ver «La línea de comandos del launcher» abajo.
+
+#### La línea de comandos del launcher (`0x6229F0`, medido 11-nov)
+
+Al arrancar, `0x6229F0` (método de la cuenta) primero pide la MAC a Windows (`GetAdaptersInfo`, el
+1er adaptador, `"%02X:%02X:%02X:%02X:%02X:%02X"`) y la guarda en `+0x166` (UTF-16) y `+0x1C7`
+(ASCII; ésta se la pasa `0x4E76AE` al «P2PHelper» como identidad). Después lee `GetCommandLineA()`:
+
+```
+"C:\ruta\EDA.exe" <BLOQUE>
+   · si la línea empieza con comillas, el BLOQUE es lo que sigue a «" » (sin bloque: no hace nada)
+   · ⚠ si NO empieza con comillas, toma la línea ENTERA como bloque
+   BLOQUE = hexadecimal (sscanf "%02X" de a 2) → bytes XOR la MAC en texto ("AA:BB:…", en ciclo)
+          = "<A> <B>"  (separados por UN espacio)  → A → cuenta+0xF0 · B → cuenta+0x11A (UTF-16)
+```
+
+Por eso, lanzado SIN comillas (Python `Popen([ruta])`), la ruta se «decodifica» como bloque: A y B
+salen basura (la «huella» rara, con pedazos de la MAC: XOR contra ceros) y la copia se pasa de largo
+y **pisa la MAC de `+0x166`**. ★ Es la puerta para el LOGIN del launcher web (A = usuario, B = pase).
 
 ### 5.2 · `0x1010` S→C — entrada (12 B)
 `u16 resultado` (1 = OK; `0x66`, `0x899`, `0x89A` = errores) · `u32 🟡` (→ `+0x2B8` de la

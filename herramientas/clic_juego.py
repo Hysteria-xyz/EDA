@@ -204,58 +204,29 @@ def control():
     def chequear(n, c, d=""):
         print("  %s %s %s" % ("✅" if c else "⛔", n, d))
         ok.append(bool(c))
-    marca = os.path.join(RAIZ, "_trabajo", "control_clic.txt").replace("\\", "/")
+    marca = os.path.join(RAIZ, "_trabajo", "control_clic.txt")
     if os.path.exists(marca):
         os.remove(marca)
-    # Ventana nativa Win32 (como la del motor C++ LithTech/HGE) que procesa WM_LBUTTONDOWN directamente
-    codigo = (
-        "import ctypes, sys, os\n"
-        "import ctypes.wintypes as wt\n"
-        "u = ctypes.WinDLL('user32')\n"
-        "k = ctypes.WinDLL('kernel32')\n"
-        "u.DefWindowProcW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]\n"
-        "u.DefWindowProcW.restype = wt.LPARAM\n"
-        "P = ctypes.WINFUNCTYPE(wt.LPARAM, wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)\n"
-        "def w(h, m, w, l):\n"
-        "    if m == 0x201:\n"
-        "        x, y = l & 0xFFFF, (l >> 16) & 0xFFFF\n"
-        "        if 100 <= x <= 200 and 80 <= y <= 120:\n"
-        "            with open(r'%s', 'a') as f: f.write('clic %%d %%d\\n' %% (x, y))\n"
-        "    elif m == 0x10:\n"
-        "        u.PostQuitMessage(0)\n"
-        "    return u.DefWindowProcW(h, m, w, l)\n"
-        "class C(ctypes.Structure):\n"
-        "    _fields_ = [('s', wt.UINT), ('p', P), ('ce', ctypes.c_int), ('we', ctypes.c_int), "
-        "('hi', wt.HINSTANCE), ('ic', wt.HANDLE), ('cu', wt.HANDLE), ('bg', wt.HANDLE), "
-        "('mn', wt.LPCWSTR), ('cn', wt.LPCWSTR)]\n"
-        "wc = C()\n"
-        "wc.p = P(w)\n"
-        "wc.hi = k.GetModuleHandleW(None)\n"
-        "wc.cn = 'TestClicWnd'\n"
-        "u.RegisterClassW(ctypes.byref(wc))\n"
-        "h = u.CreateWindowExW(0, 'TestClicWnd', 'Test', 0x10CF0000, 60, 60, 300, 200, 0, 0, wc.hi, 0)\n"
-        "u.ShowWindow(h, 5)\n"
-        "m = wt.MSG()\n"
-        "while u.GetMessageW(ctypes.byref(m), 0, 0, 0) != 0:\n"
-        "    u.TranslateMessage(ctypes.byref(m))\n"
-        "    u.DispatchMessageW(ctypes.byref(m))\n"
-        % marca
-    )
+    # ⚠ NO un `tk.Button`: Tk sólo lo «arma» si el cursor DE VERDAD pasa por encima, así que un
+    #   clic mandado por mensaje nunca lo dispara y el control no distinguía nada. Una zona que
+    #   escucha el clic crudo (`<ButtonPress-1>`) es lo que lee una interfaz como la de HGE.
+    codigo = ("import tkinter as t; r=t.Tk(); r.geometry('300x200+60+60'); "
+              "z=t.Frame(r,bg='red'); z.place(x=100,y=80,width=100,height=40); "
+              "z.bind('<ButtonPress-1>', lambda e: open(r'%s','a').write('clic %%d %%d\\n' %% "
+              "(e.x, e.y))); r.after(9000, r.destroy); r.mainloop()" % marca)
     hijo = subprocess.Popen([sys.executable, "-c", codigo])
     try:
-        time.sleep(1.5)
+        time.sleep(2.5)
         h = ventana(hijo.pid)
         clic(h, 20, 20)                                      # el revés: fuera del botón
-        time.sleep(0.4)
+        time.sleep(0.6)
         chequear("un clic FUERA del botón no lo aprieta", not os.path.exists(marca))
         clic(h, 150, 100)                                    # en el medio del botón
-        time.sleep(0.4)
+        time.sleep(0.6)
         chequear("un clic EN el botón lo aprieta (sin mover el mouse)",
                  os.path.exists(marca) and "clic" in open(marca).read())
     finally:
         hijo.kill()
-        if os.path.exists(marca):
-            os.remove(marca)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
 

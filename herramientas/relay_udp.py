@@ -36,9 +36,15 @@ except Exception:                                            # noqa: BLE001
     pass
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MAPA = os.path.join(RAIZ, "_trabajo", "servidor", "relay.json")
-LOG = os.path.join(RAIZ, "_trabajo", "broker", "relay.log")
-RELAY_BASE = 26000
+# (con EDA_ESTADO / EDA_RELAY_BASE: los mismos que lee `servidor/config.py`; así anda en Docker)
+_ESTADO = os.environ.get("EDA_ESTADO") or os.path.join(RAIZ, "_trabajo", "servidor")
+MAPA = os.path.join(_ESTADO, "relay.json")
+# ★ lo que vio el PUNCH: conexión → [IP, puerto] PÚBLICOS de su 0x3006. Lo lee el server para darle a
+#   cada par la dirección DIRECTA del otro (P2P sin relay, `servidor/relay.dir_udp`, MEDICIONES §40)
+PUNCH = os.path.join(_ESTADO, "punch.json")
+LOG = (os.path.join(_ESTADO, "relay.log") if os.environ.get("EDA_ESTADO")
+       else os.path.join(RAIZ, "_trabajo", "broker", "relay.log"))
+RELAY_BASE = int(os.environ.get("EDA_RELAY_BASE") or 26000)
 MAC = re.compile(rb"[0-9A-F]{2}(?::[0-9A-F]{2}){5}")
 MAC16 = re.compile(rb"(?:[0-9A-F]\x00){2}(?::\x00(?:[0-9A-F]\x00){2}){5}")
 
@@ -81,7 +87,19 @@ def main(ip="0.0.0.0"):
 
     anotar("relay escuchando %s:%d (+1+n por jugador)" % (ip, RELAY_BASE))
     ultimo_mapa = 0
+    # ★ cuántos datagramas de PARTIDA pasan por acá (con P2P directo tienen que ser 0): se anota
+    #   un resumen cada 30 s, si hubo alguno
+    reenviados, desde = {}, time.time()
+    punch_vio = {}                   # conexión → (IP, puerto) de su último 0x3006 (sólo eso: punch.json)
+    try:
+        json.dump({}, open(PUNCH, "w"))  # lo de una corrida anterior no vale (los números se reusan)
+    except OSError:
+        pass
     while True:
+        if reenviados and time.time() - desde >= 30:
+            anotar("reenviados en %d s: %s" % (time.time() - desde, ", ".join(
+                "%d→%d: %d" % (o, d, k) for (o, d), k in sorted(reenviados.items()))))
+            reenviados, desde = {}, time.time()
         try:
             if os.path.getmtime(MAPA) != ultimo_mapa:
                 ultimo_mapa = os.path.getmtime(MAPA)
@@ -111,7 +129,16 @@ def main(ip="0.0.0.0"):
                     n = int.from_bytes(datos[4:8], "little")
                     if dir_de.get(n) != quien:
                         anotar("jugador %d está en %s:%d" % (n, quien[0], quien[1]))
+                        # ⚠ el server REUSA los números de conexión (`servidor/red.py`): uno nuevo
+                        #   en el mismo número no tiene la MAC del anterior
+                        real_de.pop(n, None)
                     dir_de[n], de_dir[quien] = quien, n
+                    if punch_vio.get(n) != quien:
+                        punch_vio[n] = quien
+                        try:
+                            json.dump({str(k): list(v) for k, v in punch_vio.items()}, open(PUNCH, "w"))
+                        except OSError:
+                            pass
                 continue
             destino = next(k for k, v in socks.items() if v is s)
             origen = de_dir.get(quien)
@@ -125,6 +152,7 @@ def main(ip="0.0.0.0"):
                 real_de[origen] = vista
                 anotar("jugador %d: su MAC real aprendida (no se anota)" % origen)
             socks[origen].sendto(nuevo, dir_de[destino])
+            reenviados[(origen, destino)] = reenviados.get((origen, destino), 0) + 1
 
 
 def control():

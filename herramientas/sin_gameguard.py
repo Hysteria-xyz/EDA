@@ -56,9 +56,7 @@ except Exception:                                            # noqa: BLE001
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TRABAJO = os.path.join(RAIZ, "_trabajo")
-ENTRADA = (os.path.join(TRABAJO, "EDA_libre", "EDA_libre.exe")
-           if os.path.exists(os.path.join(TRABAJO, "EDA_libre", "EDA_libre.exe"))
-           else os.path.join(TRABAJO, "juego", "EDA_limpio.exe"))
+ENTRADA = os.path.join(TRABAJO, "EDA_libre", "EDA_libre.exe")
 JUEGO = os.path.join(TRABAJO, "juego")
 
 # (VA, los bytes que TIENEN que estar, los bytes nuevos, qué es)

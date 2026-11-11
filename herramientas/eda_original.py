@@ -43,76 +43,6 @@ const quien = %(quien)s, aca = %(aca)s;
 function hex(p, n) { return Array.from(new Uint8Array(p.readByteArray(n)))
                          .map(b => ('0' + b.toString(16)).slice(-2)).join(''); }
 
-// --- 0. compatibilidad Direct3D 9 en Windows moderno (WDDM / NVIDIA) -----------------------
-const d3d9Mod = Process.findModuleByName('d3d9.dll') || Module.load('d3d9.dll');
-const c9 = d3d9Mod ? d3d9Mod.getExportByName('Direct3DCreate9') : null;
-const c9ex = d3d9Mod ? d3d9Mod.getExportByName('Direct3DCreate9Ex') : null;
-
-function patchDevice(pDev) {
-    if (!pDev || pDev.isNull()) return;
-    const devVtbl = pDev.readPointer();
-    // 23: CreateTexture(this, Width, Height, Levels, Usage, Format, Pool, ppTexture, pSharedHandle)
-    Interceptor.attach(devVtbl.add(23 * 4).readPointer(), {
-        onEnter: function (args) {
-            if (args[6].toInt32() === 1) { // D3DPOOL_MANAGED -> D3DPOOL_DEFAULT + D3DUSAGE_DYNAMIC
-                args[6] = ptr(0);
-                args[4] = ptr(args[4].toInt32() | 0x200);
-            }
-        }
-    });
-    // 25: CreateCubeTexture
-    Interceptor.attach(devVtbl.add(25 * 4).readPointer(), {
-        onEnter: function (args) {
-            if (args[6].toInt32() === 1) {
-                args[6] = ptr(0);
-                args[4] = ptr(args[4].toInt32() | 0x200);
-            }
-        }
-    });
-    // 26: CreateVertexBuffer(this, Length, Usage, FVF, Pool, ppVertexBuffer, pSharedHandle)
-    Interceptor.attach(devVtbl.add(26 * 4).readPointer(), {
-        onEnter: function (args) {
-            if (args[4].toInt32() === 1) {
-                args[4] = ptr(0);
-                args[2] = ptr(args[2].toInt32() | 0x200);
-            }
-        }
-    });
-    // 27: CreateIndexBuffer(this, Length, Usage, Format, Pool, ppIndexBuffer, pSharedHandle)
-    Interceptor.attach(devVtbl.add(27 * 4).readPointer(), {
-        onEnter: function (args) {
-            if (args[4].toInt32() === 1) {
-                args[4] = ptr(0);
-                args[2] = ptr(args[2].toInt32() | 0x200);
-            }
-        }
-    });
-}
-
-if (c9 && c9ex) {
-    const fnEx = new NativeFunction(c9ex, 'int', ['uint', 'pointer'], 'stdcall');
-    Interceptor.replace(c9, new NativeCallback(function (version) {
-        const pOut = Memory.alloc(Process.pointerSize);
-        const hr = fnEx(version, pOut);
-        if (hr === 0) {
-            const pD3D = pOut.readPointer();
-            const d3dVtbl = pD3D.readPointer();
-            Interceptor.attach(d3dVtbl.add(16 * 4).readPointer(), {
-                onEnter: function (args) {
-                    this.ppDev = args[6];
-                },
-                onLeave: function (retval) {
-                    if (retval.toInt32() === 0 && this.ppDev) {
-                        patchDevice(this.ppDev.readPointer());
-                    }
-                }
-            });
-            return pD3D;
-        }
-        return ptr(0);
-    }, 'pointer', ['uint'], 'stdcall'));
-}
-
 // --- 2. la red ---------------------------------------------------------------------------
 const ws2 = Process.findModuleByName('ws2_32.dll') || Module.load('ws2_32.dll');
 Interceptor.attach(ws2.getExportByName('connect'), {onEnter(a) {
@@ -254,9 +184,19 @@ def _avisar(t):
     print(t, flush=True)
 
 
-def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
+def destino(texto):
+    """«IP» o «IP:PUERTO» → ([a, b, c, d], puerto) para el desvío del connect. Un nombre (p. ej. un
+    dominio) se resuelve acá, una vez: el juego recibe la IP."""
+    import socket
+    host, _, puerto = texto.strip().rpartition(":") if ":" in texto else (texto.strip(), "", "")
+    ip = socket.gethostbyname(host)
+    return [int(x) for x in ip.split(".")], int(puerto or LOCAL[1])
+
+
+def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe", server=None):
     """Abre `_trabajo/juego/EDA.exe` con todo puesto. Devuelve el pid. Con `esperar`, se queda
-    hasta que el juego se cierra (guardando los XML que vayan saliendo)."""
+    hasta que el juego se cierra (guardando los XML que vayan saliendo). `server` = ([IP], puerto)
+    adonde va el juego (por defecto este PC, 127.0.0.1:25900)."""
     import frida
     # nombre: "EDA.exe" (el original, con ASProtect) o "EDA_limpio.exe" (desempacado y sin
     #   GameGuard: los parches ya están en el archivo, y se reconocen como hechos)
@@ -266,7 +206,7 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
     os.makedirs(DATOS, exist_ok=True)
     parches = [[va, viejo, nuevo] for va, viejo, nuevo, _ in SG.RECETAS["limpio"]]
     js = JS % {"parches": json.dumps(parches), "xmls": json.dumps(faltantes()),
-               "quien": json.dumps(BROKER), "aca": json.dumps(LOCAL), "inflate": INFLATE,
+               "quien": json.dumps(BROKER), "aca": json.dumps(server or LOCAL), "inflate": INFLATE,
                "inflate_bytes": INFLATE_BYTES}
     js += JS_TRAMPA
     if os.environ.get("EDA_SIMULAR_ACP"):                  # p. ej. 1252 = una PC en español
