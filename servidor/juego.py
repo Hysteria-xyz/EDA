@@ -1162,13 +1162,20 @@ def responder(cmd, cuerpo, conexion):
     if cmd == 0x105F:                                       # terminó de cargar: corre el reloj
         p.update(inicio=time.time(), muertos=0, golpes=0, revividas=0)
         # ★ con varios: la largada (0x105E) recién cuando cargaron TODOS, y a todos juntos
+        # 0x106C activa el personaje en la stage y setea [player + 0x21d] = 1 (permite soltar/castear skills)
         s = SALAS.get(p.get("sala"))
         if s and len(s["miembros"]) > 1:
             s.setdefault("cargados", set()).add(conexion)
             if set(s["miembros"]) <= s["cargados"]:
-                return [(0x105E, struct.pack("<HI", 1, 600), 0, n) for n in s["miembros"]]
+                r = []
+                for n in s["miembros"]:
+                    r.append((0x105E, struct.pack("<HI", 1, 600), 0, n))
+                    for i in range(len(s["miembros"])):
+                        r.append((0x106C, struct.pack("<BB", i, i), 0, n))
+                return r
             return []
-        return [(0x105E, struct.pack("<HI", 1, 600), 0)]
+        return [(0x105E, struct.pack("<HI", 1, 600), 0),
+                (0x106C, struct.pack("<BB", 0, 0), 0)]
     if cmd == 0x1061:                                       # un NPC muerto [§5.11]
         p["muertos"] += 1
         return []
@@ -1313,7 +1320,9 @@ def control():
     responder(0x106A, b"\0\1\xff", 99)
     r = responder(0x106A, b"\0\1\xff", 99)
     chequear("★ el revés: sin monedas NO revive (modo 0)", r[0][1][2] == 0 and leer(99)["monedas"] == 0)
-    responder(0x105F, b"\0" * 4, 99)
+    r = responder(0x105F, b"\0" * 4, 99)
+    chequear("0x105F → 0x105E (reloj) + 0x106C (activar personajes/skills)",
+             [x[0] for x in r] == [0x105E, 0x106C])
     for _ in range(10):
         responder(0x1061, b"\0" * 8, 99)
     r = responder(0x1064, b"\0", 99)
