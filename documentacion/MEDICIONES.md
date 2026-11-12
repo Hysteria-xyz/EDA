@@ -2185,3 +2185,10 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   1.er canje → 200 y ticket para el uid; 2.º canje del MISMO pase → 409 «repetido». El cliente para
   repartir con `<uid> <ticket> 127.0.0.1:…` → SELECT CHARACTER como `r2b_<uid>`. La cadena entera
   (portero → pase → canje → ticket → dll → 0x100F → cuenta) anda con las claves de verdad.
+- **Prod con la clave del portero** (12-nov, con el OK de el tester): `EDA_PORTERO_CLAVES` = el JWKS de prod en
+  `/opt/eda/prod.env`, `EDA_LOGIN` sigue `abierto` (todos entran; el canje ya anda para cuando salga el
+  launcher 2.5). Verificado ADENTRO del contenedor: `porteria.claves()` → el kid de prod.
+- **El panel de aprobaciones del portero también en `/admin`** del dominio (`caddy.sh … <host del panel>`:
+  `/admin*` → `https://<panel>/cuentas/admin*`, dentro del filtro «sólo Cloudflare»). Medido por
+  Cloudflare: `/admin` 200 («EDA · Aprobaciones»), `/admin/lista` sin sesión 401; lo demás igual
+  (`/eda/salud` 200, `/files-eda/…` 200, `/otra` 404).
