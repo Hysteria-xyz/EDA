@@ -7,7 +7,7 @@ from servidor import config
 from servidor.config import P
 from servidor.registro import maneja
 from servidor.estado import ASIGNADAS, SALAS, partida
-from servidor.cuentas import leer, nivel, nombre_visible
+from servidor.cuentas import leer, nivel, nombre_visible, guardar, EXPS, INICIO
 from servidor.objetos import equipo_tipos, obj_habilidad, personaje_obj
 from servidor import relay
 from servidor.relay import dir_udp, identidad_de
@@ -265,7 +265,7 @@ def listo(cmd, cuerpo, conexion, c, p):
 
 @maneja(0x100D)
 def chat(cmd, cuerpo, conexion, c, p):
-    """★ CHAT (lobby / sala)"""
+    """★ CHAT (lobby / sala) + COMANDOS GM (/oro, /cash, /nivel, /item, /ayuda)"""
     if not (len(cuerpo) >= 13):
         return None
     # C→S (medido 18:19): u8 tipo (1) · u32 destino (FFFFFFFF = todos) · u32 0 · u32 largo en
@@ -275,6 +275,81 @@ def chat(cmd, cuerpo, conexion, c, p):
     #   largo + UTF-16, como lo manda el cliente)
     largo = struct.unpack_from("<I", cuerpo, 9)[0]
     texto = cuerpo[13:13 + largo]
+
+    # ★ Comandos de GM / Tester (aporte de Hysteria-xyz)
+    try:
+        texto_str = texto.decode("utf-16-le").rstrip("\x00").strip()
+    except Exception:
+        texto_str = ""
+
+    if texto_str.startswith("/"):
+        def _aviso(txt):
+            b = txt.encode("utf-16-le")
+            nom = "[Sistema]".encode("utf-16-le")[:24].ljust(26, b"\0")
+            return [(0x1005, struct.pack("<HBII", 0, 4, 0xFF00FF00, 0) + nom
+                             + struct.pack("<I", len(b)) + b, 0)]
+
+        partes = texto_str[1:].split()
+        sub = partes[0].lower() if partes else ""
+        if sub in ("oro", "gold"):
+            if len(partes) >= 2 and partes[1].isdigit():
+                c["plata"] = max(0, int(partes[1]))
+                guardar(c)
+                return _aviso(f"Oro actualizado a {c['plata']}")
+            return _aviso("Uso: /oro <cantidad>")
+        elif sub == "cash":
+            if len(partes) >= 2 and partes[1].isdigit():
+                c["cash"] = max(0, int(partes[1]))
+                guardar(c)
+                return _aviso(f"Cash actualizado a {c['cash']}")
+            return _aviso("Uso: /cash <cantidad>")
+        elif sub in ("nivel", "lvl", "level"):
+            if len(partes) >= 2 and partes[1].isdigit():
+                n = max(1, min(int(partes[1]), len(EXPS)))
+                c["exp"] = EXPS[n - 1]
+                guardar(c)
+                return _aviso(f"Nivel actualizado a {n} (EXP: {c['exp']})")
+            return _aviso(f"Uso: /nivel <1-{len(EXPS)}>")
+        elif sub == "item":
+            if len(partes) >= 2 and partes[1].isdigit():
+                iid = int(partes[1])
+                cant = int(partes[2]) if len(partes) >= 3 and partes[2].isdigit() else 1
+                items = c.setdefault("items", [])
+                for it in items:
+                    if it[0] == iid:
+                        it[1] += cant
+                        break
+                else:
+                    items.append([iid, cant])
+                guardar(c)
+                return _aviso(f"Item {iid} (x{cant}) agregado")
+            return _aviso("Uso: /item <id> [cantidad]")
+        elif sub in ("moneda", "monedas"):
+            if len(partes) >= 2 and partes[1].isdigit():
+                c["monedas"] = max(0, int(partes[1]))
+                guardar(c)
+                return _aviso(f"Monedas actualizadas a {c['monedas']}")
+            return _aviso("Uso: /monedas <cantidad>")
+        elif sub == "stats":
+            if len(partes) >= 2:
+                try:
+                    vals = [max(0, int(x)) for x in partes[1:6]]
+                    while len(vals) < 5:
+                        vals.append(0)
+                    c["stats"] = vals
+                    guardar(c)
+                    return _aviso(f"Stats actualizados: STR {vals[0]} CON {vals[1]} DEX {vals[2]} INT {vals[3]} WIS {vals[4]}")
+                except ValueError:
+                    pass
+            return _aviso("Uso: /stats <str> <con> <dex> <int> <wis>")
+        elif sub in ("limpiar", "clear"):
+            c["items"] = [x for x in c.get("items", []) if len(x) > 2 and x[2] < 12]
+            guardar(c)
+            return _aviso("Bolsa limpiada (equipo conservado)")
+        elif sub in ("ayuda", "help"):
+            return _aviso(f"Comandos GM: /oro <n>, /cash <n>, /monedas <n>, /nivel <1-{len(EXPS)}>, /item <id> [cant], /stats <5 valores>, /limpiar")
+        return _aviso(f"Comando desconocido: /{sub}. Usa /ayuda")
+
     # ⚠ medido con Frida (18:23): el TIPO lo lee en B+2 (con el tipo en B+0 leía 0xFF). La
     #   cabecera es u16 🟡 · u8 tipo · u32 🟡 (¿color?) · u32 🟡 · 26 B nombre UTF-16
     nombre = nombre_visible(c).encode("utf-16-le")[:24].ljust(26, b"\0")
@@ -283,6 +358,119 @@ def chat(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     destinos = s["miembros"] if s and conexion in s["miembros"] else sorted(ASIGNADAS)
     return [(0x1005, msg, 0, n) for n in destinos]
+
+
+@maneja(0x1025)
+def entrada_rapida(cmd, cuerpo, conexion, c, p):
+    """★ QUICK JOIN (0x1025 C→S / 0x1026 S→C `0x5424E0`, aporte de Hysteria-xyz):
+    Al pulsar «Quick Join» en el lobby, busca la primera sala abierta con lugar libre.
+    S→C (5 B): u16 resultado (1 = OK, 0xBB9 = sin salas) · u16 sala · u8 modo (0).
+    Con resultado 1, el cliente llama a entrar a la sala elegida (`0x4EBEE0` → `0x101F`)."""
+    sala_id = None
+    for num in sorted(SALAS):
+        s = SALAS[num]
+        if not s.get("jugando") and len(s["miembros"]) < s["sala"][0x2F]:
+            sala_id = num
+            break
+    if sala_id is not None:
+        return [(0x1026, struct.pack("<HHB", 1, sala_id, 0), 0)]
+    return [(0x1026, struct.pack("<HHB", 0xBB9, 0xFFFF, 0), 0)]
+
+
+@maneja(0x1019)
+def entrar_desde_lobby(cmd, cuerpo, conexion, c, p):
+    """★ 0x1019 C→S / 0x101A S→C (`0x542990`, 9 B, aporte de Hysteria-xyz):
+    Entrar a una sala desde la lista del lobby al pulsar Enter o doble clic.
+    cuerpo: u32 num_sala (o u16), u8 flag_password.
+    0x101A: u16 resultado (1 = OK, 0x9C5 = sala llena/inexistente, 0x9C6 = en juego)
+            · u8 modo (0) · u16 sala · u16 escenario · u16 dificultad."""
+    if len(cuerpo) < 2:
+        return [(0x101A, struct.pack("<HBH HH", 0x9C5, 0, 0, 0, 0), 0)]
+    num = struct.unpack_from("<H", cuerpo, 0)[0]
+    s = SALAS.get(num)
+    if not s and len(cuerpo) >= 4:
+        num = struct.unpack_from("<I", cuerpo, 0)[0]
+        s = SALAS.get(num)
+    if not s:
+        return [(0x101A, struct.pack("<HBH HH", 0x9C5, 0, 0, 0, 0), 0)]
+    if s.get("jugando"):
+        return [(0x101A, struct.pack("<HBH HH", 0x9C6, 0, num, 0, 0), 0)]
+    max_j = s["sala"][0x2F] if len(s["sala"]) > 0x2F else 3
+    if len(s["miembros"]) >= max_j:
+        return [(0x101A, struct.pack("<HBH HH", 0x9C5, 0, num, 0, 0), 0)]
+    esc = struct.unpack_from("<H", s["sala"], 0x28)[0] if len(s["sala"]) >= 0x2A else 1011
+    dif = struct.unpack_from("<H", s["sala"], 0x2C)[0] if len(s["sala"]) >= 0x2E else 0
+    return [(0x101A, struct.pack("<HBH HH", 1, 0, num, esc, dif), 0)]
+
+
+@maneja(0x101A)
+def retransmitir_101a(cmd, cuerpo, conexion, c, p):
+    """★ 0x101A (`0x542990`): confirmación de entrada a sala."""
+    return [(0x101A, cuerpo, 0)]
+
+
+@maneja(0x1055)
+def consultar_sala_1055(cmd, cuerpo, conexion, c, p):
+    """★ 0x1055 C→S / 0x1056 S→C (`0x543BE0`, 82 B, aporte de Hysteria-xyz):
+    Actualización/consulta de estado de sala en lobby."""
+    buf = bytearray(0x52)
+    s = SALAS.get(p.get("sala"))
+    if s and len(s["sala"]) >= 0x52:
+        buf[:min(0x52, len(s["sala"]))] = s["sala"][:0x52]
+    return [(0x1056, bytes(buf), 0)]
+
+
+@maneja(0x1056)
+def aviso_sala_1056(cmd, cuerpo, conexion, c, p):
+    """★ 0x1056 (`0x543BE0`): retransmisión de estado de sala en lobby."""
+    return [(0x1056, cuerpo, 0)]
+
+
+def aviso_equipo_105b(c, yo):
+    """★ 0x105B (633 B, `0x54F740`, aporte de Hysteria-xyz): actualiza el equipo y modelo 3D del miembro en sala.
+    u32 yo · u8 0 · 6 u16 stats · 18 × 34 B (vt 0x89A38C · u16 tipo · vt 0x89A380 · 24 B)."""
+    buf = bytearray(0x279)
+    struct.pack_into("<IB", buf, 0, yo, 0)
+    from servidor.objetos import stats_de
+    st = stats_de(c)
+    for k in range(6):
+        struct.pack_into("<H", buf, 5 + 2 * k, st[k])
+    tipos = equipo_tipos(c)
+    for k in range(18):
+        struct.pack_into("<IH", buf, 17 + 34 * k, 0x89A38C, tipos[k])
+        struct.pack_into("<I", buf, 17 + 34 * k + 6, 0x89A380)
+    return bytes(buf)
+
+
+@maneja(0x105B)
+def sincronizar_equipo_sala(cmd, cuerpo, conexion, c, p):
+    """★ 0x105B (`0x54F740`, aporte de Hysteria-xyz): retransmite actualización de equipo 3D a los demás de la sala."""
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"]:
+        return None
+    yo = s["miembros"].index(conexion)
+    msg = aviso_equipo_105b(c, yo)
+    return [(0x105B, msg, 0, n) for n in s["miembros"] if n != conexion]
+
+
+@maneja(0x104B)
+def actualizar_ajustes_sala(cmd, cuerpo, conexion, c, p):
+    """★ ACTUALIZAR AJUSTES DE SALA (0x104B S→C `0x54F500`, aporte de Hysteria-xyz):
+    Transmite cambios de escenario / dificultad / estado a los demás miembros de la sala.
+    S→C: u16 tipo (1 = escenario, 2 = dificultad) · datos."""
+    if len(cuerpo) < 2:
+        return None
+    s = SALAS.get(p.get("sala"))
+    if not s:
+        return None
+    tipo = struct.unpack_from("<H", cuerpo, 0)[0]
+    if tipo == 1 and len(cuerpo) >= 6:
+        esc = struct.unpack_from("<I", cuerpo, 2)[0]
+        struct.pack_into("<I", s["sala"], 0x28, esc)
+        p["escenario"] = esc
+    elif tipo == 2 and len(cuerpo) >= 3 and len(s["sala"]) > 0x2C:
+        s["sala"][0x2C] = cuerpo[2]
+    return [(0x104B, cuerpo, 0, n) for n in s["miembros"] if n != conexion]
 
 
 @maneja(0x1023)
@@ -377,7 +565,10 @@ def largar(cmd, cuerpo, conexion, c, p):
     """★ F9 START GAME (el anfitrión)"""
     # 0x104F (`0x54F170`) a TODOS los de la sala: u16 1 · u32 (+0x53: partidas) · u8 🟡 ·
     #   u8 N · N × 68 B ([u8 número de jugador][9 × 7 B: 🟡 su equipo para la partida])
+    # Si no es el anfitrión o no hay sala, 0x1050 (0x54EBA0) con error 0x138A (modal 0x191)
     s = SALAS.get(p.get("sala"))
+    if not s or s.get("anfitrion") != conexion:
+        return [(0x1050, struct.pack("<H", 0x138A), 0)]
     miembros = s["miembros"] if s else [conexion]
     if s:
         s["jugando"], s["cargados"] = True, set()
@@ -390,3 +581,9 @@ def largar(cmd, cuerpo, conexion, c, p):
         r.append((0x104F, struct.pack("<HIBB", 1, cn["partidas"], 0, len(miembros)) + lista,
                   0, n))
     return r + (avisar_lista(salvo=conexion) if s else [])
+
+
+@maneja(0x1050)
+def error_largada_1050(cmd, cuerpo, conexion, c, p):
+    """★ 0x1050 (`0x54EBA0`, 2 B, aporte de Hysteria-xyz): aviso de error al iniciar partida (0x138A o 0x6C)."""
+    return [(0x1050, cuerpo if len(cuerpo) >= 2 else struct.pack("<H", 0x138A), 0)]

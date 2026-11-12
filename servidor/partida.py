@@ -101,9 +101,93 @@ def npc_muerto(cmd, cuerpo, conexion, c, p):
 
 @maneja(0x1063)
 def le_pegaron(cmd, cuerpo, conexion, c, p):
-    """🟡 le pegaron (sale en la pelea)"""
+    """★ le pegaron (0x1063 C→S / 0x1062 S→C `0x547440`, aporte de Hysteria-xyz):
+    Difunde la vida y maná actualizados al HUD de los compañeros de equipo."""
     p["golpes"] += 1
-    return []
+    s = SALAS.get(p.get("sala"))
+    r = []
+    if s and conexion in s["miembros"] and len(s["miembros"]) > 1:
+        yo = s["miembros"].index(conexion)
+        # 0x1062 (16 B, 0x547440): u32 jugador_id · u32 0 · u16 HP · u8 0 · u32 MP · u8 buffs
+        hp = struct.unpack_from("<H", cuerpo, 1)[0] if len(cuerpo) >= 3 else 1000
+        msg_62 = struct.pack("<IIHBI B", yo, 0, hp, 0, 100, 0)
+        for m in s["miembros"]:
+            if m != conexion:
+                r.append((0x1062, msg_62, 0, m))
+    return r
+
+
+@maneja(0x1062)
+def sincronizar_hud_companero(cmd, cuerpo, conexion, c, p):
+    """★ 0x1062 (`0x547440`, aporte de Hysteria-xyz): retransmite estado de vida/maná a los compañeros."""
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"]:
+        return None
+    return [(0x1062, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+
+
+@maneja(0x1067)
+def interactuar_objeto(cmd, cuerpo, conexion, c, p):
+    """★ 0x1067 C→S / 0x1066 S→C (`0x547940`, 6 B, aporte de Hysteria-xyz):
+    Interacción con cofre/objeto en mapa.
+    cuerpo: u32 objeto_id.
+    0x1066: u8 jugador_id · u32 objeto_id · u8 estado (1 = abierto/activado)."""
+    if len(cuerpo) < 4:
+        return []
+    obj_id = struct.unpack_from("<I", cuerpo, 0)[0]
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"]:
+        return []
+    yo = s["miembros"].index(conexion)
+    msg = struct.pack("<BIB", yo, obj_id, 1)
+    return [(0x1066, msg, 0, m) for m in s["miembros"]]
+
+
+@maneja(0x1066)
+def sincronizar_objeto_1066(cmd, cuerpo, conexion, c, p):
+    """★ 0x1066 (`0x547940`, 6 B): retransmisión de objeto interactivo a compañeros."""
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"]:
+        return None
+    return [(0x1066, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+
+
+@maneja(0x105C)
+def evento_guion_escenario(cmd, cuerpo, conexion, c, p):
+    """★ 0x105C C→S / 0x105D S→C (`0x546E60`, `0x643750`, aporte de Hysteria-xyz):
+    Eventos del guion Lua en partida (puertas, switches, grupos NPC).
+    Difunde 0x105D a los demás miembros de la sala para mantener el escenario sincronizado."""
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"] or len(s["miembros"]) <= 1:
+        return []
+    return [(0x105D, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+
+
+@maneja(0x105D)
+def sincronizar_evento_105d(cmd, cuerpo, conexion, c, p):
+    """★ 0x105D (`0x546E60`): retransmisión de evento de escenario."""
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"]:
+        return None
+    return [(0x105D, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+
+
+@maneja(0x1060)
+def sincronizar_tick_1060(cmd, cuerpo, conexion, c, p):
+    """★ 0x1060 (`0x546D60`, 4 B, aporte de Hysteria-xyz): sincronización de reloj de stage."""
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"]:
+        return [(0x1060, cuerpo if len(cuerpo) >= 4 else struct.pack("<I", 0), 0)]
+    return [(0x1060, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+
+
+@maneja(0x106D)
+def sincronizar_tiempo_106d(cmd, cuerpo, conexion, c, p):
+    """★ 0x106D (`0x546750`, 16 B, aporte de Hysteria-xyz): temporizador y cuenta regresiva de stage."""
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"]:
+        return [(0x106D, cuerpo if len(cuerpo) >= 16 else bytes(16), 0)]
+    return [(0x106D, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
 
 
 @maneja(0x1001)

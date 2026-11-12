@@ -506,6 +506,228 @@ def control():
     chequear("se fue el último: la sala desaparece", 77 not in SALAS)
     chequear("sala → Inventory: 0x104C → 0x104D (u16 1 · u8)",
              responder(0x104C, b"\0", 203) == [(0x104D, b"\1\0\0", 0)])
+
+    # ★ QUICK JOIN y AJUSTES DE SALA (aporte de Hysteria-xyz)
+    salas_antes = dict(SALAS)
+    SALAS.clear()
+    # Quick Join con sala disponible:
+    SALAS[55] = {"sala": bytearray(0x59), "anfitrion": 301, "miembros": [301]}
+    SALAS[55]["sala"][0x2F] = 3
+    r = responder(0x1025, b"", 302)
+    chequear("0x1025 (Quick Join) → 0x1026 con resultado 1 y número de sala (55)",
+             r == [(0x1026, struct.pack("<HHB", 1, 55, 0), 0)])
+    # ★ el revés: sin salas disponibles (o llena) → resultado 0xBB9
+    SALAS[55]["sala"][0x2F] = 1
+    r = responder(0x1025, b"", 302)
+    chequear("★ el revés: sin cupo libre → 0x1026 con error 0xBB9 (sin salas)",
+             r == [(0x1026, struct.pack("<HHB", 0xBB9, 0xFFFF, 0), 0)])
+    del SALAS[55]
+    SALAS.update(salas_antes)
+
+    # 0x104B: actualización de escenario/dificultad a los miembros
+    SALAS[55] = {"sala": bytearray(0x59), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    cuerpo_4b = struct.pack("<HI", 1, 1012)
+    r = responder(0x104B, cuerpo_4b, 301)
+    chequear("0x104B (ajustes de sala) se retransmite a los otros miembros",
+             r == [(0x104B, cuerpo_4b, 0, 302)] and struct.unpack_from("<I", SALAS[55]["sala"], 0x28)[0] == 1012)
+    # ★ el revés: sin sala no se procesa
+    chequear("★ el revés: 0x104B sin sala → None", responder(0x104B, cuerpo_4b, 999) is None)
+    del SALAS[55]
+
+    # ★ COMANDOS DE GM EN EL CHAT (/oro, /cash, /nivel, /item, /ayuda)
+    def _chat_payload(texto):
+        t = texto.encode("utf-16-le")
+        return struct.pack("<BII", 1, 0xFFFFFFFF, 0) + struct.pack("<I", len(t)) + t
+
+    # /oro
+    r = responder(0x100D, _chat_payload("/oro 77777"), 203)
+    d = leer(203)
+    chequear("/oro 77777 actualiza la plata del jugador a 77777",
+             d["plata"] == 77777 and r[0][0] == 0x1005 and "77777".encode("utf-16-le") in r[0][1])
+    # ★ el revés: /oro sin número devuelve aviso de uso y no cambia el oro
+    r = responder(0x100D, _chat_payload("/oro abc"), 203)
+    chequear("★ el revés: /oro inválido devuelve aviso y mantiene el oro",
+             leer(203)["plata"] == 77777 and "Uso: /oro".encode("utf-16-le") in r[0][1])
+
+    # /cash
+    r = responder(0x100D, _chat_payload("/cash 9999"), 203)
+    chequear("/cash 9999 actualiza el cash a 9999",
+             leer(203)["cash"] == 9999 and "9999".encode("utf-16-le") in r[0][1])
+
+    # /nivel
+    r = responder(0x100D, _chat_payload("/nivel 15"), 203)
+    d = leer(203)
+    chequear("/nivel 15 ajusta la EXP correspondiente a nivel 15",
+             nivel(d["exp"]) == 15 and "15".encode("utf-16-le") in r[0][1])
+
+    # /item
+    r = responder(0x100D, _chat_payload("/item 21001 10"), 203)
+    d = leer(203)
+    it = next((x for x in d["items"] if x[0] == 21001), None)
+    chequear("/item 21001 10 agrega el ítem al inventario",
+             it is not None and it[1] >= 10 and "21001".encode("utf-16-le") in r[0][1])
+
+    # /monedas
+    r = responder(0x100D, _chat_payload("/monedas 25"), 203)
+    chequear("/monedas 25 actualiza las monedas de resurrección a 25",
+             leer(203)["monedas"] == 25 and "25".encode("utf-16-le") in r[0][1])
+    r = responder(0x100D, _chat_payload("/monedas abc"), 203)
+    chequear("★ el revés: /monedas inválido devuelve aviso y mantiene monedas",
+             leer(203)["monedas"] == 25 and "Uso: /monedas".encode("utf-16-le") in r[0][1])
+
+    # /stats
+    r = responder(0x100D, _chat_payload("/stats 12 14 16 18 20"), 203)
+    chequear("/stats actualiza atributos de combate del personaje",
+             leer(203)["stats"] == [12, 14, 16, 18, 20] and "STR 12".encode("utf-16-le") in r[0][1])
+    r = responder(0x100D, _chat_payload("/stats"), 203)
+    chequear("★ el revés: /stats sin argumentos devuelve aviso de uso",
+             "Uso: /stats".encode("utf-16-le") in r[0][1])
+
+    # /limpiar
+    items_antes = [list(x) for x in leer(203)["items"]]
+    r = responder(0x100D, _chat_payload("/limpiar"), 203)
+    chequear("/limpiar limpia la bolsa conservando el equipo puesto",
+             all(x[2] < 12 for x in leer(203)["items"]) and "limpiada".encode("utf-16-le") in r[0][1])
+    d = leer(203)
+    d["items"] = items_antes
+    guardar(d)
+
+    # /ayuda y desconocido
+    r = responder(0x100D, _chat_payload("/ayuda"), 203)
+    chequear("/ayuda responde con la lista de comandos disponibles",
+             "Comandos GM:".encode("utf-16-le") in r[0][1])
+    r = responder(0x100D, _chat_payload("/noexiste"), 203)
+    chequear("★ el revés: comando desconocido avisa sin romper",
+             "Comando desconocido".encode("utf-16-le") in r[0][1])
+
+    # ★ el revés: chat normal se difunde a los demás y no ejecuta comandos
+    r = responder(0x100D, _chat_payload("Hola mundo"), 203)
+    chequear("★ el revés: chat normal lleva tipo 1 y texto original",
+             "Hola mundo".encode("utf-16-le") in r[0][1] and r[0][1][2] == 1)
+
+    # ★ 0x105B: sincronización de modelo 3D y equipo en sala de espera
+    SALAS[55] = {"sala": bytearray(0x59), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    r = responder(0x105B, b"", 301)
+    chequear("0x105B difunde equipo 3D (633 B) a los compañeros de sala",
+             len(r) == 1 and r[0][0] == 0x105B and len(r[0][1]) == 0x279 and r[0][3] == 302)
+    chequear("★ el revés: 0x105B sin sala → None", responder(0x105B, b"", 999) is None)
+    del SALAS[55]
+
+    # ★ 0x1062: sincronización de vida/maná en cooperativo
+    SALAS[55] = {"sala": bytearray(0x59), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    r = responder(0x1063, b"\x00\x64\x00", 301)
+    chequear("0x1063 (daño recibido) difunde 0x1062 (16 B) a los compañeros de equipo",
+             len(r) == 1 and r[0][0] == 0x1062 and len(r[0][1]) == 16 and r[0][3] == 302
+             and struct.unpack_from("<H", r[0][1], 8)[0] == 100)
+    partida(301).pop("sala", None)
+    partida(302).pop("sala", None)
+    del SALAS[55]
+    chequear("★ el revés: 0x1063 con un solo jugador no emite 0x1062",
+             len(responder(0x1063, b"\x00\x64\x00", 203)) == 0)
+
+    # ★ 0x1019 / 0x101A: entrar a sala desde la lista del lobby
+    sala_raw = bytearray(0x59)
+    sala_raw[0x2F] = 2  # max 2 jugadores
+    struct.pack_into("<H", sala_raw, 0x28, 1011)
+    struct.pack_into("<H", sala_raw, 0x2C, 1)
+    SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301]}
+    r = responder(0x1019, struct.pack("<IB", 55, 0), 302)
+    chequear("0x1019 con cupo disponible responde 0x101A (9 B) con resultado 1",
+             len(r) == 1 and r[0][0] == 0x101A and len(r[0][1]) == 9
+             and struct.unpack_from("<HBH HH", r[0][1]) == (1, 0, 55, 1011, 1))
+    chequear("★ el revés: 0x1019 a sala inexistente responde error 0x9C5",
+             responder(0x1019, struct.pack("<IB", 999, 0), 302)[0][1][:2] == b"\xC5\x09")
+    SALAS[55]["miembros"] = [301, 302]
+    chequear("★ el revés: 0x1019 a sala llena responde error 0x9C5",
+             responder(0x1019, struct.pack("<IB", 55, 0), 303)[0][1][:2] == b"\xC5\x09")
+    SALAS[55]["jugando"] = True
+    chequear("★ el revés: 0x1019 a sala en partida responde error 0x9C6",
+             responder(0x1019, struct.pack("<IB", 55, 0), 303)[0][1][:2] == b"\xC6\x09")
+    del SALAS[55]
+
+    # ★ 0x104E / 0x104F / 0x1050: F9 largada y error
+    SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    r = responder(0x104E, b"", 301)
+    chequear("0x104E como anfitrión emite 0x104F de inicio de partida",
+             any(x[0] == 0x104F for x in r))
+    r = responder(0x104E, b"", 302)
+    chequear("★ el revés: 0x104E por no-anfitrión responde error 0x1050 (0x138A)",
+             len(r) == 1 and r[0][0] == 0x1050 and struct.unpack_from("<H", r[0][1])[0] == 0x138A)
+    partida(301).pop("sala", None)
+    partida(302).pop("sala", None)
+    del SALAS[55]
+
+    # ★ 0x1055 / 0x1056: consulta de estado de sala en lobby
+    r = responder(0x1055, b"", 203)
+    chequear("0x1055 responde 0x1056 con 82 bytes de estructura",
+             len(r) == 1 and r[0][0] == 0x1056 and len(r[0][1]) == 82)
+
+    # ★ 0x1067 / 0x1066: interacción con objetos y cofres
+    SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    r = responder(0x1067, struct.pack("<I", 777), 301)
+    chequear("0x1067 difunde 0x1066 (6 B) de objeto activado a todos los miembros",
+             len(r) == 2 and r[0][0] == 0x1066 and len(r[0][1]) == 6
+             and struct.unpack_from("<BIB", r[0][1]) == (0, 777, 1))
+    partida(301).pop("sala", None)
+    partida(302).pop("sala", None)
+    del SALAS[55]
+    chequear("★ el revés: 0x1067 sin sala no emite eventos", len(responder(0x1067, struct.pack("<I", 777), 203)) == 0)
+
+    # ★ 0x105C / 0x105D: eventos de guion Lua
+    SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    r = responder(0x105C, b"\x01\x02\x03\x04", 301)
+    chequear("0x105C difunde 0x105D a los compañeros de equipo",
+             len(r) == 1 and r[0][0] == 0x105D and r[0][1] == b"\x01\x02\x03\x04" and r[0][3] == 302)
+    partida(301).pop("sala", None)
+    partida(302).pop("sala", None)
+    del SALAS[55]
+    chequear("★ el revés: 0x105C con jugador solitario no difunde",
+             len(responder(0x105C, b"\x01\x02\x03\x04", 203)) == 0)
+
+    # ★ 0x1060 / 0x106D: sincronización de temporizador de stage
+    r = responder(0x1060, struct.pack("<I", 12345), 203)
+    chequear("0x1060 responde con tick de 4 bytes", len(r) == 1 and r[0][0] == 0x1060 and len(r[0][1]) == 4)
+    r = responder(0x106D, bytes(16), 203)
+    chequear("0x106D responde con temporizador de 16 bytes", len(r) == 1 and r[0][0] == 0x106D and len(r[0][1]) == 16)
+
+    # ★ 0x102F / 0x1030: asignación de puntos de atributos (stats)
+    d = leer(203)
+    d["stats"] = [5, 5, 5, 5, 5]
+    guardar(d)
+    libres = stats_de(leer(203))[5]
+    r = responder(0x102F, struct.pack("<I6H", 203, 5, 5, 5, 5, 5, 0), 203)
+    chequear("0x102F sin cambios guarda y responde 0x1030 resultado 1",
+             len(r) == 1 and r[0][0] == 0x1030 and struct.unpack_from("<H", r[0][1])[0] == 1)
+    # revés: gastar más de los puntos libres disponibles
+    r = responder(0x102F, struct.pack("<I6H", 203, 50, 50, 50, 50, 50, 180), 203)
+    chequear("★ el revés: 0x102F con puntos excesivos responde resultado 0",
+             len(r) == 1 and r[0][0] == 0x1030 and struct.unpack_from("<H", r[0][1])[0] == 0)
+
+    # ★ 0x1031 / 0x1032: habilidades
+    r = responder(0x1031, struct.pack("<III", 203, 1, 1), 203)
+    chequear("0x1031 responde 0x1032 con 94 bytes y resultado 1",
+             len(r) == 1 and r[0][0] == 0x1032 and len(r[0][1]) == 94
+             and struct.unpack_from("<H", r[0][1])[0] == 1)
+
+    # ★ 0x060C / 0x060B y 0x3002 / 0x3003: NAT Broker
+    r = responder(0x060C, b"", 203)
+    chequear("0x060C responde 0x060B con 6 bytes de Broker IP/Puerto",
+             len(r) == 1 and r[0][0] == 0x060B and len(r[0][1]) == 6)
+    r = responder(0x3002, b"", 203)
+    chequear("0x3002 responde 0x3003 con 1 byte de clasificación NAT",
+             len(r) == 1 and r[0][0] == 0x3003 and r[0][1] == b"\x01")
     # ★ VERIFICAR un libro de habilidad (el 0x103B de verdad: libro 14, pergamino 13)
     d = leer(203)
     inv = inventario(d)

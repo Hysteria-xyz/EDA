@@ -223,10 +223,34 @@ arranca además lo de UDP: 🟡 ser el anfitrión) · 89 B = **la sala desde su 
 desde +4 el escenario queda corrido y el cliente muere en `0x5367D4`). `+0x2F` = **máximo de
 jugadores**. Con OK: pantalla 5, **WAITING ROOM**, con el jugador local como anfitrión.
 
-### 5.9 · `0x104E` C→S / `0x104F` S→C — F9 START GAME
+### 5.8a · `0x1019` C→S / `0x101A` S→C — Entrar a sala desde la lista del Lobby
+C→S (`0x542110`, 5 B): `u32 sala_id · u8 password_flag`. Enviado al hacer doble clic o pulsar Enter en una sala.
+S→C (`0x542990`, 9 B): `u16 resultado` (1 = OK, `0x9C5` = sala llena/inexistente, `0x9C6` = en juego) · `u8 modo` (0) · `u16 sala` · `u16 escenario` · `u16 dificultad`. Con 1, transiciona a waiting room (`0x4EBD60`).
+
+### 5.8b · `0x1025` C→S / `0x1026` S→C — Quick Join (Entrada rápida a sala)
+C→S (`0x543160`, 30 B): solicitud de entrada rápida a cualquier sala con cupo libre.
+S→C (`0x5424E0`, 5 B): `u16 resultado` (1 = OK, `0x0BB9` = sin salas libres) · `u16 sala` · `u8 modo` (0).
+Con resultado 1, el cliente transiciona de inmediato (`0x4EBEE0`) y envía `0x101F` (`entrar_sala`) con la sala asignada.
+
+### 5.8c · `0x104B` S→C — Actualización de ajustes de sala (escenario y dificultad en vivo)
+S→C (`0x54F500`): difunde cambios del anfitrión al resto de miembros en la sala de espera.
+- Tipo 1 (Escenario): `u16 1` · 34 B del escenario (`0x54F53D`, actualiza minimapa e información).
+- Tipo 2 (Dificultad): `u16 2` · 20 B de dificultad (`0x54F55E`, actualiza modo EASY/NORMAL/HARD).
+
+### 5.8d · `0x105B` S→C / C→S — Sincronización 3D de equipamiento en sala de espera
+C→S (`0x54F700`): solicitud de actualización de apariencia 3D del personaje en la sala.
+S→C (`0x54F740`, 633 B / 0x279 B): `u32 id_miembro · u8 0 · 6 × u16 stats · 18 × 34 B items` (vtable `0x89A38C` · `u16 tipo` · vtable `0x89A380` · 24 B ceros).
+Se difunde a todos los miembros de la sala al cambiar equipamiento (`0x102D`) o al solicitarlo, actualizando en tiempo real la malla 3D LithTech del personaje en la escena (`0x540B50`).
+
+### 5.8e · `0x1055` C→S / `0x1056` S→C — Estado de sala en lobby
+C→S (`0x54E727`, 5 B): `u8 tipo · u32 sala_id`.
+S→C (`0x543BE0`, 82 B): retransmite estructura de sala a los clientes en lobby (`0x4EB030`).
+
+### 5.9 · `0x104E` C→S / `0x104F` S→C / `0x1050` S→C — F9 START GAME
 C→S: `u8 🟡`. S→C (`0x54F170`): `u16 🟡 · u32 → +0x53 del personaje (partidas) · u8 🟡 · u8 N` +
 N × 68 (`[u8 índice del jugador en la sala][9 × 7 B: 🟡 su equipo]`). Con eso: pantalla 8, la
 partida, y empieza a **cargar el mapa** (un hilo aparte, `0x534770`, que bombea la red mientras).
+- `0x1050` S→C (`0x54EBA0`, 2 B): `u16 error_code`. Si la partida no puede iniciar (no es anfitrión o jugadores no listos), el server responde con `0x138A` (modal `0x191`) o `0x6C` (modal `0x194`) en lugar de dejar la pantalla congelada.
 
 ### 5.10 · La carga y la LARGADA: `0x105C` / `0x105F` C→S, `0x105E` S→C
 Mientras carga, el cliente avisa `0x105C` (el primer evento del guion Lua, «Briefing_01») y al
@@ -262,9 +286,16 @@ Los manejadores S→C de la pantalla de la partida (`0x548F80`, cada `push cmd` 
 `1075→0x546F40` · `105D→0x546E60`. Y los que manda el cliente salen de `0x5461E7` (1061),
 `0x5462B5` (1067), `0x5463B2` (1063), `0x5464B7` (1064), `0x546588` (106A), `0x5466A7` (1065),
 `0x546AE4` (1070), `0x546EBD` (1074).
-- `0x1066` (`0x547940`) lee 6 B: `u8 jugador · u32 objeto · u8 → +0x322 del miembro de la sala`
-  y llama `0x6360F0(jugador, objeto)`. Con estado 1 o 2 al muerto: no abre nada (no es eso).
+- `0x1067` C→S (`0x5462B5`, 4 B: `u32 objeto`) / `0x1066` S→C (`0x547940`, 6 B: `u8 jugador · u32 objeto · u8 estado`): interacción con cofres y objetos activables del mapa. Al abrirse o activarse, el server difunde `0x1066` para sincronizar la animación y apertura en todos los clientes (`0x6360F0`).
+- `0x105C` C→S / `0x105D` S→C (`0x546E60` → `0x643750`): eventos de guion Lua en el mapa (apertura de puertas, palancas, triggers de oleadas de NPCs). El server retransmite `0x105D` a los compañeros de equipo para sincronizar el estado del escenario.
+- `0x1060` S→C (`0x546D60`, 4 B: `u32 tick`): sincronización de reloj y tick de partida.
+- `0x106D` S→C (`0x546750`, 16 B: `u16 res · u32 timer…`): temporizador y cuenta regresiva de stage (`+0xEC`).
 - `0x1063` C→S `u8 0 · u16 n` (n = 0x0A, 0x1E…): sale justo antes de morir y en la pelea 🟡.
+- `0x1062` S→C (`0x547440`, 16 B) / C→S: `u32 id_miembro · u32 0 · u16 hp · u8 0 · u32 mp · u8 buffs`. Sincroniza barras de vida y maná en el HUD cooperativo (`0x612A90` en `ebp + 0xF8`). El servidor lo difunde a los compañeros de equipo al recibir `0x1063` (`le_pegaron`) o al registrar daño/gasto de maná.
+- `0x102F` C→S (`0x54C2CA`, 16 B: `u32 id · 6 × u16 stats`) / `0x1030` S→C (`0x54C690`, 2 B: `u16 resultado`): asignación y guardado de puntos de estadísticas (STR, CON, DEX, INT, WIS) ganados al subir de nivel desde la ficha de personaje.
+- `0x1031` C→S (`0x54ABA7`, 12 B) / `0x1032` S→C (`0x54B2D0`, 94 B): confirmación de actualización de casilleros de habilidades aprendidas.
+- `0x060C` C→S / `0x060B` S→C (`0x545920`, 6 B: `u32 ip · u16 puerto`): reconfirmación de Broker/Relay tras NAT bloqueado.
+- `0x3002` C→S / `0x3003` S→C (`0x545710`, 1 B: `u8 nat_type`): `OnPktRBC2NATTypeSort` clasificación de NAT (1 = Full Cone / Open).
 
 ### 5.12 · ★ MORIR Y REVIVIR (medido el 10-nov, todo en automático)
 ```

@@ -45,6 +45,10 @@ def responder(cmd, cuerpo, conexion):
         return [(0x070B, entrada.lista_servidores(), 0)]
     if cmd == 0x0604 and nat.prendido():                    # ★ P2P entre casas: que se presente al relay (§53)
         return nat.al_conectar(cuerpo, conexion)
+    if cmd == 0x060C:                                       # ★ NAT bloqueado: reconfirmar Broker IP/Puerto
+        return nat.nat_bloqueado(cuerpo, conexion)
+    if cmd in (0x3002, 0x3003):                             # ★ NAT Type sort
+        return nat.nat_tipo_sort(cuerpo, conexion)
     if cmd < 0x1000:                                        # el Broker: no es de una cuenta
         return None
     # (la cuenta y la partida se piden SIEMPRE, aunque nadie atienda el comando: así la conexión
