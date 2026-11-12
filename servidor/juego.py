@@ -36,10 +36,12 @@ from servidor.partida import cuerpo_1072, game_over          # noqa: E402
 from servidor.registro import MANEJADORES                    # noqa: E402
 from servidor.relay import escribir_relay                    # noqa: E402
 # los módulos que REGISTRAN manejadores (importarlos es lo que los anota)
-from servidor import entrada, inventario, tienda, habilidades, refineria   # noqa: E402,F401
+from servidor import entrada, inventario, tienda, habilidades, refineria, personajes   # noqa: E402,F401
 
 
 def responder(cmd, cuerpo, conexion):
+    if cmd == 0x070A:                                       # ★ la lista de servidores, con los jugadores reales
+        return [(0x070B, entrada.lista_servidores(), 0)]
     if cmd < 0x1000:                                        # el Broker: no es de una cuenta
         return None
     # (la cuenta y la partida se piden SIEMPRE, aunque nadie atienda el comando: así la conexión

@@ -1,11 +1,13 @@
 r"""servidor/salas.py -- el LOBBY y las SALAS: listas, entrar, crear, chat, listo y largar.
 """
+import os
 import struct
 
+from servidor import config
 from servidor.config import P
 from servidor.registro import maneja
 from servidor.estado import ASIGNADAS, SALAS, partida
-from servidor.cuentas import leer, nivel
+from servidor.cuentas import leer, nivel, nombre_visible
 from servidor.objetos import equipo_tipos, obj_habilidad, personaje_obj
 from servidor.relay import dir_udp, identidad_de
 
@@ -61,7 +63,7 @@ def miembro(c, indice, completo=False, conexion=None, para=None):
         #   mismo formato en que el cliente manda la suya en el 0x100F (u32 «al revés», u16)
         ip, puerto = udp
         struct.pack_into("<IHIH", m, 0x48, ip, puerto, ip, puerto)
-    pj = bytearray(P.registro_personaje(c["nombre"], lugar=0, clase=c["clase"], ident=c["exp"],
+    pj = bytearray(P.registro_personaje(nombre_visible(c), lugar=0, clase=c["clase"], ident=c["exp"],
                                         nivel=nivel(c["exp"]), partidas=c["partidas"],
                                         abandonos=c["abandonos"]))
     m[0x54:0xA6] = pj[0:0x52]
@@ -268,7 +270,7 @@ def chat(cmd, cuerpo, conexion, c, p):
     texto = cuerpo[13:13 + largo]
     # ⚠ medido con Frida (18:23): el TIPO lo lee en B+2 (con el tipo en B+0 leía 0xFF). La
     #   cabecera es u16 🟡 · u8 tipo · u32 🟡 (¿color?) · u32 🟡 · 26 B nombre UTF-16
-    nombre = c["nombre"].encode("utf-16-le")[:24].ljust(26, b"\0")
+    nombre = nombre_visible(c).encode("utf-16-le")[:24].ljust(26, b"\0")
     msg = (struct.pack("<HBII", 0, cuerpo[0], 0xFFFFFFFF, 0) + nombre
            + struct.pack("<I", len(texto)) + texto)
     s = SALAS.get(p.get("sala"))
@@ -306,6 +308,20 @@ def entrar_lobby(cmd, cuerpo, conexion, c, p):
     #   ⚠ la cabecera (16 B) es u16 resultado · u8 personaje (+2) · u32 N1 (+3) · u16 N2 (+7)
     #   · 7 B (+9 → `0x6103E0`): medido el 10-nov — antes se ponía N1 en +7 (mal contado un
     #   `push ebx`) y el cliente leía N1 = 0: el mapa de terminadas quedaba VACÍO
+    # ★★ el PERSONAJE elegido en SELECT CHARACTER (MEDICIONES §50): el 0x1017 = u32 · u8 LUGAR. Si es
+    #   otro que el activo, se cambia, y antes del 0x1018 sale la cuenta otra vez (0x1012) con ESE
+    #   personaje (su inventario, su equipo), mientras el cliente sigue en esa pantalla
+    previo = []
+    if len(cuerpo) >= 5:
+        from servidor.objetos import cuerpo_cuenta
+        from servidor.personajes import elegir
+        otra = elegir(conexion, c, cuerpo[4])
+        if otra is not c:
+            c = otra
+            # ⚠ medido: al recibir la cuenta, el cliente se queda con el del LUGAR 0 → el elegido va ahí
+            #   (cambiado con el que estaba). Al volver a SELECT CHARACTER pide la cuenta (0x1011) y
+            #   cada uno aparece en su lugar de verdad
+            previo = [(0x1012, cuerpo_cuenta(c, conexion, elegido_al_frente=True), 0)]
     n1 = c["terminadas"]
     # ★ los 7 B de +9 = el CANAL (→ `cuenta+0x220`+4, `0x6103E0`): 🟡 u8 número · u16
     #   CAPACIDAD (+5) · u16 ocupados (+7) · u16. Con capacidad 0 la lista de usuarios del lobby
@@ -313,6 +329,8 @@ def entrar_lobby(cmd, cuerpo, conexion, c, p):
     canal = struct.pack("<BHHH", 1, 200, len(ASIGNADAS), 0)
     # ★ N2 (+7) = las HABILIDADES aprendidas: N2 × 13 B (`0x544795` → cuenta+0x728)
     habs = c.get("habilidades", [])
+    # (+2 = 🟡 el personaje elegido: ¿su POSICIÓN en la lista del 0x1012 o su lugar? — a medir, §50)
+    #   (medido, §50: ni el lugar ni la posición cambian qué personaje muestra el lobby; va 0)
     cuerpo18 = (struct.pack("<HBIH", 1, 0, len(n1), len(habs)) + canal
                 + b"".join(struct.pack("<IIBB", 0, m, 1, 1) for m in n1)
                 + b"".join(obj_habilidad(h) for h in habs))
@@ -320,7 +338,7 @@ def entrar_lobby(cmd, cuerpo, conexion, c, p):
     for viejo in [k for k, v in SALAS.items() if v["anfitrion"] == conexion]:
         del SALAS[viejo]
     # ★ y la lista de salas, apenas entra (cuando ya está en la pantalla del lobby)
-    return ([(0x1018, cuerpo18, 0), (0x101C, lista_salas(), 1500),
+    return (previo + [(0x1018, cuerpo18, 0), (0x101C, lista_salas(), 1500),
              (0x101B, lista_usuarios(), 1700)]
             + [(x[0], x[1], 1700, x[3]) for x in avisar_usuarios(salvo=conexion)])
 

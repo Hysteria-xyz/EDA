@@ -68,7 +68,7 @@ def refinar_piedra(cmd, cuerpo, conexion, c, p):
         if 21 <= fam <= 25:
             if modo == 0 and 1 <= resto <= 6:
                 nuevo = fam * 1000 + 20 + resto        # fase 1 → fase 2
-            elif modo == 1 and resto % 20 in range(1, 6):
+            elif modo == 1 and (1 <= resto <= 5 or 21 <= resto <= 25):   # (PR #5: antes también 41–45…)
                 nuevo = t + 1                          # nivel + 1
     if nuevo is None:
         return [(0x1036, struct.pack("<HB", 0, modo) + bytes(21) + b"\0", 0)]
@@ -96,7 +96,11 @@ def encantar(cmd, cuerpo, conexion, c, p):
     inv = inventario(c)
     it = next((x for x in inv if x[3] == it_s), None)
     f = c.setdefault("fichas", {}).setdefault(str(it_s), {"engarces": [0] * 10, "niveles": 0})
-    gastadas, bien = [], it is not None
+    # ★ (PR #5, Urek-Mazinoo) el ítem tiene que ser EQUIPO; cada piedra, una piedra de verdad (familia
+    #   21–25, fase 1 o 2: 1–6 / 21–26), que no sea el ítem mismo, y ni la misma piedra ni el mismo
+    #   engarce dos veces en un pedido
+    gastadas, bien = [], it is not None and es_equipo(it[0])
+    usados, engarces = set(), set()
     for k in range(n):
         o = 9 + 5 * k
         if o + 5 > len(cuerpo):
@@ -104,11 +108,15 @@ def encantar(cmd, cuerpo, conexion, c, p):
             break
         i, piedra_s = struct.unpack_from("<BI", cuerpo, o)
         piedra = next((x for x in inv if x[3] == piedra_s), None)
-        if (piedra is None or not 21000 <= piedra[0] <= 25999 or i >= 10
+        if (piedra is None or piedra_s == it_s or piedra_s in usados or i in engarces
+                or not 21 <= piedra[0] // 1000 <= 25
+                or piedra[0] % 1000 not in (*range(1, 7), *range(21, 27)) or i >= 10
                 or not nivel_engarce(f["niveles"], i) or f["engarces"][i]):
             bien = False
             break
         gastadas.append((i, piedra))
+        usados.add(piedra_s)
+        engarces.add(i)
     if not bien or not gastadas:
         return [(0x1034, struct.pack("<HIB", 0, it_s, 0) + bytes(20), 0)]
     for i, piedra in gastadas:

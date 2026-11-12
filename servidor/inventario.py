@@ -31,14 +31,31 @@ def guardar_inventario(cmd, cuerpo, conexion, c, p):
     n1 = struct.unpack_from("<H", cuerpo, off + 16)[0]
     inv = inventario(c)                                # se fijan TODOS antes de mover
     por_serial = {it[3]: it for it in inv}
-    movidos = []
+    # ★ (PR #5, Urek-Mazinoo) primero se juntan los destinos (sólo casilleros que existen: < 168) …
+    destinos = {}
     for k in range(n1):
         o = off + 22 + 5 * k
         if o + 5 > len(cuerpo):
             break
         serial, casillero = struct.unpack_from("<IB", cuerpo, o)
-        if serial in por_serial:
-            por_serial[serial][2] = casillero
+        if serial in por_serial and casillero < 168:
+            destinos[serial] = casillero
+    # … al REEMPLAZAR una poción de la barra (casilleros 12–17) por otra de la bolsa, el cliente puede
+    #   mandar sólo la que entra: la que estaba vuelve al casillero de bolsa que dejó la nueva …
+    for serial, destino in list(destinos.items()):
+        it = por_serial[serial]
+        if not (it[2] >= 18 and 12 <= destino < 18
+                and it[0] in (26001, 26002, 26003, 26101, 26102, 26103)):
+            continue
+        anterior = next((x for x in inv if x[2] == destino and x[3] not in destinos), None)
+        if anterior is not None:
+            destinos[anterior[3]] = it[2]
+    # … y se mueve sólo si no quedan DOS ítems en el mismo casillero (si no, queda todo como estaba)
+    movidos = []
+    posiciones = [destinos.get(it[3], it[2]) for it in inv]
+    if len(set(posiciones)) == len(posiciones):
+        for serial, destino in destinos.items():
+            por_serial[serial][2] = destino
             movidos.append(por_serial[serial])
     c["items"] = inv
     # ★ el REPARTO de puntos: el cliente manda las 5 nuevas + en la 6ª los puntos GASTADOS en
