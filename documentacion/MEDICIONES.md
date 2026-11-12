@@ -1813,3 +1813,370 @@ Tres errores nuestros y una pieza que faltaba, medidos con Frida en `sendto` / `
   Empty Slot Available» porque **`cuenta+0x2CC` = LUGARES LIBRES de la bolsa** venía en 0: es el
   byte **+0x1A del `0x1012`** (+6 = +0x2B8, medido; nadie más lo escribe, `0x54DCEA`). Con 150 −
   los ocupados: «Selected Item has been successfully purchased», oro 77500 → 76900 (21:42).
+
+### 37 · ★★ Por qué en OTRAS PCs el limpio no arrancaba: `GetCPInfo` (aporte externo, PR #1)
+
+- Un usuario del repo público (Urek-Mazinoo, PR #1) encontró que el `EDA_limpio.exe` moría antes
+  del menú en la TRAMPA de **`0x7EE13C`**, y lo resolvió como **`GetCPInfo`**. Verificado: es
+  `_setmbcp` de la CRT: si la página de códigos está en su tabla de 4 (932, 936, **949**, 950) no
+  llama a nada; si no, `GetCPInfo(página, &cpinfo)` y lee `MaxCharSize` / `LeadByte`. ★ Esta PC
+  tiene la página **949** (coreana): por eso acá nunca pasó y en las PCs en español (1252) sí.
+- Control al revés (simulando 1252 con Frida, `EDA_SIMULAR_ACP=1252`): el exe anterior se cae a
+  los **0,3 s con EIP `0xD03EE13C`** (la trampa de ese sitio); el nuevo sigue vivo y, con
+  `jugar.py`, llega a la partida (pelea incluida) sin otra trampa.
+- También aportó marcar el exe sin reubicaciones (`IMAGE_FILE_RELOCS_STRIPPED`). Se aceptó el
+  código y la documentación; el binario se rearmó acá con las herramientas (para que incluya el
+  4.º parche y no publicar un exe ajeno): md5 `0799387e23cadd355888bd712143f2d5`.
+- `eda_original.py` ahora AVISA en la consola si el juego cae en una trampa («sitio 0x…»): así
+  el próximo que encuentre una sabe qué número reportar.
+
+### 38 · ★★ El server por MÓDULOS, el server para LINUX (Docker) y las PIEZAS contadas (11-nov)
+
+- **`servidor/juego.py` (1695 líneas) partido en módulos** por pantalla del juego (`entrada`,
+  `salas`, `inventario`, `tienda`, `habilidades`, `refineria`, `partida`, más `config`, `estado`,
+  `registro`, `cuentas`, `datos`, `objetos`, `relay`, `pruebas`). El corte lo hizo un script (`ast`):
+  cada función se copió TAL CUAL con sus comentarios, y cada `if cmd == …` de `responder` pasó a ser
+  una función con `@maneja(cmd)`. Medido, con el viejo guardado aparte:
+  · `py servidor\juego.py control`: **la misma salida, línea por línea** (100 pruebas);
+  · ★ los **3374 mensajes de verdad** de las capturas (`_trabajo/broker/con_*.bin`, 431 conexiones)
+    pasados por el viejo y por el nuevo, con el reloj congelado: **respuestas idénticas byte a
+    byte** (md5 de cada cuerpo). **El revés**: con un solo byte cambiado en el nuevo (el `0x1001`),
+    1247 respuestas salen distintas — la comparación sí ve un cambio.
+- **La recarga en caliente** ahora es del paquete entero (`servidor.cargar()`, la usan el espía y
+  `red.py`). ⚠ **Bug medido y arreglado**: al recargar quedaban **18 manejadores de 31**, porque
+  `from servidor import tienda` devolvía el módulo VIEJO (seguía como atributo del paquete y había
+  registrado sus funciones en el registro viejo). Borrando también el atributo: 31 después de cada
+  recarga, y el estado vivo (`_eda_partidas`) sobrevive.
+- **`servidor/red.py` = el server por la red** (lo mismo que `espiar_broker.py sin_admin`, sin nada
+  de Windows): escucha en 0.0.0.0, cada conexión toma el número MÁS CHICO libre (así los puertos del
+  relay, `RELAY_BASE + 1 + n`, quedan acotados) y el relay corre en un hilo. Las respuestas del
+  Broker salen de `reglas_broker.guion()` en memoria. `python -m servidor.red prueba IP:PUERTO`:
+  un `0x0604` con la clave del EDA.exe de 2009 → `0x0607`; **el revés**: con una clave que nadie
+  conoce, silencio.
+  ★ **Con el juego** (`py jugar.py --server 127.0.0.1:25950`, relay prendido, el piloto):
+  `0604 → 0607 0609 · 0708 → 0709 · 070a → 070b · 100f → 1010 · 1011 → 1012 · 1017 → 1018 ·
+  101d → 101e · 104e → 104f · 105f → 105e` y **rui en el mapa** con el reloj corriendo.
+- **Las claves sin exes**: un server en Linux no tiene los exes para sacar md5(exe + 00), así que
+  `paquete_broker.CLAVES_FIJAS` trae las dos que juega la gente (la del EDA.exe de 2009,
+  `a57ca836…`, y la del limpio `0799387e`, `2921cf26…`) y `EDA_CLAVES` agrega otras. **Comprobado**:
+  la fija «EDA.exe de 2009» abre las capturas reales del original (`paquete_broker.py control`).
+- **Docker** (`despliegue/`): la imagen corre `juego.py control` al armarse (si falla, no se arma),
+  `network_mode: host` (el relay usa un puerto UDP por jugador), las cuentas y los XML en carpetas
+  de afuera. Prod = `main` (25900 / UDP 26000–26200), prueba = `develop` (35900 / 36000–36200, se
+  actualiza sola cada 5 min y, si un cambio no pasa las pruebas, sigue la versión anterior).
+  ★ **Medido en Linux** (GitHub Actions, Ubuntu): la imagen se arma con las pruebas adentro, y el
+  server por la red contesta (y calla con la clave falsa).
+- **Las PIEZAS, contadas sobre el exe** (`herramientas/contar_piezas.py`, sin pefile):
+  · los mensajes que el cliente sabe RECIBIR salen de cómo los registra cada pantalla —
+    `mov edi, manejador · … · push cmd · push ebx · push edi · push esi · add ecx, 4 · call`
+    (el lobby, `0x5441FC`) — más la escena de carga (`mov [esp+X], cmd`: `0x105E`, `0x1058`):
+    **62**. El server manda **41** de esos. Faltan: 060B 1016 101A 1026 1030 1032 1046 104A 104B
+    1050 1052 1054 1056 105B 105D 1060 1062 1066 106C 106D 3003. Revés: los que manda el cliente
+    (`0x100F`, `0x1011`) NO aparecen como registrados.
+  · las llamadas a Windows sin resolver = los `call` que siguen yendo a la TRAMPA: **183** →
+    **511 de 694** resueltas (el «505» de antes era de una versión anterior del exe). Revés: el
+    EDA.exe de 2009 (empaquetado) tiene 0.
+- ★★ **EL VPS** (11-nov, Ubuntu 26.04): `curl … instalar.sh | bash` desde GitHub instaló Docker y
+  levantó `eda-prod` (main, 25900) y `eda-prueba` (develop, 35900); las dos imágenes se armaron con
+  TODAS las pruebas adentro (los XML ya vienen en `datos/` del repo). Desde esta PC, por internet:
+  `servidor.red prueba` ✅ en los dos (y el revés: con la clave falsa, silencio). ★ **Con el juego**
+  (`py jugar.py --server <VPS>:25900` + el piloto): el registro del contenedor tiene
+  `0604 → 0607 0609 · 0708 → 0709 · 070a → 070b · 100f → 1010 · 1011 → 1012 · 1017 → 1018 ·
+  101d → 101e · 104e → 104f · 105f → 105e` y la foto: **rui en el mapa, reloj en 0:00:11**, sin un
+  solo «⛔» en el registro.
+- ⚠ **`multi.py` contra el VPS NO llegó a la sala** (dos clientes en el lobby, ningún `101D`): el
+  piloto aprieta con TIEMPOS FIJOS medidos contra un server local; por internet las respuestas
+  tardan más y los clics caen antes de tiempo (las fotos del piloto, además, salen atrasadas). No es
+  el server: falta que el piloto ESPERE cada respuesta. `redirigir_cliente.py` ahora acepta
+  `EDA_SERVER=IP:PUERTO` (para multi.py contra un VPS).
+- ⏭ Lo que falta: **cuentas de verdad** (en un server público cada conexión toma rui / kai / mio /
+  ren, la primera libre: no hay login; el plan, para más adelante: SQLite y el login / descarga desde
+  el launcher web de R2Beat) y **el relay entre dos PCs** (sigue sin probarse).
+
+### 39 · ★★★ La IDENTIDAD P2P: es la MAC, y el server SÍ la recibe (si el juego se lanza con comillas)
+
+Paso 1 del P2P directo (sin relay en el medio): saber de dónde sale la identidad con la que cada
+cliente reconoce a sus pares, y si el server puede saberla.
+- **Quién la escribe** (desarmado): el objeto UDP nace con la identidad vacía (constructor
+  `0x74B110`). Al arrancar, `0x4E767B` llama a **`0x6229F0`** (método de la cuenta), que pide la MAC
+  a Windows (**`GetAdaptersInfo`**, el thunk `0x85900C`; el 1er adaptador), la formatea con
+  `"%02X:%02X:%02X:%02X:%02X:%02X"` y la guarda en **`cuenta+0x166`** (UTF-16) y **`cuenta+0x1C7`**
+  (ASCII). Enseguida `0x4E76AE` le pasa `+0x1C7` al «P2PHelper»: esa es la identidad de los saludos
+  `C354` (`0x74AA60` la lee de `+0xE8` del objeto UDP).
+- **El `0x100F` la lleva**: `0x549940` copia `+0x166` al mensaje. Medido en las 133 capturas viejas:
+  la MAC de esta PC, entera, en el desplazamiento **126** (`+0x7E`) en 15 de 133; en las otras 118,
+  basura. Revés: una MAC inventada no aparece en ninguna.
+- ★ **Por qué sólo a veces — la LÍNEA DE COMANDOS** (desarmado, `0x622B2C`…): después de la MAC,
+  `0x6229F0` lee `GetCommandLineA()`. Si empieza con comillas, toma lo que sigue a la ruta como el
+  BLOQUE del launcher (sin bloque, no hace nada); si **no** empieza con comillas, toma **la línea
+  entera** como bloque. El bloque es hexadecimal (`"%02X"`), cada byte XOR la MAC en texto (en
+  ciclo), y queda `"<A> <B>"` (separador: un espacio, `0x88C328`) → A a `cuenta+0xF0`, B a
+  `cuenta+0x11A` (`0x622E35`, `0x622E49`, `wcscpy`). Con la ruta sin comillas, A y B salen basura
+  (la «huella» del `0x0604`, que tenía pedazos de la MAC: es la MAC XOR ceros) y la copia se pasa
+  de largo y pisa la MAC de `+0x166`.
+  · `frida.spawn([exe])` (lo de `jugar.py`) **pone** comillas; `subprocess.Popen([ruta])` (el piloto,
+    `multi.py`, el espía) **no** (Python no las pone si la ruta no tiene espacios): de ahí vienen
+    casi todas las capturas — medido leyendo `GetCommandLineA` adentro del juego (`'"C:\…exe"'` con
+    Frida; sin comillas con un argumento) y con `%CMDCMDLINE%` de cmd.exe para Python.
+- ★★ **Medido con el juego** (server local con `EDA_LOG_HEX=1`, mismo exe, misma PC):
+
+  | cómo se lanzó | «huella» del `0x0604` | MAC en `+0x7E` del `0x100F` |
+  |---|---|---|
+  | `py jugar.py` (con comillas) | **vacía** | ✅ **la real, entera** |
+  | el piloto con `Popen` (sin comillas) — el revés | 20 caracteres de basura | ⛔ basura con pedazos de la MAC |
+
+- **Arreglado**: el piloto, `multi.py`, `espiar_broker.py juego` y `foto_juego.py` lanzan ahora con
+  la ruta entre comillas.
+- ★ **Lo que esto abre**:
+  1. **P2P directo**: el server ya puede poner en cada miembro de la sala la MAC de verdad del
+     otro (la del `0x100F`) y darle su dirección DIRECTA en el `0x1059`: los saludos `C354` se
+     reconocen sin que nadie reescriba nada. El relay queda sólo de respaldo (NAT simétrico).
+  2. **El login del launcher**: `"exe" <hex(XOR("<usuario> <pase>", MAC))>` llega al server en el
+     `0x0604`, en el UDP `0x3002` (el 1º) y en el `0x100F` (los dos). Es la puerta que va a usar el
+     launcher web de R2Beat, y `jugar.py` puede hacer lo mismo (la MAC la saca con `GetAdaptersInfo`
+     igual que el juego).
+- ⚠ Privacidad: la MAC ya viajaba a los OTROS jugadores en cada saludo (así está hecho el juego); ahora
+  además la ve el server. No se guarda en ningún lado ni va a los registros sin `EDA_LOG_HEX=1`.
+
+### 40 · P2P directo en el server (paso 2, a medias) y de dónde salen los «75 ms» del ping de la sala
+
+- **El server** (`servidor/relay.py`, `EDA_P2P=directo` por defecto): identidad de cada miembro = su
+  MAC del 0x100F; dirección para cada par = la pública que vio el punch (`punch.json`, lo escribe
+  `relay_udp.py`), la PRIVADA si comparten IP pública, y el relay sólo para quien no mandó su MAC.
+  Las pruebas (`juego.py control`) lo cubren con sus reveses.
+- ⚠ **Medido con el juego (dos clientes, server local)**: el `0x3006` del punch lo manda SÓLO el que
+  ENTRA a una sala, y llega en el mismo instante en que el server arma el `0x1059` (tarde); el
+  ANFITRIÓN no se anota nunca. ⏭ La pública de cada uno hay que tomarla al conectarse, como el
+  original: el `0x0607` («UDP label») tiene que apuntar al punch del server para que el cliente le
+  mande sus `0x3002` (hoy apunta al Broker muerto de 2009).
+- ★ **Los ~75 ms del ping de la sala NO son la red** (`herramientas/medir_udp.py`: `sendto` /
+  `recvfrom` de los dos juegos con QueryPerformanceCounter): el que recibe un ping lo CONTESTA en
+  0,1 ms (mediana), pero entre que un juego manda y el otro LEE pasan 30–39 ms de mediana (hasta
+  ~75) — **en la misma PC**. El dato llega a Windows enseguida y espera a que el juego lo lea: el
+  juego lee el UDP cuando su bucle principal da una vuelta (`recvfrom` sólo con datos, por
+  `WSAEventSelect` FD_READ|FD_WRITE, `0x750828`), y el bucle da **~32 vueltas por segundo**
+  (PeekMessage). Descartado, medido: la AFINIDAD (los dos juegos en los 16 núcleos, `0xFFFF`, y el
+  exe no importa `SetThreadAffinityMask`); el FOCO (con una ventana al frente: 32 vueltas/s y 39 ms,
+  igual); `ClientSleepMS`, `MaxFPS`, `LatencySim`, `DropRate` (en 0, en el archivo y en la memoria de
+  los dos); `alwaysfocused` (es del mouse/teclado, `0x419B85`).
+- ★ **Quién marca el ritmo: la SINCRONÍA CON EL MONITOR** (esperas contadas en 5 s con Frida): en el
+  hilo principal, `nvd3dum.dll` (el driver de NVIDIA) espera de a 1 ms ~2.700 veces por segundo, y
+  `mss32` da una vuelta por cuadro (~28/s). Con UN solo juego abierto el bucle da **60 vueltas/s**
+  (= el refresco del monitor); con DOS en la misma PC se reparten el refresco: **30 cada uno**. O sea:
+  la red se lee una vez por cuadro y cada cuadro espera al monitor. `"VSyncOnFlip" "0"` en
+  `autoexec.cfg` NO cambió nada (30 vueltas/s y 30,6 ms de mediana, igual): 🟡 o no se aplica o el
+  driver sincroniza igual.
+  ⇒ En una partida de verdad (un juego por PC, monitor de 60 Hz) cada lado espera hasta ~16 ms: el
+  ping de la sala tendría que dar ~16–33 ms MÁS la red. Los «0–3 ms» de los cíber de 2009 pedían
+  muchos más cuadros (pantalla completa sin sincronía, Windows XP sin compositor). ⏭ Medir con un
+  juego a pantalla completa.
+- ★★ **Corregido (11-nov, `herramientas/medir_vsync.py`)**: EDA **NO pide sincronía**: su `CreateDevice`
+  pide `PresentationInterval = 0x80000000` (IMMEDIATE), ventana, `SwapEffect` 3 (COPY), 1 búfer,
+  `Flags` 1 (LOCKABLE_BACKBUFFER). En la LISTA DE SERVIDORES el bucle da **190–900 vueltas/s**;
+  sacarle el búfer bloqueable y pasar a `SWAP_DISCARD` NO cambia nada (A/B alternado: 190 / 183 /
+  196 / 182) → no es eso. Lo que pasa es que **la SALA (y la partida) gastan la placa de video**:
+  `nvidia-smi pmon` con dos EDA en la sala: **31–39 % de una RTX 3090 CADA UNO** dibujando ~25
+  cuadros/s; la placa al 94 % (168 W). Cerrando los dos EDA: 44 % (83 W, lo demás). Con un solo
+  juego en la sala daba ~60 vueltas/s; con dos, ~25–30 cada uno — de ahí el «lag» con dos juegos
+  abiertos y los ~75 ms del ping. ⏭ Encontrar QUÉ dibuja la sala que cuesta tanto (y arreglarlo
+  con una d3d9.dll nuestra, como en R2Beat: el proxy y Zig 0.16 ya están en ese proyecto).
+- ★ **QUÉ dibuja** (`herramientas/medir_dibujo.py`, cada pedido a Direct3D 9 y a GDI, por segundo, con
+  el piloto de la lista a la partida): **NO es GDI** (27 llamadas al arrancar y nada más), **NO hay
+  lecturas de la imagen** al procesador (`GetRenderTargetData`, `LockRect` = 0) ni copias
+  (`StretchRect` = 0), y **NO dibuja cuadros escondidos** (un `Clear` por cada `Present`). Por cuadro:
+  ~120 dibujos en la lista de servidores, ~720 en el selector de stage (que baja a **12 cuadros/s**),
+  ~480 en la partida (40–108 cuadros/s). Pocos para una placa moderna.
+- ★★ **Pero cada cuadro le cuesta caro a la placa**: con UN solo EDA en la lista de servidores la
+  placa pasa a máxima potencia (P0, 1.695 MHz) y de **85 W a 157 W (+70 W)** para ~69 cuadros/s
+  (`nvidia-smi --query-gpu=pstate,clocks.gr,power.draw`). No es el porcentaje engañoso de un reloj
+  bajo: es trabajo de verdad, y la cantidad de dibujos no lo explica. ⏭ Encontrar el costo por
+  descarte en memoria (sacar grupos de dibujos, cambiar el filtrado de texturas…), o probar DXVK (un
+  d3d9.dll libre que traduce a Vulkan). Y aparte, para la misma DLL: **la partida no suelta el mouse**
+  aunque se cambie de ventana (El tester, 11-nov: sólo lo suelta con el menú de ESC).
+- 🧹 Ese rato la PC tenía además 4 `find /` huérfanos de otra sesión (25 % de CPU desde las 13:27):
+  cerrados con permiso. Cuidado al medir rendimiento: mirar antes `nvidia-smi` y la CPU.
+- `multi.py` lee ahora el registro del server que haya (`EDA_MULTI_LOG`, o `EDA_MULTI_SSH` para el
+  de un contenedor): contra red.py/el VPS leía sólo el del espía, nunca veía avanzar nada y repetía
+  clics que desarmaban la sala.
+
+### 41 · ★★★ La causa del «lag» y del ping: EDA dibuja SIN LÍMITE (diagnosticado con DXVK)
+
+- **DXVK 3.1.1** (`dxvk-3.1.1.tar.gz` de github.com/doitsujin/dxvk, 18.041.512 B, md5 `dfca4e1e…`;
+  queda en `_trabajo/dxvk/` como herramienta de DIAGNÓSTICO, no para repartir: pide Vulkan y muchas
+  PCs modestas no lo tienen). Su `d3d9.dll` (x32) va al lado de `EDA_limpio.exe` sólo mientras se
+  mide; `DXVK_HUD=fps,frametimes,gpuload,drawcalls` lo dibuja arriba a la izquierda y
+  `DXVK_LOG_PATH` deja el registro.
+- ★ El panel en la lista de servidores: **929 cuadros/s, 58 dibujos por cuadro, 0,6–2,5 ms por
+  cuadro, placa al 73 %**. No es que cada cuadro sea caro: **el juego no tiene tope** (pide
+  IMMEDIATE y dibuja todo lo que puede) y eso pone CUALQUIER placa a máxima potencia (P0, ~150 W).
+  Con dos juegos se pelean la placa y el que pierde cae a ~25 cuadros/s: el «lag».
+- ★★ **Con tope** (`dxvk.conf`: `d3d9.maxFrameRate = 120`; la variable `DXVK_FRAME_RATE` NO se
+  aplicó): exactamente 120 cuadros/s y la placa en **48–84 W** (P3/P5; sin nada abierto ~40 W).
+- ★★★ **Dos clientes en la sala con el tope**: el ping de la sala **8 ms / 8 ms** (antes 75 / 78) y
+  el UDP «sale de uno → lo lee el otro» **4,56 ms de mediana, máximo 5,0** (antes 30–39, hasta 80).
+  ⚠ El tope de DXVK agarró en UNO solo (139 vueltas/s; el otro 397/s y 24–56 % de la placa: los
+  150 W que seguían): su propio registro avisa «Built-in frame rate limiter enabled. Please enable
+  an external limiter».
+- También del registro: el dispositivo usa **software vertex processing** (la geometría la
+  transforma el procesador).
+- ⏭ **La solución, sin Vulkan**: una `d3d9.dll` NUESTRA (como en R2Beat, Zig 0.16) que reenvíe al
+  d3d9 de Windows y ponga un **tope de cuadros confiable** en `Present`, para cada juego abierto. Y en
+  la misma DLL: **soltar el mouse** al perder el foco en la partida.
+
+### 42 · ★★★ NUESTRA `d3d9.dll`: tope fijo, búferes rápidos y la red inmediata (11-nov)
+
+`herramientas/dll_d3d9/` (`eda_d3d9.c`, Zig 0.16 con la receta de R2Beat; `jugar.py` la pone sola al
+lado del juego, `--sin-dll` la saca). Reenvía al d3d9 de Windows y engancha Present / Reset /
+CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de importaciones).
+- **Tope + contador**: con UN juego en la lista de servidores, 120 cuadros/s exactos (antes ~900) y
+  la placa de ~155 W a 85–108 W; «FPS 120» arriba a la izquierda (rectángulos, sin fuentes).
+- ★★★ **EL CULPABLE DEL «LAG»** (con dos juegos en la sala seguían a **14 cuadros/s y 164 W** aun con
+  el tope, y `backbuffer_rapido` —sin LOCKABLE, DISCARD— no cambió nada): sondeando el dispositivo
+  del juego andando, cada dibujo bloquea su **búfer de vértices ENTERO** (96.000 B, POOL_DEFAULT,
+  WRITEONLY, FVF 0x142) con **`Lock(0, 0, …, flags 0)`: ~4.200 veces por segundo, ~290 por cuadro**;
+  sin flags, cada uno hace esperar a que la placa termine con el búfer. La salida en la dll: esos
+  búferes se crean `DYNAMIC` y cada `Lock(0,0,0)` pasa a `DISCARD` (el juego siempre escribe desde el
+  principio lo que va a dibujar). **Dos juegos en la sala: 120 cuadros/s cada uno, la placa de 164 W a
+  46 W (P5), la espera de red de 30–80 ms a 7,3**. En la partida se ve bien (sin piezas rotas).
+- ★★ **La red ya no depende de los cuadros**: el juego lee el UDP una vez por cuadro (a 120 → ping 8;
+  a 480 → ping 2). La dll se queda con el evento que el juego registra para su socket UDP
+  (`WSAEventSelect`, FD_READ) y espera el cuadro ESCUCHANDO ese evento: si llega un mensaje, suelta al
+  juego en el acto. Con tope ESTRICTO (por defecto) ese cuadro adelantado **gasta el turno siguiente**:
+  el promedio queda exacto. **A 60 cuadros/s: ping de sala 1 ms / 0 ms**, 60 exactos en los dos, sin
+  congelarse; en la partida (≈3.000 mensajes/s) la espera es de un cuadro como mucho (7,7 ms de
+  mediana a 60) y la placa ~80 W con dos juegos.
+- ⛔ **Probado y descartado: llamar al bombeo de red del juego desde la espera.** `0x74D530` (thiscall,
+  objeto GLOBAL `0x948F90`: mira el evento del socket +0xAC sin esperar y llama a `0x750110` =
+  WSAEnumNetworkEvents → leer) corre en el hilo principal, una vez por cuadro (medido con Frida). Pero
+  llamado desde adentro del Present, **los dos juegos se CONGELARON** apenas se usó en la sala (1 y
+  después 12 bombeos). Queda detrás de `bombeo_red=0`.
+- ⚠ Dos errores míos en el camino, medidos y arreglados: el juego crea OTRO dispositivo al entrar a la
+  partida, y la dll aplicaba el «state block» del contador del dispositivo VIEJO (glitches gráficos y
+  el contador que desaparecía) → ahora cada uno el suyo. Y el piloto: a 60 cuadros/s `multi.py` creía
+  que un juego no había entrado al lobby (el 0x1017 llegaba después de su plazo fijo), repetía el
+  piloto entero y «Enter Lobby» caía sobre «Search User» (un diálogo abierto). Ahora
+  **`herramientas/pantallas.py`** reconoce la pantalla por una huella (zona achicada a 16×6 en
+  grises: 0 contra sí misma, ≥17 contra las otras) y `multi.py` espera cada pantalla antes de apretar.
+
+### 43 · El PR #3 (Hysteria-xyz): el ciclo de la sala, el 0x106C, y la puerta rota de la dll (11-nov)
+
+- **El PR** partía de antes de los módulos (`servidor/juego.py` de 1.773 líneas): se pasó a mano lo útil.
+  ★ **Leave Room** (`0x1045` → `0x1046` u16 1; manejador del cliente `0x54E380`): medido con el juego,
+  el invitado aprieta «Leave Room» y vuelve al LOBBY (sin quedarse en «Waiting for Response»), la
+  lista de salas pasa a «1/3» y en la sala del anfitrión queda sólo él. **Echar** (`0x1051` → `0x1052`
+  al anfitrión, `0x1054` al echado), **pasar el mando** (`0x1058` tipo 3 con el nuevo anfitrión) y
+  **título/contraseña** (`0x1049` → `0x104A`) quedan con sus pruebas (y sus reveses: echar si no sos el
+  anfitrión, echarte a vos mismo); en pantalla, sólo Leave Room.
+- ⛔ **El `0x106C` NO hace lanzar las habilidades** (el PR decía que sí). El manejador existe (`0x547A60`:
+  u8 jugador · u8; si es mi número, «CursorCenter 1» y mira el estado 0xA = espectador) pero, con un
+  Warrior nivel 10 y sus habilidades en la barra (cuenta de `preparar`), F1 / F2 / F1+clic derecho no
+  gastan MP con NI sin él (la barra del MP: 210 → 210 píxeles en las tres teclas, las dos veces). Como
+  además agarra el mouse, queda apagado (archivo `con_106c` para prenderlo). ⚠ La 1ª medición salió
+  inválida: los juegos se conectaron a OTRO server de prueba de las 17:19 (otra carpeta de cuentas: rui
+  sin habilidades, y el `0x106C` salía en las dos corridas) — se cerró y se repitió.
+- ★★ **La puerta rota era de NUESTRA dll** (El tester la vio): A/B con `EDA_BUFERES_RAPIDOS=0`, la puerta
+  del primer mapa sale entera; con DISCARD, media negra. Medido con `EDA_MEDIR_ESCRITURA=1`: CADA Lock
+  del juego escribe DESDE EL PRINCIPIO del búfer ~100 B (un cuadradito) y a veces 38 KB de una (el
+  escenario), que se dibujan después entre medio de los cuadraditos: DISCARD borraba esos 38 KB.
+  Volcar la copia entera en cada Unlock arregla la puerta pero la placa volvió a 153 W. ★ **El anillo**:
+  el juego escribe en una COPIA, y la dll sube a la placa sólo lo que cada dibujo usa (el dibujo dice qué
+  vértices), en el próximo lugar libre (NOOVERWRITE; lleno → DISCARD), corriéndole el vértice base.
+  Medido: la puerta entera, ~117 B por subida, 120 cuadros/s en los dos juegos en la partida (la placa
+  ~152 W con dos juegos a 120 en la partida; la versión con la puerta rota daba ~90: a afinar).
+
+### 44 · ★★ El juego SIN PYTHON: la `d3d9.dll` lo lleva al server (12-nov)
+
+- **Para qué**: hasta acá, conectarse pedía Python + Frida (`redirigir_cliente.py` / `eda_original.py`
+  desvían el `connect` al Broker de 2009). Un jugador común no puede tener eso: el cliente para
+  repartir (vía launcher) tiene que ser **una carpeta y un doble clic**.
+- **Cómo**: `EDA_limpio.exe` pide `ws2_32!connect` **por nombre** (2º descriptor de WS2_32; medido con
+  pefile), así que la dll cambia esa entrada de la tabla de importaciones, igual que `WSAEventSelect`
+  (§42). Sólo el destino `218.145.66.187:25000` (IP y puerto exactos, IPv4) y sólo si
+  `eda_d3d9.ini` tiene `[red] server=host[:puerto]` (o `EDA_SERVER`, que manda); un nombre se resuelve
+  en el primer `connect` (no en `DllMain`). El server de juego que da la lista apunta al MISMO destino
+  (`reglas_broker.py`), así que un solo desvío cubre las dos conexiones.
+- **Medido** (EDA_limpio.exe abierto a pelo, `Popen('"ruta"')`, SIN Frida, `redirigir_cliente` cerrado):
+  `EDA_SERVER=<VPS>:35900` → la LISTA DE SERVIDORES del server de prueba («EDA vuelve»), ENTER →
+  **SELECT CHARACTER** con rui; en `eda_d3d9.log`, dos desvíos («connect a 218.145.66.187:25000 →
+  …:35900 (1)» y «(2)»). ★ **El revés**: el mismo exe y la misma dll sin server → «Can't connect to
+  server». Con `jugar.py` (Frida) también anda: `eda_original.lanzar` le pasa `EDA_SERVER` con el
+  mismo destino, así un ini con otro server no lo desvía a otra parte.
+- **La identidad P2P (§39)**: abrir el exe por el shell (`Invoke-Item`, lo mismo que el doble clic)
+  deja la línea de comandos `"C:\…\EDA_limpio.exe"`, CON comillas: la MAC llega al server.
+- **De paso, las trampas sin Frida**: un manejador de excepciones de la dll anota en `eda_d3d9.log` el
+  sitio de una llamada SIN RESOLVER (salto a `0xD0000000 + sitio − 0x400000`), como hacía
+  `JS_TRAMPA` de `eda_original.py`: un jugador puede mandar ese número. No cambia la caída.
+- ⚠ Con el `EDA.exe` ORIGINAL (ASProtect) esto no aplica: sus importaciones las arma ASProtect; ese
+  sigue con `jugar.py --original`.
+
+### 45 · ★★ EL LOGIN: el pase del portero de R2Beat → un ticket → el 0x100F (12-nov)
+
+- **Lo decidido** (El tester, por la sesión de R2Beat): R2Beat arma un PORTERO aparte en su VPS (Chile)
+  que da un **pase** firmado (JWT Ed25519: `iss` r2beat-portero, `aud` eda, `sub` = uid, `exp` +300 s,
+  `jti`) sólo a las cuentas APROBADAS para EDA. Nuestro server no le pregunta nada a Chile: comprueba
+  la firma con la clave pública (JWKS) y da un **ticket** de 20 letras (`servidor/porteria.py`, HTTP
+  `POST /eda/pase` en `servidor/red.py`). El contrato para el launcher: la carpeta de notas de la
+  sesión, `EDA_PARA_EL_LAUNCHER.md`.
+- **El bloque del launcher lo arma la dll**: `"EDA_limpio.exe" <usuario> <ticket> [host:puerto]` →
+  la dll lee la MAC como el juego (1er adaptador de `GetAdaptersInfo`, `%02X:`…), hace
+  hex(XOR("usuario ticket", MAC)) y le devuelve esa línea al juego desde `GetCommandLineA` (su
+  entrada en la tabla de importaciones). El 3º, el server. Medido: el log de la dll dice «el bloque
+  del launcher (15 bytes)» para `12345 Tk9abcDEF`, y el server lo recibe.
+- ★ **Dónde llegan A y B, medido** (antes 🟡): en el **mensaje** `0x100F`, A en `+0x08` y B en
+  `+0x32` (en el cuerpo, `+0x04` y `+0x2E`), UTF-16. Después del 0 final hay basura (no se limpia el
+  campo). ⚠ **Con 20 caracteres justos NO viene el 0**: el ticket de 20 llegó seguido de `9b 8d`
+  (otro campo); leyendo 42 bytes salía un carácter de más y el server rechazaba el ticket bueno (el
+  juego decía «Can't Connect»). Se lee hasta 40 bytes; la prueba arma el 0x100F igual que el juego
+  (sin 0 con 20) y el lector viejo la falla. La MAC (`+0x7E`) llega intacta con el bloque.
+- **Medido con el juego** (server local con `EDA_LOGIN=pase` y un portero de mentira con clave propia):
+  el pase → `POST /eda/pase` → ticket → el juego entra a SELECT CHARACTER como **`r2b_4242`**.
+  ★ **El revés**: el mismo usuario con un ticket inventado → `0x1010` con error y el juego muestra
+  «Can't Connect to server. Refreshing Server list.». Con `0x66` y `0x89A` sale ese texto; con `0x899`
+  no salió nada (se queda `0x66`). En modo `pase`, una conexión sin ticket no recibe nada más (ni las
+  reglas fijas). En modo `abierto` (el de siempre), todo como antes: rui / kai… por orden.
+- **Las pruebas** (`py servidor\juego.py control`): 21 nuevas, cada rechazo del pase con su revés
+  (repetido, firma cambiada, otra clave, kid desconocido, `alg` none, otra audiencia, otro emisor,
+  vencido 31 s / no vencido 29 s, `sub` que no es un uid, basura) y el 0x100F (ticket inventado, de
+  otra cuenta, sin bloque, vencido, anulado por uno nuevo).
+- ★ **El cliente para repartir, medido**: una carpeta con SÓLO 16 archivos (Data.dat, EDA_limpio.exe,
+  EdaENGTest.ini, LTMsg.dll, d3dx9_29.dll, mss32.dll, redist/ ×7, autoexec.cfg, d3d9.dll,
+  eda_d3d9.ini; 354.683.873 B) entra al server con el ticket. Sin `EDA.exe`, `GameGuard.des`, el
+  Nyx launcher/patcher ni `img/`. El juego escribe `NetTrace.log`, `eda_d3d9.log` y, al cerrar,
+  REESCRIBE `autoexec.cfg` (las teclas salen en otro orden): es del usuario.
+- ★ **Con el portero DE VERDAD** (su clave local de prueba y un pase firmado por él, de la sesión de
+  R2Beat; `sub` 999001, `iat` 1794000000, `exp` +300): con el reloj en 1794000010 → ticket. Los
+  reveses: con la hora real → «vencido»; un carácter cambiado en la firma → «firma»; en el medio
+  del payload → «formato» (el JSON se rompe antes); este server esperando otro `aud` → «audiencia».
+  En prod, `EDA_PORTERO_CLAVES=https://r2beatlatino.com/cuentas/clave-publica`. El portero también
+  da el manifest del cliente sólo a cuentas aprobadas (la descarga, del lado de R2Beat).
+
+### 46 · ★ El cliente se reparte por Cloudflare; el VPS sólo atiende a Cloudflare (12-nov)
+
+- **Lo decidido** (El tester): el cliente para repartir se baja SÓLO por la CDN de Cloudflare («ip directa
+  no se entrega»), desde el VPS de EDA. Un dominio con la nube naranja (la web: `/eda/pase` y
+  `/files-eda/`) y un subdominio sin nube para el juego (TCP directo al 25900). En todo lo técnico, el
+  dominio va en PUNYCODE (el exe de 2009 resuelve en ANSI; el launcher valida `[A-Za-z0-9.-]`).
+- **En el VPS** (`despliegue/caddy.sh` y `despliegue/cortafuegos.sh`, que se pueden volver a correr):
+  Caddy 2.11.9 con el **certificado de origen de Cloudflare** (la clave EC P-256 se generó en el VPS y
+  no salió; el CSR lo firmó Cloudflare para el dominio y su comodín, hasta 2041; verificado que es de
+  esa clave). Un `route`: lo que no viene de un rango de Cloudflare → 403; `/eda/*` → el login en
+  127.0.0.1:25901; `/files-eda/*` → `/opt/eda/files-eda/`, con `Cache-Control: public, max-age=31536000,
+  immutable`; lo demás → 404. ufw: 22, 25900, 35900 TCP y el relay UDP (26000–26300, 36000–36300)
+  abiertos; 80/443 sólo desde los rangos de Cloudflare.
+- **Medido**: los 16 archivos en el VPS con el md5 del manifiesto (`md5sum -c`: 16 OK). Por Cloudflare:
+  `LTMsg.dll` MISS → HIT, md5 igual; `Data.dat` 345.232.384 B en 18,8 s (~18 MB/s) MISS, y el pedido
+  siguiente **HIT**. ★ El revés: a la IP del VPS directo (443) no conecta (ufw). `/` → 404.
+  `/eda/salud` → 502: prod (`main`) todavía no tiene el código del login.
+- ⚠ **Un 404 quedó guardado en Cloudflare**: se probó un archivo antes de que terminara la subida y la
+  Cache Rule (Edge TTL de 1 año que pisa al origen) guardó el 404 (`HIT`). Pedido a la sesión de
+  R2Beat (tiene el token de esa zona): TTL largo sólo para 200 y purgar el prefijo de la release. ⇒ La
+  regla para las próximas: **no pedir ningún archivo de una release antes de que esté entera** (subir,
+  `md5sum -c`, y recién después probar).
+- ★ **Tiered Cache (Smart), medido** (lo pidió el tester: «que los espejos o zonas se pidan la cache entre
+  ellos y no vayan al vps»; lo prendió la sesión de R2Beat, gratis en el plan Free, confirmado con GET;
+  la regla ya no guarda errores: 300–599 sin guardar; se purgaron las 16 URLs, y `EdaENGTest.ini` volvió
+  con su md5). Con el registro de Caddy (`/var/log/caddy/eda.log`, cada pedido que LLEGA al VPS): un
+  archivo que nadie había pedido (`redist/mssdolby.flt`), pedido desde acá → lo atiende el centro de
+  **Río (GIG)**, MISS; pero el pedido que llegó al VPS vino del centro de **Miami (MIA)**, el nivel de
+  arriba. El 2º pedido: HIT en GIG, y ningún pedido más al VPS. O sea: la zona de abajo le pidió a la
+  de arriba, y sólo la de arriba fue al VPS, una vez.

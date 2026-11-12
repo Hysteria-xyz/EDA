@@ -28,6 +28,9 @@ Probado con el cliente de 2009, pantalla por pantalla (cada cosa tiene su medici
 - 🟡 La durabilidad no baja jugando; el oro que da una stage es inventado; los puntos por nivel
   (3) y los lugares de habilidad (12) son nuestros: los de 2009 no se saben.
 - 🟡 El relay entre dos PCs de verdad no se probó.
+- ⏭ **Cuentas de verdad**: hoy cada conexión toma la primera libre (rui, kai, mio, ren). El plan
+  (más adelante) es SQLite y el login y la descarga desde el launcher web de R2Beat:
+  [despliegue/LEEME.md → Las cuentas](despliegue/LEEME.md#las-cuentas-lo-próximo).
 
 Todo lo que es deducción y no medición está marcado 🟡 en el código y en la documentación.
 
@@ -35,10 +38,17 @@ Todo lo que es deducción y no medición está marcado 🟡 en el código y en l
 
 ```
 jugar.py                 la entrada: prepara el juego, levanta el server y abre el cliente
-servidor/juego.py        ★ EL SERVER DE JUEGO: cuentas, salas, partidas, tienda, inventario…
+                         (`--server IP:PUERTO` = jugar contra un server de otra PC)
+servidor/                ★ EL SERVER DE JUEGO, por módulos (servidor/LEEME.md): cuentas, salas,
+                         partida, tienda, inventario, habilidades, refinería…
+  juego.py               la entrada: a qué módulo le toca cada mensaje
                          (`py servidor\juego.py control` = sus pruebas, con su caso al revés)
+  red.py                 el server por la red, para Linux / Docker / un VPS
+despliegue/              Docker y los scripts del VPS: prod (main) y prueba (develop)
 herramientas/            el resto: ver herramientas/LEEME.md
-  espiar_broker.py       el oyente TCP: descifra cada paquete y se lo pasa a servidor/juego.py
+  espiar_broker.py       el oyente TCP de Windows (el de jugar.py): descifra cada paquete y se lo
+                         pasa a servidor/
+  contar_piezas.py       ★ cuántos mensajes y llamadas faltan, medido sobre el exe (la tabla del README)
   paquete_broker.py      el formato y el cifrado de la red (AES-128 con la clave = MD5 del exe)
   reglas_broker.py       las respuestas fijas del Broker (anuncio, lista de servidores)
   eda_original.py        abre el EDA.exe de 2009 y lo ajusta en memoria (GameGuard, red, datos)
@@ -55,32 +65,36 @@ documentacion/
 
 ## Cómo se abre el EDA.exe ORIGINAL (el que tiene ASProtect)
 
-Es lo que hace `py jugar.py` (`herramientas/eda_original.py`); sin tocar el archivo:
+Es lo que hace `py jugar.py --original` (`herramientas/eda_original.py`); sin tocar el archivo:
 
 1. Se lanza `EDA.exe` **suspendido** con Frida (`frida.spawn`) desde `_trabajo\juego\` y se le
    inyecta un script antes de que corra una sola instrucción.
 2. El script engancha `ws2_32!connect`: la conexión a `218.145.66.187:25000` (el Broker de 2009,
    que sale de un XML adentro de `Data.dat`) va a `127.0.0.1:25900`, nuestro server.
-3. El juego arranca. ASProtect desempaca el código **en memoria**; el script mira cada 2 ms las
-   tres direcciones de GameGuard y, **apenas tienen sus bytes originales** (o sea, ya están
-   desempacadas y todavía no corrieron), les escribe los parches de `sin_gameguard.py limpio`:
+3. El juego arranca. ASProtect desempaca el código **en memoria**; un reloj de 2 ms mira las
+   cuatro direcciones y, **apenas tienen sus bytes originales** (ya desempacadas, todavía sin
+   correr), les escribe los parches de `sin_gameguard.py limpio` (también se intenta desde
+   `GetCommandLineA` y `SetWindowLongA`, pero ASProtect emula esas funciones y no llegan):
 
    | dirección | antes | después | qué hace |
    |---|---|---|---|
    | `0x7CE890` | `a1 30 9e 94 00` | `33 c0 c3 90 90` | el init de NPGameLib devuelve 0: GameGuard no se crea ni se lanza |
    | `0x403606` | `e8 a5 f5 ff ff` | `b0 01 90 90 90` | el «juez» de GameGuard no se llama (`mov al, 1`) |
-   | `0x402EC4` | `74 0c` | `eb 0c` | el chequeo de cada 10 s no cierra el juego |
+   | `0x402EC4` | `74 0c` | `eb 0c` | el chequeo de GameGuard de cada 10 s no cierra el juego |
+   | `0x402EFB` | `74 0c` | `eb 0c` | el otro chequeo de cada 10 s («d3ddevice» = «d3d9.dll») tampoco: bajo Frida a veces fallaba y el juego se cerraba solo a los 10 s |
 
-   Medido: los tres entran a los ~60 ms. Si un byte no es el esperado, **no se escribe** (y avisa).
+   Medido: los cuatro entran a los ~60 ms. Si un byte no es el esperado, **no se escribe** (y avisa).
 4. Cuando `inflate` (zlib, `0x788260`) ya está desempacado, se engancha para guardar en
    `_trabajo\datos\` los 4 XML que lee el server, la primera vez que el juego los descomprime.
 
 El cifrado de la red usa como clave el **MD5 del exe que habla** (`paquete_broker.py`): el
-server la calcula sola de los exes que hay en `_trabajo\juego\`, sea el original o el limpio.
+server la calcula sola de los exes que hay en `_trabajo\juego\`, sea el original o el limpio, y
+además trae fijas las de los dos exes conocidos (`CLAVES_FIJAS`), así un server en Linux, sin
+ningún exe, los entiende igual.
 
-Si en alguna PC GameGuard gana la carrera (sale «Game guard error»), está
-`exe/EDA_limpio.exe` (`py jugar.py --limpio`), que ya trae todo eso en el archivo
-([exe/LEEME.md](exe/LEEME.md)).
+Por defecto `py jugar.py` no usa el original sino `exe/EDA_limpio.exe`, que ya trae todo eso en
+el archivo ([exe/LEEME.md](exe/LEEME.md)): con la versión anterior (sólo el reloj) en algunas
+PCs GameGuard ganaba la carrera («Game guard error : 45»).
 
 ## El recorrido, en corto
 

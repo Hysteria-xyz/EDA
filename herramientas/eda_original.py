@@ -1,7 +1,7 @@
 r"""eda_original -- abrir el EDA.exe ORIGINAL de 2009 (con ASProtect) listo para jugar contra nuestro server.
 
 Todo pasa EN MEMORIA, el archivo no se toca:
-  1. GameGuard: apenas ASProtect desempaca el código, se le ponen los 3 parches de la receta
+  1. GameGuard: apenas ASProtect desempaca el código, se le ponen los 4 parches de la receta
      `limpio` de `sin_gameguard.py` (con sus bytes originales verificados antes de escribir).
   2. La red: `ws2_32!connect` a 218.145.66.187:25000 (el Broker de 2009) se desvía a
      127.0.0.1:25900, donde escucha `espiar_broker.py sin_admin`.
@@ -113,7 +113,7 @@ function engancharInflate() {
 
 // --- 1. GameGuard (cuando ASProtect termina de desempacar) -------------------------------
 const hechos = {}; const t0 = Date.now(); let inflate_puesto = false;
-const vuelta = setInterval(function () {
+function ponerParches(desde) {          // devuelve cuántos faltan
     let faltan = 0;
     for (const [va, viejo, nuevo] of parches) {
         if (hechos[va]) continue;
@@ -123,9 +123,29 @@ const vuelta = setInterval(function () {
         if (actual === viejo) {
             const b = []; for (let i = 0; i < nuevo.length; i += 2) b.push(parseInt(nuevo.substr(i, 2), 16));
             Memory.patchCode(p, b.length, c => c.writeByteArray(b));
-            hechos[va] = true; send({t: 'parche', va: va, ms: Date.now() - t0});
+            hechos[va] = true; send({t: 'parche', va: va, ms: Date.now() - t0, desde: desde});
         } else if (actual === nuevo) { hechos[va] = true; } else { faltan++; }
     }
+    return faltan;
+}
+// ★ los parches tienen que estar ANTES de que corran (12-nov: en otras PCs salía «Game guard
+//   error : 45» = el juez de 0x403606 corrió antes que el temporizador). Dos ganchos deterministas,
+//   en el MISMO hilo del juego, cuando el código ya está desempacado:
+//   · GetCommandLineA = el arranque del CRT del juego (antes de todo);
+//   · SetWindowLongA desde 0x403601 = la instrucción de antes del juez (0x403606).
+//   El temporizador queda de respaldo.
+const k32 = Process.getModuleByName('kernel32.dll');
+const u32 = Process.findModuleByName('user32.dll') || Module.load('user32.dll');
+for (const [m, n] of [[k32, 'GetCommandLineA'], [k32, 'GetCommandLineW'], [u32, 'SetWindowLongA']]) {
+    let f = null;
+    try { f = m.getExportByName(n); } catch (e) { continue; }
+    // ⚠ sin filtrar por quién llama: en el original las llamadas pasan por los stubs de ASProtect
+    //   (la dirección de vuelta no es del juego). Alcanza con que los bytes ya sean los originales
+    //   desempacados, que ponerParches verifica antes de escribir.
+    Interceptor.attach(f, {onEnter() { if (Object.keys(hechos).length < parches.length) ponerParches(n); }});
+}
+const vuelta = setInterval(function () {
+    const faltan = ponerParches('reloj');
     if (!inflate_puesto && Object.keys(faltan_xml).length) {
         try { if (hex(ptr(%(inflate)d), 8) === '%(inflate_bytes)s') { engancharInflate(); inflate_puesto = true; } }
         catch (e) {}
@@ -138,6 +158,24 @@ const vuelta = setInterval(function () {
 """
 
 
+# ★ si el exe limpio llega a una llamada que el desempacado no pudo resolver, salta a la TRAMPA
+#   (0xD0000000 + sitio − 0x400000) y se cae: se avisa QUÉ sitio, para resolverlo (así encontró
+#   Urek-Mazinoo el de 0x7EE13C, PR #1 del repo público).
+JS_TRAMPA = r"""
+Process.setExceptionHandler(function (d) {
+    const eip = d.context.pc;
+    if (eip.compare(ptr('0xD0000000')) >= 0 && eip.compare(ptr('0xD0600000')) < 0)
+        send({t: 'trampa', sitio: eip.sub(ptr('0xD0000000')).add(0x400000).toInt32()});
+    return false;
+});
+"""
+# 🟡 para PROBAR en una PC coreana (página 949) lo que ve una en español (1252): EDA_SIMULAR_ACP=1252
+JS_ACP = r"""
+for (const n of ['GetACP', 'GetOEMCP']) Interceptor.attach(
+    Process.getModuleByName('kernel32.dll').getExportByName(n), {onLeave(r) { r.replace(ptr(%d)); }});
+"""
+
+
 def faltantes():
     return {r: n for r, n in XMLS.items() if not os.path.exists(os.path.join(DATOS, n + ".xml"))}
 
@@ -146,9 +184,19 @@ def _avisar(t):
     print(t, flush=True)
 
 
-def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
+def destino(texto):
+    """«IP» o «IP:PUERTO» → ([a, b, c, d], puerto) para el desvío del connect. Un nombre (p. ej. un
+    dominio) se resuelve acá, una vez: el juego recibe la IP."""
+    import socket
+    host, _, puerto = texto.strip().rpartition(":") if ":" in texto else (texto.strip(), "", "")
+    ip = socket.gethostbyname(host)
+    return [int(x) for x in ip.split(".")], int(puerto or LOCAL[1])
+
+
+def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe", server=None):
     """Abre `_trabajo/juego/EDA.exe` con todo puesto. Devuelve el pid. Con `esperar`, se queda
-    hasta que el juego se cierra (guardando los XML que vayan saliendo)."""
+    hasta que el juego se cierra (guardando los XML que vayan saliendo). `server` = ([IP], puerto)
+    adonde va el juego (por defecto este PC, 127.0.0.1:25900)."""
     import frida
     # nombre: "EDA.exe" (el original, con ASProtect) o "EDA_limpio.exe" (desempacado y sin
     #   GameGuard: los parches ya están en el archivo, y se reconocen como hechos)
@@ -158,9 +206,16 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
     os.makedirs(DATOS, exist_ok=True)
     parches = [[va, viejo, nuevo] for va, viejo, nuevo, _ in SG.RECETAS["limpio"]]
     js = JS % {"parches": json.dumps(parches), "xmls": json.dumps(faltantes()),
-               "quien": json.dumps(BROKER), "aca": json.dumps(LOCAL), "inflate": INFLATE,
+               "quien": json.dumps(BROKER), "aca": json.dumps(server or LOCAL), "inflate": INFLATE,
                "inflate_bytes": INFLATE_BYTES}
-    pid = frida.spawn([exe], cwd=JUEGO, stdio="pipe")
+    js += JS_TRAMPA
+    if os.environ.get("EDA_SIMULAR_ACP"):                  # p. ej. 1252 = una PC en español
+        js += JS_ACP % int(os.environ["EDA_SIMULAR_ACP"])
+    # ★ la d3d9.dll también desvía el connect si su ini tiene [red] server= (MEDICIONES §44): se le
+    #   pasa EDA_SERVER (que manda sobre el ini) con el MISMO destino, así los dos dicen lo mismo
+    dest = server or LOCAL
+    env = {"EDA_SERVER": "%s:%d" % (".".join(map(str, dest[0])), dest[1])}
+    pid = frida.spawn([exe], cwd=JUEGO, stdio="pipe", env=env)
     ses = frida.attach(pid)
     sc = ses.create_script(js)
     estado = {"vivo": True}
@@ -177,6 +232,11 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe"):
         elif p.get("t") == "tiempo":
             avisar("  ⛔ GameGuard: no se pudieron poner todos los parches (%s). ¿Es el EDA.exe de "
                    "2009 sin tocar? (md5 f0b12e6cddf3efdd0676b6491efe46be)" % p.get("hechos"))
+        elif p.get("t") == "trampa":
+            avisar("  ⛔ el juego llegó a una llamada de Windows SIN RESOLVER: sitio 0x%X. Abrí un issue "
+                   "con este número (ver documentacion/APIS_A_MANO.md)." % p["sitio"])
+        elif p.get("t") == "parche":
+            avisar("  · parche 0x%X puesto (%s, %d ms)" % (p["va"], p.get("desde"), p["ms"]))
         elif p.get("t") == "listo":
             avisar("  ✅ GameGuard pasado (%d ms)" % p["ms"])
 
@@ -227,7 +287,7 @@ def control():
     chequear("un XML partido en 3 bloques (con «<SHOPPING» antes) sale entero",
              salio.get("SHOP") == xml)
     chequear("y ya no se busca más (faltan vacío)", not faltan)
-    chequear("la receta de GameGuard tiene sus 3 parches", len(SG.RECETAS["limpio"]) == 3)
+    chequear("la receta de GameGuard tiene sus 4 parches", len(SG.RECETAS["limpio"]) == 4)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
 

@@ -686,7 +686,8 @@ class Volcado:
         struct.pack_into("<I", exe, opt + 56, rva + tam_idata)            # SizeOfImage
         dll_car = struct.unpack_from("<H", exe, opt + 70)[0]
         struct.pack_into("<H", exe, opt + 70, dll_car & ~0x0040)          # sin ASLR: hay VA fijas
-        # No hay tabla de reubicaciones: el cargador debe respetar la base preferida.
+        # No hay tabla de reubicaciones: el cargador debe respetar la base preferida
+        #   (IMAGE_FILE_RELOCS_STRIPPED; aporte de Urek-Mazinoo, PR #1 del repo público).
         caracteristicas = struct.unpack_from("<H", exe, pe + 22)[0]
         struct.pack_into("<H", exe, pe + 22, caracteristicas | 0x0001)
         dirs = opt + 96

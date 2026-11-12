@@ -128,7 +128,7 @@ def main():
     else:
         subprocess.run(["taskkill", "/F", "/IM", a.exe], capture_output=True)
         time.sleep(0.4)
-        p = subprocess.Popen([os.path.join(JUEGO, a.exe)], cwd=JUEGO)
+        p = subprocess.Popen('"%s"' % os.path.join(JUEGO, a.exe), cwd=JUEGO)   # entre comillas (§39)
         pid = p.pid
     t0, hora = time.time(), time.strftime("%H%M%S")
     try:

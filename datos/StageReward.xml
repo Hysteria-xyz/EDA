@@ -1,0 +1,729 @@
+<STAGE_REWARDS>
+    <REWARD Present_Index="0" GiveCount="0">
+        <Present Type="2" Data="1" Count="1" />
+        <Present Type="2" Data="2" Count="1" />
+        <Present Type="2" Data="3" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1011" GiveCount="1">
+        <Present Type="2" Data="1" Count="1" />
+        <Present Type="2" Data="3001" Count="1" />
+        <Present Type="2" Data="201" Count="1" />
+        <Present Type="2" Data="3201" Count="1" />
+        <Present Type="2" Data="26001" Count="5" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="31001" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1012" GiveCount="1">
+        <Present Type="2" Data="1001" Count="1" />
+        <Present Type="2" Data="5001" Count="1" />
+        <Present Type="2" Data="1201" Count="1" />
+        <Present Type="2" Data="5201" Count="1" />
+        <Present Type="2" Data="26101" Count="5" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="31011" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1013" GiveCount="1">
+        <Present Type="0" Data="300" Count="0" />
+        <Present Type="0" Data="154" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="31021" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1021" GiveCount="1">
+        <Present Type="2" Data="6001" Count="1" />
+        <Present Type="2" Data="4001" Count="1" />
+        <Present Type="2" Data="4201" Count="1" />
+        <Present Type="2" Data="6201" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="31031" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1022" GiveCount="1">
+        <Present Type="2" Data="7001" Count="1" />
+        <Present Type="2" Data="8001" Count="1" />
+        <Present Type="2" Data="8201" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="31041" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1023" GiveCount="1">
+        <Present Type="0" Data="300" Count="0" />
+        <Present Type="0" Data="154" Count="0" />
+        <Present Type="2" Data="40051" Count="5" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="32001" Count="1" />
+        <Present Type="2" Data="33001" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1031" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1032" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="31001" Count="1" />
+        <Present Type="2" Data="32501" Count="1" />
+        <Present Type="2" Data="33501" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1033" GiveCount="1">
+        <Present Type="2" Data="31001" Count="1" />
+        <Present Type="0" Data="300" Count="0" />
+        <Present Type="0" Data="154" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="32011" Count="1" />
+        <Present Type="2" Data="33011" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1041" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1042" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="31011" Count="1" />
+        <Present Type="2" Data="32511" Count="1" />
+        <Present Type="2" Data="33521" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1043" GiveCount="1">
+        <Present Type="0" Data="500" Count="0" />
+        <Present Type="0" Data="276" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="32021" Count="1" />
+        <Present Type="2" Data="33021" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1051" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1052" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="31021" Count="1" />
+        <Present Type="2" Data="32521" Count="1" />
+        <Present Type="2" Data="33531" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1053" GiveCount="1">
+        <Present Type="0" Data="276" Count="0" />
+        <Present Type="0" Data="276" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="12" Count="1" />
+        <Present Type="2" Data="212" Count="1" />
+        <Present Type="2" Data="32031" Count="1" />
+        <Present Type="2" Data="33031" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1061" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1062" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="31031" Count="1" />
+        <Present Type="2" Data="32531" Count="1" />
+        <Present Type="2" Data="33541" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1063" GiveCount="1">
+        <Present Type="0" Data="500" Count="0" />
+        <Present Type="0" Data="276" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="32041" Count="1" />
+        <Present Type="2" Data="33511" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1071" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1072" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="31041" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1073" GiveCount="1">
+        <Present Type="0" Data="500" Count="0" />
+        <Present Type="0" Data="276" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1081" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1082" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1083" GiveCount="1">
+        <Present Type="0" Data="800" Count="0" />
+        <Present Type="0" Data="432" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1091" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1092" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1093" GiveCount="1">
+        <Present Type="0" Data="800" Count="0" />
+        <Present Type="0" Data="432" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="1021" Count="1" />
+        <Present Type="2" Data="1212" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1101" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1102" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1103" GiveCount="1">
+        <Present Type="0" Data="800" Count="0" />
+        <Present Type="0" Data="432" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1111" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1112" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1113" GiveCount="1">
+        <Present Type="0" Data="800" Count="0" />
+        <Present Type="0" Data="432" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1121" GiveCount="1">
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1122" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1123" GiveCount="1">
+        <Present Type="0" Data="800" Count="0" />
+        <Present Type="0" Data="432" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1131" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1132" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1133" GiveCount="1">
+        <Present Type="0" Data="800" Count="0" />
+        <Present Type="0" Data="432" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1141" GiveCount="1">
+        <Present Type="2" Data="26001" Count="5" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1142" GiveCount="1">
+        <Present Type="2" Data="26101" Count="5" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1143" GiveCount="1">
+        <Present Type="0" Data="800" Count="0" />
+        <Present Type="0" Data="432" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1151" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="21001" Count="1" />
+        <Present Type="2" Data="22001" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1152" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="23001" Count="1" />
+        <Present Type="2" Data="24001" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1153" GiveCount="1">
+        <Present Type="0" Data="800" Count="0" />
+        <Present Type="0" Data="432" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="25001" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1161" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1162" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1163" GiveCount="1">
+        <Present Type="0" Data="800" Count="0" />
+        <Present Type="0" Data="432" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1171" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1172" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1173" GiveCount="1">
+        <Present Type="0" Data="800" Count="0" />
+        <Present Type="0" Data="432" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1181" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1182" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1183" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1191" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1192" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1193" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1201" GiveCount="1">
+        <Present Type="2" Data="26001" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1202" GiveCount="1">
+        <Present Type="2" Data="26004" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1203" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1211" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1212" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1213" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1221" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1222" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1223" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1231" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1232" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1233" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1241" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1242" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1243" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1251" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1252" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1253" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1261" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1262" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1263" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1271" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1272" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1273" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1281" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1282" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1283" GiveCount="1">
+        <Present Type="0" Data="1400" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1291" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1292" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1293" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="700" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1301" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1302" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1303" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="1040" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1311" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1312" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1313" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="1040" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1321" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1322" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1323" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="1040" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1331" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1332" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1333" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="1040" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1341" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1342" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1343" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="1040" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1351" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1352" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1353" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="1040" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1361" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1362" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1363" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="1040" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1371" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1372" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1373" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="1040" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1381" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1382" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1383" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="1040" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1391" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1392" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1393" GiveCount="1">
+        <Present Type="0" Data="2000" Count="0" />
+        <Present Type="0" Data="1040" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1401" GiveCount="1">
+        <Present Type="2" Data="26002" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="3" Count="1" />
+        <Present Type="2" Data="203" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1402" GiveCount="1">
+        <Present Type="2" Data="26005" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="1003" Count="1" />
+        <Present Type="2" Data="1203" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1403" GiveCount="1">
+        <Present Type="0" Data="3000" Count="0" />
+        <Present Type="0" Data="1458" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="32" Count="1" />
+        <Present Type="2" Data="232" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1411" GiveCount="1">
+        <Present Type="2" Data="26003" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="4003" Count="1" />
+        <Present Type="2" Data="4203" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1412" GiveCount="1">
+        <Present Type="2" Data="26006" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="5003" Count="1" />
+        <Present Type="2" Data="5203" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1413" GiveCount="1">
+        <Present Type="0" Data="3000" Count="0" />
+        <Present Type="0" Data="1458" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="4032" Count="1" />
+        <Present Type="2" Data="4232" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1421" GiveCount="1">
+        <Present Type="2" Data="26003" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="21006" Count="1" />
+        <Present Type="2" Data="22006" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1422" GiveCount="1">
+        <Present Type="2" Data="26006" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="23006" Count="1" />
+        <Present Type="2" Data="24006" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1423" GiveCount="1">
+        <Present Type="0" Data="3000" Count="0" />
+        <Present Type="0" Data="1458" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="25006" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1431" GiveCount="1">
+        <Present Type="2" Data="26003" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1432" GiveCount="1">
+        <Present Type="2" Data="26006" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1433" GiveCount="1">
+        <Present Type="0" Data="3000" Count="0" />
+        <Present Type="0" Data="1458" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1441" GiveCount="1">
+        <Present Type="2" Data="26003" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="21021" Count="1" />
+        <Present Type="2" Data="22021" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1442" GiveCount="1">
+        <Present Type="2" Data="26006" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="23021" Count="1" />
+        <Present Type="2" Data="24021" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1443" GiveCount="1">
+        <Present Type="0" Data="3000" Count="0" />
+        <Present Type="0" Data="1458" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+        <Present Type="2" Data="25021" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1451" GiveCount="1">
+        <Present Type="2" Data="26003" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1452" GiveCount="1">
+        <Present Type="2" Data="26006" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1453" GiveCount="1">
+        <Present Type="0" Data="3000" Count="0" />
+        <Present Type="0" Data="1458" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1461" GiveCount="1">
+        <Present Type="2" Data="26003" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1462" GiveCount="1">
+        <Present Type="2" Data="26006" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1463" GiveCount="1">
+        <Present Type="0" Data="4300" Count="0" />
+        <Present Type="0" Data="2128" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1471" GiveCount="1">
+        <Present Type="2" Data="26003" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1472" GiveCount="1">
+        <Present Type="2" Data="26006" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1473" GiveCount="1">
+        <Present Type="0" Data="4300" Count="0" />
+        <Present Type="0" Data="2128" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1481" GiveCount="1">
+        <Present Type="2" Data="26003" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1482" GiveCount="1">
+        <Present Type="2" Data="26006" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1483" GiveCount="1">
+        <Present Type="0" Data="4300" Count="0" />
+        <Present Type="0" Data="2128" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1491" GiveCount="1">
+        <Present Type="2" Data="26003" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1492" GiveCount="1">
+        <Present Type="2" Data="26006" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1493" GiveCount="1">
+        <Present Type="0" Data="5000" Count="0" />
+        <Present Type="0" Data="3016" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1501" GiveCount="1">
+        <Present Type="2" Data="26003" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1502" GiveCount="1">
+        <Present Type="2" Data="26006" Count="1" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+    <REWARD Present_Index="1503" GiveCount="1">
+        <Present Type="0" Data="5000" Count="0" />
+        <Present Type="0" Data="3016" Count="0" />
+        <Present Type="2" Data="40071" Count="1" />
+    </REWARD>
+</STAGE_REWARDS>
