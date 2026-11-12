@@ -557,6 +557,9 @@ def control():
     pruebas_lista_servidores(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
+    pruebas_nat(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
     pruebas_login(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
@@ -689,6 +692,69 @@ def pruebas_personajes(chequear):
         config.NIVEL_INICIAL = real
         ASIGNADAS.pop(n, None)
         ASIGNADAS.pop(141, None)
+
+
+def pruebas_nat(chequear):
+    """★ P2P ENTRE CASAS (MEDICIONES §53, servidor/nat.py): el 0x0607 al relay, el 0x0609 con la
+    pública que vio el relay en el 0x3002, y con ella la dirección directa del ANFITRIÓN."""
+    from servidor import nat
+    from servidor.relay import publica_de
+    viejos = (config.P2P_ENTRE_CASAS, config.NAT_MAPA, config.RELAY_IP, config.P2P, config.PUNCH_MAPA)
+    config.NAT_MAPA = os.path.join(config.CUENTAS, "nat.json")
+    config.PUNCH_MAPA = os.path.join(config.CUENTAS, "punch_nat.json")
+    config.RELAY_IP, config.P2P = "203.0.113.9", "directo"
+    json.dump({}, open(config.PUNCH_MAPA, "w"))
+
+    def ip_int(t):
+        return struct.unpack(">I", bytes(int(x) for x in t.split(".")))[0]
+    huella = "12345".encode("utf-16-le").ljust(40, b"\0")
+    config.P2P_ENTRE_CASAS = False
+    r = responder(0x0604, huella + b"\0" * 4, 950)
+    chequear("★ el revés: sin P2P entre casas, el 0x0604 lo contestan las reglas de siempre", r is None)
+    config.P2P_ENTRE_CASAS = True
+    r = responder(0x0604, huella + b"\0" * 4, 950)
+    chequear("con P2P entre casas: 0x0604 → 0x0607 al puerto de punch del relay (y nada más todavía)",
+             len(r) == 1 and r[0][0] == 0x0607 and r[0][1] == struct.pack("<IH", ip_int("203.0.113.9"),
+                                                                          config.RELAY_BASE))
+    json.dump({}, open(config.NAT_MAPA, "w"))
+    chequear("sin 0x3002 todavía: el 0x0609 espera", nat.tick([950]) == [])
+    # (como el juego: el texto, su 0 final y BASURA que cambia en cada 0x3002 — medido en prueba, §53)
+    con_basura = "12345".encode("utf-16-le") + b"\0\0" + bytes.fromhex("908f940040fe1a00f05bf976").ljust(28, b"\0")
+    json.dump({con_basura.hex(): ["198.51.100.20", 7544, time.time()],
+               ("99999".encode("utf-16-le").ljust(40, b"\0")).hex(): ["192.0.2.7", 1111, time.time()]},
+              open(config.NAT_MAPA, "w"))
+    chequear("★ el revés: la huella ENTERA (con la basura del final) no está en el 0x0604",
+             con_basura not in partida(950)["nat_0604"])
+    r = nat.tick([950])
+    chequear("con su 0x3002 visto: 0x0609 con SU pública (por el texto de su huella, no la de otro)",
+             len(r) == 1 and r[0][:2] == (0x0609, struct.pack("<B3xIH", 1, ip_int("198.51.100.20"), 7544)))
+    chequear("…y una sola vez", nat.tick([950]) == [])
+    responder(0x0604, ("77777".encode("utf-16-le").ljust(40, b"\0")) + b"\0" * 4, 951)
+    r = nat.tick([951], ahora=time.time() + nat.ESPERA + 0.1)
+    chequear("★ el revés: sin su 0x3002 a tiempo → el 0x0609 de siempre (127.0.0.1)",
+             len(r) == 1 and r[0][1] == nat.VIEJO)
+    # el 0x100F trae la pública que le dimos → el anfitrión (sin punch) tiene dirección directa
+    b = bytearray(0xE9)
+    b[0x7A:0x7A + 34] = "02:BB:00:00:00:01".encode("utf-16-le")
+    struct.pack_into("<IHIH", b, 0xDD, ip_int("10.0.0.5"), 57654, ip_int("198.51.100.20"), 7544)
+    responder(0x100F, bytes(b), 960)
+    b2 = bytearray(b)
+    b2[0x7A:0x7A + 34] = "02:BB:00:00:00:02".encode("utf-16-le")
+    struct.pack_into("<IHIH", b2, 0xDD, ip_int("192.168.0.9"), 51001, ip_int("192.0.2.80"), 51001)
+    responder(0x100F, bytes(b2), 961)
+    partida(960)["ip_tcp"], partida(961)["ip_tcp"] = "198.51.100.20", "192.0.2.80"
+    chequear("el 0x100F guarda la pública (+0xE3) → publica_de", publica_de(960) == (ip_int("198.51.100.20"), 7544))
+    chequear("entre casas, el anfitrión SIN punch: cada uno recibe la PÚBLICA del otro (directo)",
+             dir_udp(960, 961) == (ip_int("198.51.100.20"), 7544)
+             and dir_udp(961, 960) == (ip_int("192.0.2.80"), 51001))
+    config.P2P_ENTRE_CASAS = False
+    chequear("★ el revés: sin P2P entre casas, los dos por el relay (lo de siempre)",
+             dir_udp(960, 961) == (ip_int("203.0.113.9"), config.RELAY_BASE + 1 + 960))
+    config.P2P_ENTRE_CASAS = True
+    partida(961)["publica"] = (0x7F000001, 57654)
+    chequear("★ el revés: una pública 127.0.0.1 (el 0x0609 viejo) no cuenta → los dos al relay",
+             dir_udp(960, 961) == (ip_int("203.0.113.9"), config.RELAY_BASE + 1 + 960))
+    (config.P2P_ENTRE_CASAS, config.NAT_MAPA, config.RELAY_IP, config.P2P, config.PUNCH_MAPA) = viejos
 
 
 def pruebas_lista_servidores(chequear):

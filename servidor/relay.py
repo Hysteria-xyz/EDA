@@ -73,6 +73,18 @@ def punch_de(conexion):
     return struct.unpack(">I", bytes(int(x) for x in ip.split(".")))[0], puerto
 
 
+def publica_de(conexion):
+    """(IP como entero, puerto) PÚBLICOS que el juego mandó en su 0x100F (los del 0x0609 que le dio
+    `servidor/nat.py`), si son de verdad (no la 127.0.0.1 del 0x0609 viejo), y sólo con P2P entre
+    casas. ★ La tiene también el ANFITRIÓN, que nunca pasa por el punch (§47, §53)."""
+    if not config.P2P_ENTRE_CASAS or conexion is None:
+        return None
+    pub = partida(conexion).get("publica")
+    if not pub or not pub[0] or pub[0] >> 24 == 127:
+        return None
+    return tuple(pub)
+
+
 def misma_casa(a, b, punch_a=None, punch_b=None):
     """¿`a` y `b` salen a internet por la MISMA IP pública (la misma casa, el mismo cíber)? Por la IP
     con que se conectaron al server (`ip_tcp`, la anota `servidor/red.py`) o, si no, por la que vio el
@@ -93,7 +105,8 @@ def dir_udp(conexion, para=None):
         return None
     p = partida(conexion)
     if config.P2P == "directo" and mac_de(conexion) and (para is None or mac_de(para)):
-        mio, suyo = punch_de(conexion), (punch_de(para) if para is not None else None)
+        mio = punch_de(conexion) or publica_de(conexion)
+        suyo = (punch_de(para) or publica_de(para)) if para is not None else None
         if para is not None and p.get("privada") and misma_casa(conexion, para, mio, suyo):
             return tuple(p["privada"])
         # ★ (MEDICIONES §52) la pública DIRECTA sólo si los DOS pasaron por el punch: si uno no (el
