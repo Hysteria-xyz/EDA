@@ -2335,7 +2335,7 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   **Resultado** (fotos): Arquer, ruimleon y rui, cada uno con su ropa en la selección y él mismo,
   con su set, en el lobby. 19 pruebas nuevas en `juego.py control`, con sus reveses.
 - 🟡 Falta: borrar personaje (el mensaje no se conoce), y que el primer personaje de una cuenta nueva
-  tome el apodo de R2Beat (el claim «nombre» del portero, ya listo en local en Chile).
+  tome el apodo de R2Beat (el claim «nombre» del portero, ya listo en local en Chile). ✅ El apodo: §54.
 - ★ **BORRAR personaje, MEDIDO** (El tester a mano, 12-nov 23:52): 0x1015 = `u32 id · u8 LUGAR`; el cliente
   espera 0x1016 (`0x544620`, lee 3 B: u16 resultado · u8 lugar; con 1 lo saca de su lista y redibuja).
   `personajes.borrar`: borró rui (lugar 0) y ruimleon (lugar 1); el último (Arquer) NO se borra (resultado
@@ -2431,3 +2431,17 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
 - 🟡 **Pendiente**: si los DOS tienen un NAT que cambia el puerto según el destino (simétrico), el
   saludo no entra y la sala queda en -1000 (antes, por el relay, andaba). El arreglo va en la dll: si no
   llega nada del par en unos segundos, pasarse sola al relay (o probar puertos cercanos).
+
+### 54 · El APODO de R2Beat como nombre del personaje (12-nov, prod)
+
+- **Lo que llegó**: el portero de R2Beat manda (desde el 12-nov, a pedido del dueño del proyecto) un
+  claim opcional `nombre` en el pase: el apodo del personaje del casillero 1 de R2Beat, nunca el login.
+- **El arreglo** (PR #23 → #24, prod `3d01bc3`): `porteria.nombre_del_pase` lo valida como al crear
+  personaje (`[A-Za-z0-9_]{2,12}`, recortado a 12) y lo guarda con el ticket (columna `nombre`; la base
+  vieja se actualiza sola, probado con una del esquema anterior). Al entrar, `personajes.bautizar` se lo
+  pone al personaje SIN nombre propio (el que se veía `r2b_<uid>`), sólo si nadie más lo usa; nunca
+  renombra a uno que ya tiene. Pruebas en `pruebas_login` con sus reveses (el ticket de otra cuenta, el
+  mismo nombre con otras mayúsculas, espacio / ñ, uno que ya tiene nombre).
+- ★ **Medido en prod** (una cuenta real por el launcher): el registro dice «su personaje toma el nombre del
+  pase»; en la cuenta, el personaje del casillero 1 pasó de `r2b_<uid>` al apodo y el del 2 (que ya tenía
+  nombre propio) quedó igual; después, sala, partida y salida sin errores.

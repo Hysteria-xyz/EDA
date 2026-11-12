@@ -18,6 +18,10 @@ lado del juego. Es del jugador: el launcher no lo pisa. Lo que pasa queda en **`
 | | **contador** «FPS» arriba a la izquierda | `[video] mostrar_fps` (el launcher la escribe) | 0 | medio: dibuja en cada cuadro | — |
 | | (todo lo de arriba menos el server y el login) | `[general] mejoras=0` | 1 | — | §48 |
 | **CAJA NEGRA** | si el juego se cae, dice DÓNDE: ver abajo | `[cajanegra] activo` | **1** | nulo: sólo mira | §48 |
+| **P2P** (que los juegos se encuentren) | | `[p2p] activo` | **1** | | |
+| | la identidad (MAC): el ticket de 20 del launcher la pisaba (`0x6229F0`, desviada en `0x4E767B`) | `[p2p] mac` | 1 | bajo: una llamada, verificada | §52 |
+| | la IP de la casa = la de la red de verdad (no VMware / VirtualBox / Hyper-V / VPN) | `[p2p] ip_privada` | 1 | bajo: `gethostbyname` | §52 |
+| | red inmediata (la de `[rui]`, prendida acá) | `[p2p] red_inmediata` | 1 | bajo | §42, §53 |
 | **PARCHES DE RUI** (los nuestros) | | `[rui] activo` | **0** | | |
 | | tope estricto: los cuadros fijos en todo el juego | `[rui] tope_estricto` | 1 | bajo | §42 |
 | | red inmediata: un mensaje que llega mientras se espera el cuadro se atiende enseguida (ping de sala 1 ms a 60 cuadros/s) | `[rui] red_inmediata` | 1 | bajo | §42 |
@@ -55,6 +59,8 @@ arrastra lo que tenía prendido. Medido: un `.ini` viejo con todo prendido carga
    encontrarlo.
 
 ## Para la próxima PR (cómo se agrega algo a la dll)
+
+★ Por qué todo va en la dll y no en el exe, y cómo se revisa un PR: `documentacion/POR_QUE_LA_DLL.md`.
 
 - **Una mejora nueva va en el BLOQUE de su autor** (`[rui]`, `[hysteria]`, `[mazino]`, o uno nuevo con el
   nombre de quien la trae), con su clave, y el bloque arranca APAGADO hasta que esté medida en más de
