@@ -6,7 +6,7 @@ import re
 import struct
 
 from servidor import config
-from servidor.estado import ASIGNADAS, partida
+from servidor.estado import ASIGNADAS, SALAS, partida
 
 
 def identidad_p2p():
@@ -99,5 +99,12 @@ def escribir_relay():
         # la identidad inventada y la dirección UDP que el cliente declaró en su 0x100F (para la
         #   misma PC / LAN, de respaldo si su 0x3006 no llega)
         #   (con su MAC conocida, «falsa» = la real: el relay la deja como está)
-        json.dump({str(n): {"falsa": identidad_de(n), "udp": partida(n).get("udp")}
+        #   ★ y con quién está en SALA (MEDICIONES §47): el relay reconoce al que no se registró en el
+        #   punch por descarte DENTRO de la sala del destino (entre todo el server suele haber varios)
+        sala_de = {}
+        for s in SALAS.values():
+            for n in s["miembros"]:
+                sala_de[n] = list(s["miembros"])
+        json.dump({str(n): {"falsa": identidad_de(n), "udp": partida(n).get("udp"),
+                            "sala": sala_de.get(n, [])}
                    for n in ASIGNADAS}, open(config.RELAY_MAPA, "w"))

@@ -2219,3 +2219,14 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   `relay_udp.py control`, con sus reveses (dos candidatos sin identidad → nadie; la identidad del
   destino no cuenta; desde 127.x nada).
 - 🟡 Falta medirlo con dos casas de verdad (lo que pasó acá no se reproduce en una sola PC).
+- **2.ª prueba en prod (con el arreglo de arriba)**: otra vez -1000. Medido: **374 datagramas del
+  anfitrión descartados**. Esta vez NINGUNO de los tres conectados había mandado su MAC en el 0x100F
+  (todos con la identidad inventada `02:00…`), así que no hubo identidad que reconocer; y el descarte
+  era entre TODO el server: dos sin registrar (el anfitrión y uno de otra sala) → no decidía.
+  ⇒ **El server le escribe al relay la SALA de cada uno** (`relay.json` → `"sala"`, reescrito al crear,
+  entrar, salir, echar y al cerrarse una conexión), y el descarte es **dentro de la sala del destino**.
+  Además, `cerrada()` ahora saca al que se fue de la sala donde era invitado (antes quedaba colgado).
+  Pruebas: la de prod reproducida en `relay_udp.py control` (sin sala → nadie; con sala → el anfitrión)
+  y en `juego.py control` (el mapa con las salas; el que se cierra sale del mapa, con su revés).
+- 🟡 **¿Por qué no llega la MAC?** (los juegos del launcher 2.5). Ahora el server anota en su registro
+  los 34 bytes de +0x7A cuando no son una MAC válida («0x100F sin MAC válida»): a mirar en la próxima.

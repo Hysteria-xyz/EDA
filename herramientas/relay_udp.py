@@ -76,14 +76,16 @@ def es_local(d):
     return d is None or d[0].startswith("127.")
 
 
-def reconocer(datos, quien, destino, falsa_de, dir_de):
+def reconocer(datos, quien, destino, falsa_de, dir_de, sala_de=None):
     """★ (MEDICIONES §47) Un datagrama llega al puerto de `destino` desde una dirección que el relay no
     conoce: ¿de quién es? El ANFITRIÓN de la sala nunca manda su «registrame» (0x3006), sólo el que
     entra — medido en prod el 12-nov: 187 datagramas del anfitrión descartados y la partida cortada.
       1) por su IDENTIDAD: en sus saludos viaja su MAC (o la inventada); si es la de un jugador del
          mapa (que no sea el destino), es él;
-      2) si no, por DESCARTE: si en el mapa hay UN SOLO jugador (fuera del destino) sin dirección real
-         (nunca registrado o sólo con la 127.x declarada), es él.
+      2) si no, por DESCARTE: si en la SALA del destino (`sala_de`, la escribe el server en relay.json;
+         sin ella, todo el mapa) hay UN SOLO jugador (fuera del destino) sin dirección real (nunca
+         registrado o sólo con la 127.x declarada), es él. ⚠ Medido en prod (2.ª prueba): sin la sala,
+         con dos sin registrar en todo el server, el descarte no decidía y se perdió todo otra vez.
     Devuelve la conexión, o None (y el datagrama se sigue descartando)."""
     if es_local(quien):
         return None                                  # (en la misma PC, el 0x100F ya alcanza)
@@ -92,7 +94,8 @@ def reconocer(datos, quien, destino, falsa_de, dir_de):
     for n, f in falsa_de.items():
         if n != destino and f in ids:
             return n
-    sin_dir = [n for n in falsa_de if n != destino and es_local(dir_de.get(n))]
+    juntos = (sala_de or {}).get(destino) or list(falsa_de)
+    sin_dir = [n for n in juntos if n != destino and n in falsa_de and es_local(dir_de.get(n))]
     return sin_dir[0] if len(sin_dir) == 1 else None
 
 
@@ -104,6 +107,7 @@ def main(ip="0.0.0.0"):
     de_dir = {}                      # (IP, puerto) → conexión
     real_de = {}                     # conexión → su MAC real (aprendida de sus saludos)
     falsa_de = {}
+    sala_de = {}                     # conexión → los de su sala (del server)
     log = open(LOG, "a", encoding="utf-8")
 
     def anotar(t):
@@ -130,6 +134,7 @@ def main(ip="0.0.0.0"):
                 ultimo_mapa = os.path.getmtime(MAPA)
                 mapa = {int(k): v for k, v in json.load(open(MAPA)).items()}
                 falsa_de = {n: (v["falsa"] if isinstance(v, dict) else v) for n, v in mapa.items()}
+                sala_de = {n: v.get("sala") or [] for n, v in mapa.items() if isinstance(v, dict)}
                 for n, v in mapa.items():
                     # de respaldo (misma PC / LAN): la dirección que declaró en su 0x100F
                     if isinstance(v, dict) and v.get("udp") and n not in dir_de:
@@ -168,7 +173,7 @@ def main(ip="0.0.0.0"):
             destino = next(k for k, v in socks.items() if v is s)
             origen = de_dir.get(quien)
             if origen is None:
-                n = reconocer(datos, quien, destino, falsa_de, dir_de)
+                n = reconocer(datos, quien, destino, falsa_de, dir_de, sala_de)
                 if n is not None and n in socks:
                     anotar("jugador %d reconocido en %s:%d (sin 0x3006: el anfitrión)" % (n, quien[0], quien[1]))
                     viejo = dir_de.get(n)
@@ -228,6 +233,16 @@ def control():
              reconocer(b"..." + mapa[1].encode(), afuera, 1, mapa, dos_sin) is None)
     chequear("★ el revés: desde 127.x no se adivina (misma PC: alcanza lo declarado)",
              reconocer(saludo, ("127.0.0.1", 9), 1, mapa, dirs) is None)
+    # ★ lo de la 2.ª prueba en prod: todos con identidad inventada y DOS sin registrar en el server
+    #   (el anfitrión de esta sala y uno de OTRA sala) → con la sala, se decide
+    sin_mac = {1: "02:00:00:00:00:01", 2: "02:00:00:00:00:02", 3: "02:00:00:00:00:03"}
+    prod = {1: ("127.0.0.1", 57654), 2: ("127.0.0.1", 57654), 3: ("200.0.0.17", 57654)}
+    salas = {2: [2, 3], 3: [2, 3], 1: []}
+    otro = ("192.0.2.251", 57654)
+    chequear("★ el revés (lo de prod): sin la sala, con dos sin registrar → nadie",
+             reconocer(b"\x10\x00nada", otro, 3, sin_mac, prod) is None)
+    chequear("con la sala del destino: el anfitrión de ESA sala (el 2)",
+             reconocer(b"\x10\x00nada", otro, 3, sin_mac, prod, salas) == 2)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
 
