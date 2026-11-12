@@ -12,11 +12,13 @@ El estado de la cuenta vive en `_trabajo/servidor/cuenta.json` (se puede borrar:
     py servidor\juego.py control     # ★ prueba responder() sin el juego (con su revés)
     py servidor\juego.py estado      # muestra la cuenta
 """
+import argparse
 import json
 import os
 import re
 import struct
 import sys
+import tempfile
 import time
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -100,7 +102,17 @@ def leer(conexion=None):
 
 def guardar(c):
     os.makedirs(CUENTAS, exist_ok=True)
-    json.dump(c, open(ruta_cuenta(c["nombre"]), "w", encoding="utf-8"), indent=1)
+    temporal = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=CUENTAS,
+                                         suffix=".tmp", delete=False) as archivo:
+            temporal = archivo.name
+            json.dump(c, archivo, indent=1)
+        os.replace(temporal, ruta_cuenta(c["nombre"]))
+        temporal = None
+    finally:
+        if temporal is not None:
+            os.unlink(temporal)
 
 
 # lo de cada conexión (una partida): se pierde al cerrar el juego, y está bien. ⚠ Pero NO al
@@ -236,7 +248,7 @@ def miembro(c, indice, completo=False, conexion=None):
         #   mismo formato en que el cliente manda la suya en el 0x100F (u32 «al revés», u16)
         ip, puerto = udp
         struct.pack_into("<IHIH", m, 0x48, ip, puerto, ip, puerto)
-    pj = bytearray(P.registro_personaje(c["nombre"], lugar=0, clase=c["clase"], ident=c["exp"],
+    pj = bytearray(P.registro_personaje(c.get("nick", c["nombre"]), lugar=0, clase=c["clase"], ident=c["exp"],
                                         nivel=nivel(c["exp"]), partidas=c["partidas"],
                                         abandonos=c["abandonos"]))
     m[0x54:0xA6] = pj[0:0x52]
@@ -290,7 +302,7 @@ def pares(s, espera=0):
 def personaje_obj(c):
     """El objeto PERSONAJE (0x52 B, `0x53F680`) con sus vtables: va dentro del miembro de la sala
     y del usuario de la lista del lobby."""
-    pj = bytearray(P.registro_personaje(c["nombre"], lugar=0, clase=c["clase"], ident=c["exp"],
+    pj = bytearray(P.registro_personaje(c.get("nick", c["nombre"]), lugar=0, clase=c["clase"], ident=c["exp"],
                                         nivel=nivel(c["exp"]), partidas=c["partidas"],
                                         abandonos=c["abandonos"])[0:0x52])
     struct.pack_into("<I", pj, 0, 0x89A3AC)
@@ -557,7 +569,7 @@ def obj_stats(c):
 
 def pj_cuenta(c):
     """El personaje (0xBA B) de la cuenta, con sus estadísticas y su EQUIPO puesto."""
-    return P.registro_personaje(c["nombre"], lugar=0, clase=c["clase"], ident=c["exp"],
+    return P.registro_personaje(c.get("nick", c["nombre"]), lugar=0, clase=c["clase"], ident=c["exp"],
                                 nivel=nivel(c["exp"]), partidas=c["partidas"],
                                 abandonos=c["abandonos"], stats=tuple(stats_de(c)),
                                 extra={0x72: struct.pack("<18I", *equipo(c)),
@@ -568,6 +580,9 @@ def pj_cuenta(c):
                                        #   enough skill slot» (19:11). 🟡 12 = una página SLOT de
                                        #   3×4 (el valor de 2009 no se sabe)
                                        0x5B: bytes([c.get("lugares_habilidad", 12)]),
+                                       # +0x5D limits the combat shortcut scan (F1-F8).
+                                       0x5C: b"\x06",
+                                       0x5D: b"\x08",
                                        # 🟡 PARA MEDIR: {"0x5c": "4d"} pisa esos bytes del personaje
                                        **{int(k, 16): bytes.fromhex(v)
                                           for k, v in c.get("extra_pj", {}).items()}})
@@ -741,7 +756,7 @@ def responder(cmd, cuerpo, conexion):
         texto = cuerpo[13:13 + largo]
         # ⚠ medido con Frida (18:23): el TIPO lo lee en B+2 (con el tipo en B+0 leía 0xFF). La
         #   cabecera es u16 🟡 · u8 tipo · u32 🟡 (¿color?) · u32 🟡 · 26 B nombre UTF-16
-        nombre = c["nombre"].encode("utf-16-le")[:24].ljust(26, b"\0")
+        nombre = c.get("nick", c["nombre"]).encode("utf-16-le")[:24].ljust(26, b"\0")
         msg = (struct.pack("<HBII", 0, cuerpo[0], 0xFFFFFFFF, 0) + nombre
                + struct.pack("<I", len(texto)) + texto)
         s = SALAS.get(p.get("sala"))
@@ -765,18 +780,24 @@ def responder(cmd, cuerpo, conexion):
         n = cuerpo[4]
         pedidos = [struct.unpack_from("<H", cuerpo, 5 + 2 * k)[0] for k in range(n)
                    if 5 + 2 * k + 2 <= len(cuerpo)]
-        costo = sum(tabla[x][0] for x in pedidos if x in tabla)
-        if not pedidos or any(x not in tabla for x in pedidos) or costo > c["plata"]:
-            return [(0x1040, struct.pack("<HIIBHH", 0, c["plata"], c["cash"], 0, 0, 0), 0)]
+        costo_oro = sum(tabla[x][0] for x in pedidos if x in tabla)
+        costo_cash = sum(tabla[x][1] for x in pedidos if x in tabla)
         inv = inventario(c)
+        cupos = 150 - len({it[2] for it in inv if 18 <= it[2] < 168})
+        cantidad_items = sum(len(tabla[x][2]) for x in pedidos if x in tabla)
+        if (not pedidos or len(pedidos) != n or any(x not in tabla for x in pedidos)
+                or costo_oro > c["plata"] or costo_cash > c["cash"] or cantidad_items > cupos):
+            return [(0x1040, struct.pack("<HIIBHH", 0, c["plata"], c["cash"], 0, 0, 0), 0)]
         nuevos = []
         for x in pedidos:
             for tipo, cant in tabla[x][2]:
-                it = [tipo, cant, libre_en_bolsa(inv), serial_nuevo(inv)]
+                verificado = int(not 31000 <= tipo <= 33999)
+                it = [tipo, cant, libre_en_bolsa(inv), serial_nuevo(inv), verificado]
                 inv.append(it)
-                nuevos.append(registro_item(it[3], tipo, cant, it[2]))
+                nuevos.append(registro_item(it[3], tipo, cant, it[2], verificado))
         c["items"] = inv
-        c["plata"] -= costo
+        c["plata"] -= costo_oro
+        c["cash"] -= costo_cash
         guardar(c)
         return [(0x1040, struct.pack("<HIIBHH", 1, c["plata"], c["cash"], len(pedidos),
                                      len(nuevos), 0)
@@ -889,7 +910,7 @@ def responder(cmd, cuerpo, conexion):
             if 21 <= fam <= 25:
                 if modo == 0 and 1 <= resto <= 6:
                     nuevo = fam * 1000 + 20 + resto        # fase 1 → fase 2
-                elif modo == 1 and resto % 20 in range(1, 6):
+                elif modo == 1 and (1 <= resto <= 5 or 21 <= resto <= 25):
                     nuevo = t + 1                          # nivel + 1
         if nuevo is None:
             return [(0x1036, struct.pack("<HB", 0, modo) + bytes(21) + b"\0", 0)]
@@ -912,7 +933,8 @@ def responder(cmd, cuerpo, conexion):
         inv = inventario(c)
         it = next((x for x in inv if x[3] == it_s), None)
         f = c.setdefault("fichas", {}).setdefault(str(it_s), {"engarces": [0] * 10, "niveles": 0})
-        gastadas, bien = [], it is not None
+        gastadas, bien = [], it is not None and es_equipo(it[0])
+        usados, engarces = set(), set()
         for k in range(n):
             o = 9 + 5 * k
             if o + 5 > len(cuerpo):
@@ -920,11 +942,15 @@ def responder(cmd, cuerpo, conexion):
                 break
             i, piedra_s = struct.unpack_from("<BI", cuerpo, o)
             piedra = next((x for x in inv if x[3] == piedra_s), None)
-            if (piedra is None or not 21000 <= piedra[0] <= 25999 or i >= 10
+            if (piedra is None or piedra_s == it_s or piedra_s in usados or i in engarces
+                    or not 21 <= piedra[0] // 1000 <= 25
+                    or piedra[0] % 1000 not in (*range(1, 7), *range(21, 27)) or i >= 10
                     or not nivel_engarce(f["niveles"], i) or f["engarces"][i]):
                 bien = False
                 break
             gastadas.append((i, piedra))
+            usados.add(piedra_s)
+            engarces.add(i)
         if not bien or not gastadas:
             return [(0x1034, struct.pack("<HIB", 0, it_s, 0) + bytes(20), 0)]
         for i, piedra in gastadas:
@@ -1007,14 +1033,29 @@ def responder(cmd, cuerpo, conexion):
         n1 = struct.unpack_from("<H", cuerpo, off + 16)[0]
         inv = inventario(c)                                # se fijan TODOS antes de mover
         por_serial = {it[3]: it for it in inv}
-        movidos = []
+        destinos = {}
         for k in range(n1):
             o = off + 22 + 5 * k
             if o + 5 > len(cuerpo):
                 break
             serial, casillero = struct.unpack_from("<IB", cuerpo, o)
-            if serial in por_serial:
-                por_serial[serial][2] = casillero
+            if serial in por_serial and casillero < 168:
+                destinos[serial] = casillero
+        # Al reemplazar una poción, el cliente puede mandar solo la pila entrante.
+        # Devuelve la anterior a la casilla de bolsa que libera la nueva.
+        for serial, destino in list(destinos.items()):
+            it = por_serial[serial]
+            if not (it[2] >= 18 and 12 <= destino < 18
+                    and it[0] in (26001, 26002, 26003, 26101, 26102, 26103)):
+                continue
+            anterior = next((x for x in inv if x[2] == destino and x[3] not in destinos), None)
+            if anterior is not None:
+                destinos[anterior[3]] = it[2]
+        movidos = []
+        posiciones = [destinos.get(it[3], it[2]) for it in inv]
+        if len(set(posiciones)) == len(posiciones):
+            for serial, destino in destinos.items():
+                por_serial[serial][2] = destino
                 movidos.append(por_serial[serial])
         c["items"] = inv
         # ★ el REPARTO de puntos: el cliente manda las 5 nuevas + en la 6ª los puntos GASTADOS en
@@ -1048,6 +1089,21 @@ def responder(cmd, cuerpo, conexion):
             return [(0x102E, struct.pack("<HB", 1, 9) + datos + cola, 0)]
         canal = struct.pack("<BHHH", 1, 200, len(ASIGNADAS), 0)
         return [(0x102E, struct.pack("<HBB", 1, 3, 0) + canal + cola, 0)]
+    if cmd == 0x1045 and len(cuerpo) >= 4:
+        # El manejador 0x54E380 lee dos bytes, limpia la sala y vuelve al lobby.
+        numero = p.pop("sala", None)
+        sala = SALAS.get(numero)
+        if sala and conexion in sala["miembros"]:
+            if sala["anfitrion"] == conexion:
+                del SALAS[numero]
+                for miembro in sala["miembros"]:
+                    partida(miembro).pop("sala", None)
+            else:
+                sala["miembros"].remove(conexion)
+                sala.get("cargados", set()).discard(conexion)
+        return ([(0x1046, struct.pack("<H", 1), 0),
+                 (0x101C, lista_salas(), 500), (0x101B, lista_usuarios(), 600)]
+                + avisar_lista(salvo=conexion))
     if cmd == 0x104C:                                       # sala → «Inventory» (u8)
         # ★ 0x104D (`0x54ECF0`): u16 1 · u8 → cuenta+0x2DE → pantalla 6 (medido 19:24: sin
         #   respuesta, «Waiting for Response from Server»)
@@ -1059,6 +1115,8 @@ def responder(cmd, cuerpo, conexion):
         #   · 7 B (+9 → `0x6103E0`): medido el 10-nov — antes se ponía N1 en +7 (mal contado un
         #   `push ebx`) y el cliente leía N1 = 0: el mapa de terminadas quedaba VACÍO
         n1 = c["terminadas"]
+        if c.get("acceso_stages_pruebas"):
+            n1 = sorted(set(n1) | (tabla_premios().keys() - {0}))
         # ★ los 7 B de +9 = el CANAL (→ `cuenta+0x220`+4, `0x6103E0`): 🟡 u8 número · u16
         #   CAPACIDAD (+5) · u16 ocupados (+7) · u16. Con capacidad 0 la lista de usuarios del lobby
         #   no agrega a nadie (`0x6109F0`: si [+0x1C] >= [+5] → no) — medido 18:18
@@ -1194,6 +1252,7 @@ def responder(cmd, cuerpo, conexion):
         cartas = struct.pack("<IIII", 60000, *PRECIOS)
         p["cartas_hasta"] = time.time() + 8 + 60 + 2          # 0x106F a los 8 s + 60 s + margen
         p["exp_cartas"] = 0
+        p["cartas_elegidas"] = set()
         if n > antes:
             print("sube de nivel", antes, "→", n)
         # ★ el resultado y las cartas ESPACIADOS (juntos, las cartas tapaban el resultado)
@@ -1209,13 +1268,19 @@ def responder(cmd, cuerpo, conexion):
         #   medido 20:00: la 1ª de oro = «00 00», la 1ª de bronce = «00 0a») → la fila como la
         #   saca el cliente (`0x500810`). Antes se tomaba el 1er byte como fila: siempre «oro».
         carta_n = cuerpo[1]
+        hasta = p.get("cartas_hasta")
+        if not hasta or time.time() >= hasta or carta_n >= 18:
+            return []
+        elegidas = p["cartas_elegidas"]
         fila = 0 if carta_n < 4 else (1 if carta_n < 10 else 2)
         precio = PRECIOS[fila]
-        if p.get("puntos", 0) >= precio:
-            p["puntos"] -= precio
-            p["exp_cartas"] = p.get("exp_cartas", 0) + precio
-            c["exp"] += precio
-            guardar(c)
+        if carta_n in elegidas or p["puntos"] < precio:
+            return []
+        c["exp"] += precio
+        guardar(c)
+        elegidas.add(carta_n)
+        p["puntos"] -= precio
+        p["exp_cartas"] += precio
         carta = struct.pack("<BBBII", 1, fila, numero_jugador(conexion), p.get("exp_cartas", 0),
                             p.get("puntos", 0))
         r = [(0x1071, carta, 0)]
@@ -1308,16 +1373,22 @@ def control():
     chequear("0x1072 = el índice de la stage (1011) + (jugador 0, 1)",
              c1072 == struct.pack("<IBBB", 1011, 1, 0, 1), c1072.hex())
     for carta_n, fila_esperada in ((0, 0), (3, 0), (4, 1), (9, 1), (10, 2), (17, 2)):
-        partida(99)["puntos"], partida(99)["exp_cartas"] = 1000, 0
+        partida(99).update(puntos=1000, exp_cartas=0, cartas_hasta=time.time() + 60, cartas_elegidas=set())
+        antes_exp = leer(99)["exp"]
         r = responder(0x1070, bytes([0, carta_n]), 99)
         chequear("carta %d → fila %d (cobra %d)" % (carta_n, fila_esperada, PRECIOS[fila_esperada]),
                  r[0][1][1] == fila_esperada
                  and struct.unpack_from("<I", r[0][1], 7)[0] == 1000 - PRECIOS[fila_esperada])
+        repetida = responder(0x1070, bytes([0, carta_n]), 99)
+        chequear("carta %d: EXP persistida y duplicado sin segundo cobro" % carta_n,
+                 repetida == [] and leer(99)["exp"] == antes_exp + PRECIOS[fila_esperada]
+                 and partida(99)["puntos"] == 1000 - PRECIOS[fila_esperada])
     antes_exp = leer(99)["exp"]
     partida(99)["puntos"] = PRECIOS[0] - 1
-    r = responder(0x1070, b"\0\3", 99)
-    chequear("★ el revés: sin puntos para la carta de oro NO da EXP",
-             leer(99)["exp"] == antes_exp and struct.unpack_from("<I", r[0][1], 7)[0] == PRECIOS[0] - 1)
+    for carta_n in (0, 18, 255):
+        r = responder(0x1070, bytes([0, carta_n]), 99)
+        chequear("carta %d sin puntos o fuera de rango: sin cobro ni confirmación" % carta_n,
+                 r == [] and leer(99)["exp"] == antes_exp and partida(99)["puntos"] == PRECIOS[0] - 1)
     tp2 = tabla_premios()
     if tp2:
         cc = {"items": [], "plata": 0, "exp": 0}
@@ -1674,6 +1745,202 @@ def preparar(nombre, clase, nivel_pedido):
     return c
 
 
+def ajustar_pruebas(argv):
+    parser = argparse.ArgumentParser(description="Ajusta una cuenta local de pruebas con el juego cerrado.")
+    parser.add_argument("nombre", choices=NOMBRES)
+    parser.add_argument("--nivel", type=int)
+    parser.add_argument("--oro", type=int)
+    parser.add_argument("--cash", type=int)
+    parser.add_argument("--nick")
+    args = parser.parse_args(argv)
+    cambios = {}
+    if args.nick is not None:
+        if not re.fullmatch(r"[A-Za-z0-9_]{1,12}", args.nick):
+            parser.error("el nick admite 1 a 12 letras ASCII, números o guiones bajos")
+        cambios["nick"] = args.nick
+    if args.nivel is not None:
+        if not 1 <= args.nivel <= len(EXPS):
+            parser.error("el nivel debe estar entre 1 y %d" % len(EXPS))
+        cambios["exp"] = EXPS[args.nivel - 1]
+    for campo, valor in (("plata", args.oro), ("cash", args.cash)):
+        if valor is not None:
+            if not 0 <= valor <= 0xFFFFFFFF:
+                parser.error("el oro y el cash deben estar entre 0 y 4294967295")
+            cambios[campo] = valor
+    if not cambios:
+        parser.error("indica --nivel, --oro, --cash o --nick")
+    ruta = ruta_cuenta(args.nombre)
+    if args.nombre == "rui" and not os.path.exists(ruta) and os.path.exists(CUENTA):
+        ruta = CUENTA
+    try:
+        with open(ruta, encoding="utf-8") as archivo:
+            cuenta = json.load(archivo)
+    except FileNotFoundError:
+        parser.error("la cuenta aún no existe; entra al juego una vez para crearla")
+    except (OSError, ValueError) as exc:
+        parser.error("no se pudo leer la cuenta: %s" % exc)
+    cuenta.update(cambios, nombre=args.nombre)
+    guardar(cuenta)
+    print("%s: nivel %d, oro %d, cash %d" % (
+        args.nombre, nivel(cuenta.get("exp", INICIO["exp"])),
+        cuenta.get("plata", INICIO["plata"]), cuenta.get("cash", INICIO["cash"])))
+
+
+def menu_items():
+    import xml.etree.ElementTree as ET
+
+    ruta = os.path.join(RAIZ, "_trabajo", "datos", "ItemTypeList.xml")
+    try:
+        catalogo = ET.parse(ruta).getroot()
+    except (OSError, ET.ParseError) as exc:
+        print("No se pudo abrir el catálogo de EDA: %s" % exc)
+        return
+    grupos = {"1": ("EQUIP_ITEM", "Equipo"), "2": ("POTION", "Pociones"),
+              "3": ("SOULSTONE", "Piedras de alma"), "4": ("SKILLBOOK", "Libros de habilidad"),
+              "5": ("ETC", "Pergaminos y otros")}
+    print(" | ".join("%s. %s" % (i, nombre) for i, (_, nombre) in grupos.items()))
+    grupo = grupos.get(input("Categoría (Enter para volver): ").strip())
+    if grupo is None:
+        return
+    items = [x for x in catalogo.findall(grupo[0] + "/ITEMTYPE") if int(x.attrib["ID"]) != NADA]
+    habilidades = tabla_habilidades() if grupo[0] == "SKILLBOOK" else {}
+    equipo = {0: ("⚔", "Arma principal"), 1: ("⚔", "Arma secundaria"),
+              3: ("◉", "Máscara"), 4: ("▣", "Peto"), 5: ("▣", "Pantalones"),
+              6: ("▣", "Guantes"), 7: ("▣", "Cinturón"), 8: ("▣", "Botas")}
+    categorias = {"POTION": ("🧪", "Poción"), "SOULSTONE": ("💎", "Piedra de alma"),
+                  "SKILLBOOK": ("📕", "Libro de habilidad"), "ETC": ("◇", "Objeto")}
+    nombres = {1: "Basic Long Sword", 32001: "Libro de Dash", 40051: "Skill Check Scroll"}
+    atributos = {"N_ATCK": "Ataque cuerpo a cuerpo", "N_DEF": "Defensa cuerpo a cuerpo",
+                 "F_ATCK": "Ataque a distancia", "F_DEF": "Defensa a distancia",
+                 "INC_HP": "Vida", "INC_MP": "Maná"}
+    for i, item in enumerate(items, 1):
+        a = item.attrib
+        tipo = int(a["ID"])
+        icono, familia = (equipo.get(tipo // 1000, ("▣", "Equipo")) if grupo[0] == "EQUIP_ITEM"
+                          else categorias[grupo[0]])
+        if tipo == 40051:
+            icono = "📜"
+        nombre = nombres.get(tipo, familia)
+        detalle = item.find("DETAIL")
+        desc = "grado %s, nivel %s, clase %s" % (
+            a["GRADE"], a["LEVEL_RESTRICT"], {"1": "Warrior", "2": "Hunter", "65535": "todas"}.get(
+                a["USECLASS"], a["USECLASS"]))
+        if tipo == 40051:
+            desc = "Identifica un libro de habilidad antes de aprenderlo."
+        elif tipo in habilidades:
+            activa, ident, _, oro, nivel_min = habilidades[tipo]
+            desc = "habilidad %d (%s), nivel %d, %d oro para aprender" % (
+                ident, "activa" if activa == 1 else "pasiva", nivel_min, oro)
+        elif detalle is not None:
+            stats = [f"{nombre_stat} {detalle.get(k)}" for k, nombre_stat in atributos.items()
+                     if detalle.get(k) not in (None, "0")]
+            if stats:
+                desc += " | " + ", ".join(stats)
+        if grupo[0] == "POTION":
+            desc += " | consumible para la barra 1–6"
+        elif grupo[0] == "SOULSTONE":
+            desc += " | se inserta en un engarce del equipo"
+        print("%3d. %s %s [ID %d] — %s" % (i, icono, nombre, tipo, desc))
+    try:
+        opcion = int(input("Número de la lista (0 para volver): "))
+        if opcion == 0:
+            return
+        if not 1 <= opcion <= len(items):
+            raise ValueError
+        item = items[opcion - 1]
+        tipo = int(item.attrib["ID"])
+        limite = min(255, max(1, int(item.attrib["MAXOVERLAPCNT"])))
+        cantidad = int(input("Cantidad por casilla (1–%d, Enter = 1): " % limite) or "1")
+        if not 1 <= cantidad <= limite:
+            raise ValueError
+    except ValueError:
+        print("Selección o cantidad fuera de rango.")
+        return
+    if not os.path.exists(ruta_cuenta("rui")) and not os.path.exists(CUENTA):
+        print("Entra al juego con rui una vez para crear la cuenta.")
+        return
+    cuenta = leer()
+    inv = inventario(cuenta)
+    try:
+        casilla = libre_en_bolsa(inv)
+    except StopIteration:
+        print("La bolsa está llena.")
+        return
+    inv.append([tipo, cantidad, casilla, serial_nuevo(inv), int(grupo[0] != "SKILLBOOK")])
+    cuenta["items"] = inv
+    guardar(cuenta)
+    print("Agregado a la bolsa de rui: ID %d × %d." % (tipo, cantidad))
+
+
+def menu_equipar_pocion():
+    if not os.path.exists(ruta_cuenta("rui")) and not os.path.exists(CUENTA):
+        print("Entra al juego una vez para crear tu cuenta.")
+        return
+    cuenta = leer()
+    inv = inventario(cuenta)
+    tipos = {26001: "HP I", 26002: "HP II", 26003: "HP III",
+             26101: "MP I", 26102: "MP II", 26103: "MP III"}
+    bolsa = [it for it in inv if it[0] in tipos and it[2] >= 18 and it[1] > 0]
+    for tecla in range(1, 7):
+        it = next((it for it in inv if it[2] == tecla + 11), None)
+        nombre = tipos.get(it[0], "Otro objeto") if it else "Libre"
+        print("Tecla %d: %s%s" % (tecla, nombre, (" × %d" % it[1]) if it else ""))
+    if not bolsa:
+        print("No tienes pociones en la bolsa.")
+        return
+    for i, it in enumerate(bolsa, 1):
+        print("%d. Poción %s × %d" % (i, tipos[it[0]], it[1]))
+    try:
+        seleccion = int(input("Poción de la lista (0 para volver): "))
+        if seleccion == 0:
+            return
+        if not 1 <= seleccion <= len(bolsa):
+            raise ValueError
+        tecla = int(input("Tecla 1–6 (0 para volver): "))
+        if tecla == 0:
+            return
+        if not 1 <= tecla <= 6:
+            raise ValueError
+    except ValueError:
+        print("Selección fuera de rango.")
+        return
+    it = bolsa[seleccion - 1]
+    destino = tecla + 11
+    anterior = next((x for x in inv if x[2] == destino), None)
+    if anterior is not None:
+        anterior[2] = it[2]
+    it[2] = destino
+    cuenta["items"] = inv
+    guardar(cuenta)
+    print("Poción %s asignada a la tecla %d." % (tipos[it[0]], tecla))
+
+
+def menu_ajustes():
+    print("Cierra EDA antes de cambiar tu cuenta local.")
+    opciones = {"1": "nivel", "2": "oro", "3": "cash", "4": "nick"}
+    while True:
+        print("\nCuenta rui | 1. Nivel | 2. Oro | 3. Cash | 4. Nick | 5. Agregar items | 6. Equipar pociones | 0. Salir")
+        opcion = input("Opción: ").strip()
+        if opcion == "0":
+            return
+        if opcion == "5":
+            menu_items()
+            continue
+        if opcion == "6":
+            menu_equipar_pocion()
+            continue
+        campo = opciones.get(opcion)
+        if campo is None:
+            print("Selecciona una opción del menú.")
+            continue
+        valor = input("Nuevo %s (Enter para cancelar): " % campo).strip()
+        if valor:
+            try:
+                ajustar_pruebas(["rui", "--" + campo + "=" + valor])
+            except SystemExit:
+                pass
+
+
 if __name__ == "__main__":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1685,6 +1952,10 @@ if __name__ == "__main__":
         print("%s: clase %d, nivel %d, %d ítems, %d habilidades (atajos %s)" % (
             cc["nombre"], cc["clase"], nivel(cc["exp"]), len(cc["items"]), len(cc["habilidades"]),
             [h[2] for h in cc["habilidades"] if h[4]]))
+    elif sys.argv[1:2] == ["menu-ajustes"]:
+        menu_ajustes()
+    elif sys.argv[1:2] == ["ajustar"]:
+        ajustar_pruebas(sys.argv[2:])
     elif sys.argv[1:2] == ["estado"]:
         for nombre in NOMBRES:
             if os.path.exists(ruta_cuenta(nombre)) or nombre == "rui":
