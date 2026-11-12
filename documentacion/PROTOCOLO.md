@@ -223,6 +223,16 @@ arranca además lo de UDP: 🟡 ser el anfitrión) · 89 B = **la sala desde su 
 desde +4 el escenario queda corrido y el cliente muere en `0x5367D4`). `+0x2F` = **máximo de
 jugadores**. Con OK: pantalla 5, **WAITING ROOM**, con el jugador local como anfitrión.
 
+### 5.8b · `0x1025` C→S / `0x1026` S→C — Quick Join (Entrada rápida a sala)
+C→S (`0x543160`, 30 B): solicitud de entrada rápida a cualquier sala con cupo libre.
+S→C (`0x5424E0`, 5 B): `u16 resultado` (1 = OK, `0x0BB9` = sin salas libres) · `u16 sala` · `u8 modo` (0).
+Con resultado 1, el cliente transiciona de inmediato (`0x4EBEE0`) y envía `0x101F` (`entrar_sala`) con la sala asignada.
+
+### 5.8c · `0x104B` S→C — Actualización de ajustes de sala (escenario y dificultad en vivo)
+S→C (`0x54F500`): difunde cambios del anfitrión al resto de miembros en la sala de espera.
+- Tipo 1 (Escenario): `u16 1` · 34 B del escenario (`0x54F53D`, actualiza minimapa e información).
+- Tipo 2 (Dificultad): `u16 2` · 20 B de dificultad (`0x54F55E`, actualiza modo EASY/NORMAL/HARD).
+
 ### 5.9 · `0x104E` C→S / `0x104F` S→C — F9 START GAME
 C→S: `u8 🟡`. S→C (`0x54F170`): `u16 🟡 · u32 → +0x53 del personaje (partidas) · u8 🟡 · u8 N` +
 N × 68 (`[u8 índice del jugador en la sala][9 × 7 B: 🟡 su equipo]`). Con eso: pantalla 8, la

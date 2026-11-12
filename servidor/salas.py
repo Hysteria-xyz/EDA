@@ -7,7 +7,7 @@ from servidor import config
 from servidor.config import P
 from servidor.registro import maneja
 from servidor.estado import ASIGNADAS, SALAS, partida
-from servidor.cuentas import leer, nivel, nombre_visible
+from servidor.cuentas import leer, nivel, nombre_visible, guardar, EXPS
 from servidor.objetos import equipo_tipos, obj_habilidad, personaje_obj
 from servidor import relay
 from servidor.relay import dir_udp, identidad_de
@@ -265,7 +265,7 @@ def listo(cmd, cuerpo, conexion, c, p):
 
 @maneja(0x100D)
 def chat(cmd, cuerpo, conexion, c, p):
-    """★ CHAT (lobby / sala)"""
+    """★ CHAT (lobby / sala) + COMANDOS GM (/oro, /cash, /nivel, /item, /ayuda)"""
     if not (len(cuerpo) >= 13):
         return None
     # C→S (medido 18:19): u8 tipo (1) · u32 destino (FFFFFFFF = todos) · u32 0 · u32 largo en
@@ -275,6 +275,59 @@ def chat(cmd, cuerpo, conexion, c, p):
     #   largo + UTF-16, como lo manda el cliente)
     largo = struct.unpack_from("<I", cuerpo, 9)[0]
     texto = cuerpo[13:13 + largo]
+
+    # ★ Comandos de GM / Tester (aporte de Hysteria-xyz)
+    try:
+        texto_str = texto.decode("utf-16-le").rstrip("\x00").strip()
+    except Exception:
+        texto_str = ""
+
+    if texto_str.startswith("/"):
+        def _aviso(txt):
+            b = txt.encode("utf-16-le")
+            nom = "[Sistema]".encode("utf-16-le")[:24].ljust(26, b"\0")
+            return [(0x1005, struct.pack("<HBII", 0, 4, 0xFF00FF00, 0) + nom
+                             + struct.pack("<I", len(b)) + b, 0)]
+
+        partes = texto_str[1:].split()
+        sub = partes[0].lower() if partes else ""
+        if sub in ("oro", "gold"):
+            if len(partes) >= 2 and partes[1].isdigit():
+                c["plata"] = max(0, int(partes[1]))
+                guardar(c)
+                return _aviso(f"Oro actualizado a {c['plata']}")
+            return _aviso("Uso: /oro <cantidad>")
+        elif sub == "cash":
+            if len(partes) >= 2 and partes[1].isdigit():
+                c["cash"] = max(0, int(partes[1]))
+                guardar(c)
+                return _aviso(f"Cash actualizado a {c['cash']}")
+            return _aviso("Uso: /cash <cantidad>")
+        elif sub in ("nivel", "lvl", "level"):
+            if len(partes) >= 2 and partes[1].isdigit():
+                n = max(1, min(int(partes[1]), len(EXPS)))
+                c["exp"] = EXPS[n - 1]
+                guardar(c)
+                return _aviso(f"Nivel actualizado a {n} (EXP: {c['exp']})")
+            return _aviso(f"Uso: /nivel <1-{len(EXPS)}>")
+        elif sub == "item":
+            if len(partes) >= 2 and partes[1].isdigit():
+                iid = int(partes[1])
+                cant = int(partes[2]) if len(partes) >= 3 and partes[2].isdigit() else 1
+                items = c.setdefault("items", [])
+                for it in items:
+                    if it[0] == iid:
+                        it[1] += cant
+                        break
+                else:
+                    items.append([iid, cant])
+                guardar(c)
+                return _aviso(f"Item {iid} (x{cant}) agregado")
+            return _aviso("Uso: /item <id> [cantidad]")
+        elif sub in ("ayuda", "help"):
+            return _aviso(f"Comandos GM: /oro <n>, /cash <n>, /nivel <1-{len(EXPS)}>, /item <id> [cant]")
+        return _aviso(f"Comando desconocido: /{sub}. Usa /ayuda")
+
     # ⚠ medido con Frida (18:23): el TIPO lo lee en B+2 (con el tipo en B+0 leía 0xFF). La
     #   cabecera es u16 🟡 · u8 tipo · u32 🟡 (¿color?) · u32 🟡 · 26 B nombre UTF-16
     nombre = nombre_visible(c).encode("utf-16-le")[:24].ljust(26, b"\0")
@@ -283,6 +336,43 @@ def chat(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     destinos = s["miembros"] if s and conexion in s["miembros"] else sorted(ASIGNADAS)
     return [(0x1005, msg, 0, n) for n in destinos]
+
+
+@maneja(0x1025)
+def entrada_rapida(cmd, cuerpo, conexion, c, p):
+    """★ QUICK JOIN (0x1025 C→S / 0x1026 S→C `0x5424E0`, aporte de Hysteria-xyz):
+    Al pulsar «Quick Join» en el lobby, busca la primera sala abierta con lugar libre.
+    S→C (5 B): u16 resultado (1 = OK, 0xBB9 = sin salas) · u16 sala · u8 modo (0).
+    Con resultado 1, el cliente llama a entrar a la sala elegida (`0x4EBEE0` → `0x101F`)."""
+    sala_id = None
+    for num in sorted(SALAS):
+        s = SALAS[num]
+        if not s.get("jugando") and len(s["miembros"]) < s["sala"][0x2F]:
+            sala_id = num
+            break
+    if sala_id is not None:
+        return [(0x1026, struct.pack("<HHB", 1, sala_id, 0), 0)]
+    return [(0x1026, struct.pack("<HHB", 0xBB9, 0xFFFF, 0), 0)]
+
+
+@maneja(0x104B)
+def actualizar_ajustes_sala(cmd, cuerpo, conexion, c, p):
+    """★ ACTUALIZAR AJUSTES DE SALA (0x104B S→C `0x54F500`, aporte de Hysteria-xyz):
+    Transmite cambios de escenario / dificultad / estado a los demás miembros de la sala.
+    S→C: u16 tipo (1 = escenario, 2 = dificultad) · datos."""
+    if len(cuerpo) < 2:
+        return None
+    s = SALAS.get(p.get("sala"))
+    if not s:
+        return None
+    tipo = struct.unpack_from("<H", cuerpo, 0)[0]
+    if tipo == 1 and len(cuerpo) >= 6:
+        esc = struct.unpack_from("<I", cuerpo, 2)[0]
+        struct.pack_into("<I", s["sala"], 0x28, esc)
+        p["escenario"] = esc
+    elif tipo == 2 and len(cuerpo) >= 3 and len(s["sala"]) > 0x2C:
+        s["sala"][0x2C] = cuerpo[2]
+    return [(0x104B, cuerpo, 0, n) for n in s["miembros"] if n != conexion]
 
 
 @maneja(0x1023)

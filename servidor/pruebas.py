@@ -506,6 +506,81 @@ def control():
     chequear("se fue el último: la sala desaparece", 77 not in SALAS)
     chequear("sala → Inventory: 0x104C → 0x104D (u16 1 · u8)",
              responder(0x104C, b"\0", 203) == [(0x104D, b"\1\0\0", 0)])
+
+    # ★ QUICK JOIN y AJUSTES DE SALA (aporte de Hysteria-xyz)
+    salas_antes = dict(SALAS)
+    SALAS.clear()
+    # Quick Join con sala disponible:
+    SALAS[55] = {"sala": bytearray(0x59), "anfitrion": 301, "miembros": [301]}
+    SALAS[55]["sala"][0x2F] = 3
+    r = responder(0x1025, b"", 302)
+    chequear("0x1025 (Quick Join) → 0x1026 con resultado 1 y número de sala (55)",
+             r == [(0x1026, struct.pack("<HHB", 1, 55, 0), 0)])
+    # ★ el revés: sin salas disponibles (o llena) → resultado 0xBB9
+    SALAS[55]["sala"][0x2F] = 1
+    r = responder(0x1025, b"", 302)
+    chequear("★ el revés: sin cupo libre → 0x1026 con error 0xBB9 (sin salas)",
+             r == [(0x1026, struct.pack("<HHB", 0xBB9, 0xFFFF, 0), 0)])
+    del SALAS[55]
+    SALAS.update(salas_antes)
+
+    # 0x104B: actualización de escenario/dificultad a los miembros
+    SALAS[55] = {"sala": bytearray(0x59), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    cuerpo_4b = struct.pack("<HI", 1, 1012)
+    r = responder(0x104B, cuerpo_4b, 301)
+    chequear("0x104B (ajustes de sala) se retransmite a los otros miembros",
+             r == [(0x104B, cuerpo_4b, 0, 302)] and struct.unpack_from("<I", SALAS[55]["sala"], 0x28)[0] == 1012)
+    # ★ el revés: sin sala no se procesa
+    chequear("★ el revés: 0x104B sin sala → None", responder(0x104B, cuerpo_4b, 999) is None)
+    del SALAS[55]
+
+    # ★ COMANDOS DE GM EN EL CHAT (/oro, /cash, /nivel, /item, /ayuda)
+    def _chat_payload(texto):
+        t = texto.encode("utf-16-le")
+        return struct.pack("<BII", 1, 0xFFFFFFFF, 0) + struct.pack("<I", len(t)) + t
+
+    # /oro
+    r = responder(0x100D, _chat_payload("/oro 77777"), 203)
+    d = leer(203)
+    chequear("/oro 77777 actualiza la plata del jugador a 77777",
+             d["plata"] == 77777 and r[0][0] == 0x1005 and "77777".encode("utf-16-le") in r[0][1])
+    # ★ el revés: /oro sin número devuelve aviso de uso y no cambia el oro
+    r = responder(0x100D, _chat_payload("/oro abc"), 203)
+    chequear("★ el revés: /oro inválido devuelve aviso y mantiene el oro",
+             leer(203)["plata"] == 77777 and "Uso: /oro".encode("utf-16-le") in r[0][1])
+
+    # /cash
+    r = responder(0x100D, _chat_payload("/cash 9999"), 203)
+    chequear("/cash 9999 actualiza el cash a 9999",
+             leer(203)["cash"] == 9999 and "9999".encode("utf-16-le") in r[0][1])
+
+    # /nivel
+    r = responder(0x100D, _chat_payload("/nivel 15"), 203)
+    d = leer(203)
+    chequear("/nivel 15 ajusta la EXP correspondiente a nivel 15",
+             nivel(d["exp"]) == 15 and "15".encode("utf-16-le") in r[0][1])
+
+    # /item
+    r = responder(0x100D, _chat_payload("/item 21001 10"), 203)
+    d = leer(203)
+    it = next((x for x in d["items"] if x[0] == 21001), None)
+    chequear("/item 21001 10 agrega el ítem al inventario",
+             it is not None and it[1] >= 10 and "21001".encode("utf-16-le") in r[0][1])
+
+    # /ayuda y desconocido
+    r = responder(0x100D, _chat_payload("/ayuda"), 203)
+    chequear("/ayuda responde con la lista de comandos disponibles",
+             "Comandos GM:".encode("utf-16-le") in r[0][1])
+    r = responder(0x100D, _chat_payload("/noexiste"), 203)
+    chequear("★ el revés: comando desconocido avisa sin romper",
+             "Comando desconocido".encode("utf-16-le") in r[0][1])
+
+    # ★ el revés: chat normal se difunde a los demás y no ejecuta comandos
+    r = responder(0x100D, _chat_payload("Hola mundo"), 203)
+    chequear("★ el revés: chat normal lleva tipo 1 y texto original",
+             "Hola mundo".encode("utf-16-le") in r[0][1] and r[0][1][2] == 1)
     # ★ VERIFICAR un libro de habilidad (el 0x103B de verdad: libro 14, pergamino 13)
     d = leer(203)
     inv = inventario(d)
