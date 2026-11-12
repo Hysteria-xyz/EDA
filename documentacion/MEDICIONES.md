@@ -2180,3 +2180,8 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   **Río (GIG)**, MISS; pero el pedido que llegó al VPS vino del centro de **Miami (MIA)**, el nivel de
   arriba. El 2º pedido: HIT en GIG, y ningún pedido más al VPS. O sea: la zona de abajo le pidió a la
   de arriba, y sólo la de arriba fue al VPS, una vez.
+- ★★ **Con un pase REAL de prod** (el portero de R2Beat en prod, una cuenta aprobada para EDA, firmado con
+  la clave de prod; server local con `EDA_LOGIN=pase` y `EDA_PORTERO_CLAVES` = la URL del JWKS de prod):
+  1.er canje → 200 y ticket para el uid; 2.º canje del MISMO pase → 409 «repetido». El cliente para
+  repartir con `<uid> <ticket> 127.0.0.1:…` → SELECT CHARACTER como `r2b_<uid>`. La cadena entera
+  (portero → pase → canje → ticket → dll → 0x100F → cuenta) anda con las claves de verdad.
