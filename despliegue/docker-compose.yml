@@ -26,6 +26,8 @@ services:
       EDA_LOGIN: ${EDA_LOGIN:-abierto}
       EDA_PORTERO_CLAVES: ${EDA_PORTERO_CLAVES:-}
       EDA_HTTP_PUERTO: ${EDA_HTTP_PUERTO:-}
+      # ★ P2P entre casas (servidor/nat.py, MEDICIONES §53): 1 = directo con la pública real; vacío = relay
+      EDA_P2P_ENTRE_CASAS: ${EDA_P2P_ENTRE_CASAS:-}
     volumes:
       # las cuentas de los jugadores: AFUERA del contenedor (y de la copia del repo), para que
       #   sobrevivan a cada actualización y se puedan llevar a otro VPS
