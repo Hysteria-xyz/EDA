@@ -96,7 +96,10 @@ def dir_udp(conexion, para=None):
         mio, suyo = punch_de(conexion), (punch_de(para) if para is not None else None)
         if para is not None and p.get("privada") and misma_casa(conexion, para, mio, suyo):
             return tuple(p["privada"])
-        if mio:
+        # ★ (MEDICIONES §52) la pública DIRECTA sólo si los DOS pasaron por el punch: si uno no (el
+        #   anfitrión nunca manda su 0x3006, §47), quedaba MIXTO —uno le habla directo al otro y el otro
+        #   por el relay—, y con un NAT de compañía (LTE, CGNAT) el directo no entra: los dos al relay
+        if mio and (para is None or suyo):
             return mio
     r = relay()
     if r:
