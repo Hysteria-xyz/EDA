@@ -233,6 +233,11 @@ S→C (`0x54F500`): difunde cambios del anfitrión al resto de miembros en la sa
 - Tipo 1 (Escenario): `u16 1` · 34 B del escenario (`0x54F53D`, actualiza minimapa e información).
 - Tipo 2 (Dificultad): `u16 2` · 20 B de dificultad (`0x54F55E`, actualiza modo EASY/NORMAL/HARD).
 
+### 5.8d · `0x105B` S→C / C→S — Sincronización 3D de equipamiento en sala de espera
+C→S (`0x54F700`): solicitud de actualización de apariencia 3D del personaje en la sala.
+S→C (`0x54F740`, 633 B / 0x279 B): `u32 id_miembro · u8 0 · 6 × u16 stats · 18 × 34 B items` (vtable `0x89A38C` · `u16 tipo` · vtable `0x89A380` · 24 B ceros).
+Se difunde a todos los miembros de la sala al cambiar equipamiento (`0x102D`) o al solicitarlo, actualizando en tiempo real la malla 3D LithTech del personaje en la escena (`0x540B50`).
+
 ### 5.9 · `0x104E` C→S / `0x104F` S→C — F9 START GAME
 C→S: `u8 🟡`. S→C (`0x54F170`): `u16 🟡 · u32 → +0x53 del personaje (partidas) · u8 🟡 · u8 N` +
 N × 68 (`[u8 índice del jugador en la sala][9 × 7 B: 🟡 su equipo]`). Con eso: pantalla 8, la
@@ -275,6 +280,7 @@ Los manejadores S→C de la pantalla de la partida (`0x548F80`, cada `push cmd` 
 - `0x1066` (`0x547940`) lee 6 B: `u8 jugador · u32 objeto · u8 → +0x322 del miembro de la sala`
   y llama `0x6360F0(jugador, objeto)`. Con estado 1 o 2 al muerto: no abre nada (no es eso).
 - `0x1063` C→S `u8 0 · u16 n` (n = 0x0A, 0x1E…): sale justo antes de morir y en la pelea 🟡.
+- `0x1062` S→C (`0x547440`, 16 B) / C→S: `u32 id_miembro · u32 0 · u16 hp · u8 0 · u32 mp · u8 buffs`. Sincroniza barras de vida y maná en el HUD cooperativo (`0x612A90` en `ebp + 0xF8`). El servidor lo difunde a los compañeros de equipo al recibir `0x1063` (`le_pegaron`) o al registrar daño/gasto de maná.
 
 ### 5.12 · ★ MORIR Y REVIVIR (medido el 10-nov, todo en automático)
 ```

@@ -7,7 +7,7 @@ from servidor import config
 from servidor.config import P
 from servidor.registro import maneja
 from servidor.estado import ASIGNADAS, SALAS, partida
-from servidor.cuentas import leer, nivel, nombre_visible, guardar, EXPS
+from servidor.cuentas import leer, nivel, nombre_visible, guardar, EXPS, INICIO
 from servidor.objetos import equipo_tipos, obj_habilidad, personaje_obj
 from servidor import relay
 from servidor.relay import dir_udp, identidad_de
@@ -324,8 +324,30 @@ def chat(cmd, cuerpo, conexion, c, p):
                 guardar(c)
                 return _aviso(f"Item {iid} (x{cant}) agregado")
             return _aviso("Uso: /item <id> [cantidad]")
+        elif sub in ("moneda", "monedas"):
+            if len(partes) >= 2 and partes[1].isdigit():
+                c["monedas"] = max(0, int(partes[1]))
+                guardar(c)
+                return _aviso(f"Monedas actualizadas a {c['monedas']}")
+            return _aviso("Uso: /monedas <cantidad>")
+        elif sub == "stats":
+            if len(partes) >= 2:
+                try:
+                    vals = [max(0, int(x)) for x in partes[1:6]]
+                    while len(vals) < 5:
+                        vals.append(0)
+                    c["stats"] = vals
+                    guardar(c)
+                    return _aviso(f"Stats actualizados: STR {vals[0]} CON {vals[1]} DEX {vals[2]} INT {vals[3]} WIS {vals[4]}")
+                except ValueError:
+                    pass
+            return _aviso("Uso: /stats <str> <con> <dex> <int> <wis>")
+        elif sub in ("limpiar", "clear"):
+            c["items"] = [x for x in c.get("items", []) if len(x) > 2 and x[2] < 12]
+            guardar(c)
+            return _aviso("Bolsa limpiada (equipo conservado)")
         elif sub in ("ayuda", "help"):
-            return _aviso(f"Comandos GM: /oro <n>, /cash <n>, /nivel <1-{len(EXPS)}>, /item <id> [cant]")
+            return _aviso(f"Comandos GM: /oro <n>, /cash <n>, /monedas <n>, /nivel <1-{len(EXPS)}>, /item <id> [cant], /stats <5 valores>, /limpiar")
         return _aviso(f"Comando desconocido: /{sub}. Usa /ayuda")
 
     # ⚠ medido con Frida (18:23): el TIPO lo lee en B+2 (con el tipo en B+0 leía 0xFF). La
@@ -353,6 +375,33 @@ def entrada_rapida(cmd, cuerpo, conexion, c, p):
     if sala_id is not None:
         return [(0x1026, struct.pack("<HHB", 1, sala_id, 0), 0)]
     return [(0x1026, struct.pack("<HHB", 0xBB9, 0xFFFF, 0), 0)]
+
+
+def aviso_equipo_105b(c, yo):
+    """★ 0x105B (633 B, `0x54F740`, aporte de Hysteria-xyz): actualiza el equipo y modelo 3D del miembro en sala.
+    u32 yo · u8 0 · 6 u16 stats · 18 × 34 B (vt 0x89A38C · u16 tipo · vt 0x89A380 · 24 B)."""
+    buf = bytearray(0x279)
+    struct.pack_into("<IB", buf, 0, yo, 0)
+    from servidor.objetos import stats_de
+    st = stats_de(c)
+    for k in range(6):
+        struct.pack_into("<H", buf, 5 + 2 * k, st[k])
+    tipos = equipo_tipos(c)
+    for k in range(18):
+        struct.pack_into("<IH", buf, 17 + 34 * k, 0x89A38C, tipos[k])
+        struct.pack_into("<I", buf, 17 + 34 * k + 6, 0x89A380)
+    return bytes(buf)
+
+
+@maneja(0x105B)
+def sincronizar_equipo_sala(cmd, cuerpo, conexion, c, p):
+    """★ 0x105B (`0x54F740`, aporte de Hysteria-xyz): retransmite actualización de equipo 3D a los demás de la sala."""
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"]:
+        return None
+    yo = s["miembros"].index(conexion)
+    msg = aviso_equipo_105b(c, yo)
+    return [(0x105B, msg, 0, n) for n in s["miembros"] if n != conexion]
 
 
 @maneja(0x104B)

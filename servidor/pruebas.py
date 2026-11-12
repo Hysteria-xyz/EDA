@@ -569,6 +569,31 @@ def control():
     chequear("/item 21001 10 agrega el ítem al inventario",
              it is not None and it[1] >= 10 and "21001".encode("utf-16-le") in r[0][1])
 
+    # /monedas
+    r = responder(0x100D, _chat_payload("/monedas 25"), 203)
+    chequear("/monedas 25 actualiza las monedas de resurrección a 25",
+             leer(203)["monedas"] == 25 and "25".encode("utf-16-le") in r[0][1])
+    r = responder(0x100D, _chat_payload("/monedas abc"), 203)
+    chequear("★ el revés: /monedas inválido devuelve aviso y mantiene monedas",
+             leer(203)["monedas"] == 25 and "Uso: /monedas".encode("utf-16-le") in r[0][1])
+
+    # /stats
+    r = responder(0x100D, _chat_payload("/stats 12 14 16 18 20"), 203)
+    chequear("/stats actualiza atributos de combate del personaje",
+             leer(203)["stats"] == [12, 14, 16, 18, 20] and "STR 12".encode("utf-16-le") in r[0][1])
+    r = responder(0x100D, _chat_payload("/stats"), 203)
+    chequear("★ el revés: /stats sin argumentos devuelve aviso de uso",
+             "Uso: /stats".encode("utf-16-le") in r[0][1])
+
+    # /limpiar
+    items_antes = [list(x) for x in leer(203)["items"]]
+    r = responder(0x100D, _chat_payload("/limpiar"), 203)
+    chequear("/limpiar limpia la bolsa conservando el equipo puesto",
+             all(x[2] < 12 for x in leer(203)["items"]) and "limpiada".encode("utf-16-le") in r[0][1])
+    d = leer(203)
+    d["items"] = items_antes
+    guardar(d)
+
     # /ayuda y desconocido
     r = responder(0x100D, _chat_payload("/ayuda"), 203)
     chequear("/ayuda responde con la lista de comandos disponibles",
@@ -581,6 +606,30 @@ def control():
     r = responder(0x100D, _chat_payload("Hola mundo"), 203)
     chequear("★ el revés: chat normal lleva tipo 1 y texto original",
              "Hola mundo".encode("utf-16-le") in r[0][1] and r[0][1][2] == 1)
+
+    # ★ 0x105B: sincronización de modelo 3D y equipo en sala de espera
+    SALAS[55] = {"sala": bytearray(0x59), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    r = responder(0x105B, b"", 301)
+    chequear("0x105B difunde equipo 3D (633 B) a los compañeros de sala",
+             len(r) == 1 and r[0][0] == 0x105B and len(r[0][1]) == 0x279 and r[0][3] == 302)
+    chequear("★ el revés: 0x105B sin sala → None", responder(0x105B, b"", 999) is None)
+    del SALAS[55]
+
+    # ★ 0x1062: sincronización de vida/maná en cooperativo
+    SALAS[55] = {"sala": bytearray(0x59), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    r = responder(0x1063, b"\x00\x64\x00", 301)
+    chequear("0x1063 (daño recibido) difunde 0x1062 (16 B) a los compañeros de equipo",
+             len(r) == 1 and r[0][0] == 0x1062 and len(r[0][1]) == 16 and r[0][3] == 302
+             and struct.unpack_from("<H", r[0][1], 8)[0] == 100)
+    partida(301).pop("sala", None)
+    partida(302).pop("sala", None)
+    del SALAS[55]
+    chequear("★ el revés: 0x1063 con un solo jugador no emite 0x1062",
+             len(responder(0x1063, b"\x00\x64\x00", 203)) == 0)
     # ★ VERIFICAR un libro de habilidad (el 0x103B de verdad: libro 14, pergamino 13)
     d = leer(203)
     inv = inventario(d)

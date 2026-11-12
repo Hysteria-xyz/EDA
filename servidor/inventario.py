@@ -86,6 +86,12 @@ def guardar_inventario(cmd, cuerpo, conexion, c, p):
                  + bytes([len(s["miembros"])])
                  + b"".join(miembro(leer(n), s["miembros"].index(n), conexion=n, para=conexion)
                             for n in s["miembros"]))
-        return [(0x102E, struct.pack("<HB", 1, 9) + datos + cola, 0)]
+        r = [(0x102E, struct.pack("<HB", 1, 9) + datos + cola, 0)]
+        from servidor.salas import aviso_equipo_105b
+        msg_5b = aviso_equipo_105b(c, yo)
+        for n in s["miembros"]:
+            if n != conexion:
+                r.append((0x105B, msg_5b, 0, n))
+        return r
     canal = struct.pack("<BHHH", 1, 200, len(ASIGNADAS), 0)
     return [(0x102E, struct.pack("<HBB", 1, 3, 0) + canal + cola, 0)]

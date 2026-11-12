@@ -101,9 +101,29 @@ def npc_muerto(cmd, cuerpo, conexion, c, p):
 
 @maneja(0x1063)
 def le_pegaron(cmd, cuerpo, conexion, c, p):
-    """🟡 le pegaron (sale en la pelea)"""
+    """★ le pegaron (0x1063 C→S / 0x1062 S→C `0x547440`, aporte de Hysteria-xyz):
+    Difunde la vida y maná actualizados al HUD de los compañeros de equipo."""
     p["golpes"] += 1
-    return []
+    s = SALAS.get(p.get("sala"))
+    r = []
+    if s and conexion in s["miembros"] and len(s["miembros"]) > 1:
+        yo = s["miembros"].index(conexion)
+        # 0x1062 (16 B, 0x547440): u32 jugador_id · u32 0 · u16 HP · u8 0 · u32 MP · u8 buffs
+        hp = struct.unpack_from("<H", cuerpo, 1)[0] if len(cuerpo) >= 3 else 1000
+        msg_62 = struct.pack("<IIHBI B", yo, 0, hp, 0, 100, 0)
+        for m in s["miembros"]:
+            if m != conexion:
+                r.append((0x1062, msg_62, 0, m))
+    return r
+
+
+@maneja(0x1062)
+def sincronizar_hud_companero(cmd, cuerpo, conexion, c, p):
+    """★ 0x1062 (`0x547440`, aporte de Hysteria-xyz): retransmite estado de vida/maná a los compañeros."""
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"]:
+        return None
+    return [(0x1062, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
 
 
 @maneja(0x1001)
