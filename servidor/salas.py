@@ -9,6 +9,7 @@ from servidor.registro import maneja
 from servidor.estado import ASIGNADAS, SALAS, partida
 from servidor.cuentas import leer, nivel, nombre_visible
 from servidor.objetos import equipo_tipos, obj_habilidad, personaje_obj
+from servidor import relay
 from servidor.relay import dir_udp, identidad_de
 
 
@@ -108,6 +109,12 @@ def pares(s, espera=0):
                 #   orden de red imprimía «1.0.0.127» y saludaba (0xC354) a una dirección que no
                 #   existe (medido 17:25)
                 regs.append(struct.pack("<BIH", i, udp[0], udp[1]))
+                # ★ (MEDICIONES §53) qué camino le tocó a cada par, en el registro del server (sin la IP)
+                if dest is not None:
+                    camino = ("relay" if relay.relay() and udp[1] == config.RELAY_BASE + 1 + n
+                              else "casa (privada)" if udp == tuple(partida(n).get("privada") or ())
+                              else "directo (pública)")
+                    print("sala: a #%s le doy #%s por %s" % (dest, n, camino), flush=True)
         cuerpo = struct.pack("<B4xBB", len(regs), 0, 0) + b"".join(regs)
         r.append((0x1059, cuerpo, espera, dest))
     return r
