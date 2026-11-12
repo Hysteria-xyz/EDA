@@ -2404,3 +2404,30 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
 - La laptop se maneja sin Python: `schtasks /it` con un .bat (lanzar) o un .ps1 (clics por mensaje de
   ventana, como `clic_juego.py`; foto de pantalla). ⚠ Los .bat se escriben con la herramienta de
   archivos: `printf` se comió `\E` de `C:\Game\EDA` (la regla de los heredocs, otra vez).
+
+### 53 · ★★★ P2P ENTRE CASAS, como el original (13-nov, la PC de prueba en casa + la laptop por LTE)
+
+- **Por el relay** (prod, la laptop por un módem LTE, la otra en casa): la sala en **~300 ms**, sin
+  pérdidas. Medido de dónde: el VPS está en **Miami** (ipinfo); la PC de prueba → VPS 104 ms, el VPS →
+  la red LTE 121 ms. El relay suma los dos tramos más las esperas de cuadro.
+- **Lo que faltaba**: la pública del ANFITRIÓN (no pasa por el punch, §47). El original la medía al
+  conectarse (PROTOCOLO §4.2–4.3): `0x0607` (el «UDP label») → el cliente manda `0x3002` por UDP cada
+  0,4 s → `0x0609` con su IP:puerto públicos, que después viajan en el `0x100F` (+0xE3 / +0xE7). Hasta
+  acá contestábamos un `0x0609` fijo con 127.0.0.1.
+- **El arreglo** (`servidor/nat.py`, PR #16–#19, con `EDA_P2P_ENTRE_CASAS=1`): el 0x0607 apunta al
+  puerto de punch del relay; el relay anota de dónde llega cada 0x3002 (`nat.json`); `tick` contesta el
+  0x0609 con esa dirección (o el de siempre si en 2,5 s no llegó). Con la pública de los dos, el
+  `0x1059` les da la del otro y los saludos `0xC354` del juego abren los NAT.
+- ★ Medido con el juego: el 0x3002 sale del puerto del juego (57654, el mismo de la partida). Su
+  «huella» es el usuario en UTF-16 **seguido de basura que cambia en cada envío** (tres envíos, tres
+  huellas): con la huella entera nunca coincidía → se compara el texto hasta su 0 (PR #18). Después,
+  el 0x0609 con la pública real sale en ~1 s.
+- ★★★ **Medido entre casas** (server de prueba; la laptop por LTE, la PC en casa): el registro dice
+  «sala: a #1 le doy #2 por directo (pública)» y al revés; el relay **no reenvió nada**; la sala en
+  **70–90 ms** (antes ~300). ⇒ PR #21: a prod con `EDA_P2P_ENTRE_CASAS=1` (OK de el tester; respaldo de
+  cuentas y `prod.env.antes_entre_casas`).
+- **La red inmediata** pasa a `[p2p]`, prendida (PR #20; cliente 2026.11.13.2): el ping de la sala sin
+  la espera del cuadro (§42). 🟡 Falta medirla entre casas.
+- 🟡 **Pendiente**: si los DOS tienen un NAT que cambia el puerto según el destino (simétrico), el
+  saludo no entra y la sala queda en -1000 (antes, por el relay, andaba). El arreglo va en la dll: si no
+  llega nada del par en unos segundos, pasarse sola al relay (o probar puertos cercanos).
