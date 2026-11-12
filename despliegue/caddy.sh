@@ -33,6 +33,13 @@ cat > "$NUEVO" <<FIN
 
 $DOMINIO {
 	tls $ORIGEN/origen.pem $ORIGEN/origen.key
+	# cada pedido que LLEGA al VPS (con Tiered Cache, cada archivo debería llegar una vez por nivel alto)
+	log {
+		output file /var/log/caddy/eda.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+	}
 	route {
 		@no_cf not remote_ip $RANGOS
 		respond @no_cf "solo por Cloudflare" 403
@@ -48,5 +55,7 @@ FIN
 caddy validate --adapter caddyfile --config "$NUEVO" >/dev/null
 [ -f /etc/caddy/Caddyfile ] && cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.antes
 install -m 644 "$NUEVO" /etc/caddy/Caddyfile && rm -f "$NUEVO"
+# ⚠ `caddy validate` (como root) crea el log a nombre de root: el servicio (usuario caddy) no lo abre
+mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy
 systemctl reload caddy
 echo "✅ Caddy: $DOMINIO (sólo Cloudflare: $(echo "$RANGOS" | wc -w) rangos) · /eda/* → 127.0.0.1:$HTTP · /files-eda/* → /opt/eda/files-eda"
