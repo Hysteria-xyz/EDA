@@ -191,6 +191,7 @@ def fin_de_stage(cmd, cuerpo, conexion, c, p):
     cartas = struct.pack("<IIII", 60000, *PRECIOS)
     p["cartas_hasta"] = time.time() + 8 + 60 + 2          # 0x106F a los 8 s + 60 s + margen
     p["exp_cartas"] = 0
+    p["cartas_elegidas"] = set()
     if n > antes:
         print("sube de nivel", antes, "→", n)
     # ★ el resultado y las cartas ESPACIADOS (juntos, las cartas tapaban el resultado)
@@ -212,13 +213,19 @@ def elegir_carta(cmd, cuerpo, conexion, c, p):
     #   medido 20:00: la 1ª de oro = «00 00», la 1ª de bronce = «00 0a») → la fila como la
     #   saca el cliente (`0x500810`). Antes se tomaba el 1er byte como fila: siempre «oro».
     carta_n = cuerpo[1]
+    hasta = p.get("cartas_hasta")
+    if not hasta or time.time() >= hasta or carta_n >= 18:
+        return []
+    elegidas = p["cartas_elegidas"]
     fila = 0 if carta_n < 4 else (1 if carta_n < 10 else 2)
     precio = PRECIOS[fila]
-    if p.get("puntos", 0) >= precio:
-        p["puntos"] -= precio
-        p["exp_cartas"] = p.get("exp_cartas", 0) + precio
-        c["exp"] += precio
-        guardar(c)
+    if carta_n in elegidas or p["puntos"] < precio:
+        return []
+    c["exp"] += precio
+    guardar(c)
+    elegidas.add(carta_n)
+    p["puntos"] -= precio
+    p["exp_cartas"] += precio
     carta = struct.pack("<BBBII", 1, fila, numero_jugador(conexion), p.get("exp_cartas", 0),
                         p.get("puntos", 0))
     r = [(0x1071, carta, 0)]

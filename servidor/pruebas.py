@@ -111,16 +111,22 @@ def control():
     chequear("0x1072 = el índice de la stage (1011) + (jugador 0, 1)",
              c1072 == struct.pack("<IBBB", 1011, 1, 0, 1), c1072.hex())
     for carta_n, fila_esperada in ((0, 0), (3, 0), (4, 1), (9, 1), (10, 2), (17, 2)):
-        partida(99)["puntos"], partida(99)["exp_cartas"] = 1000, 0
+        partida(99).update(puntos=1000, exp_cartas=0, cartas_hasta=time.time() + 60, cartas_elegidas=set())
+        antes_exp = leer(99)["exp"]
         r = responder(0x1070, bytes([0, carta_n]), 99)
         chequear("carta %d → fila %d (cobra %d)" % (carta_n, fila_esperada, PRECIOS[fila_esperada]),
                  r[0][1][1] == fila_esperada
                  and struct.unpack_from("<I", r[0][1], 7)[0] == 1000 - PRECIOS[fila_esperada])
+        repetida = responder(0x1070, bytes([0, carta_n]), 99)
+        chequear("carta %d: EXP persistida y duplicado sin segundo cobro" % carta_n,
+                 repetida == [] and leer(99)["exp"] == antes_exp + PRECIOS[fila_esperada]
+                 and partida(99)["puntos"] == 1000 - PRECIOS[fila_esperada])
     antes_exp = leer(99)["exp"]
     partida(99)["puntos"] = PRECIOS[0] - 1
-    r = responder(0x1070, b"\0\3", 99)
-    chequear("★ el revés: sin puntos para la carta de oro NO da EXP",
-             leer(99)["exp"] == antes_exp and struct.unpack_from("<I", r[0][1], 7)[0] == PRECIOS[0] - 1)
+    for carta_n in (0, 18, 255):
+        r = responder(0x1070, bytes([0, carta_n]), 99)
+        chequear("carta %d sin puntos o fuera de rango: sin cobro ni confirmación" % carta_n,
+                 r == [] and leer(99)["exp"] == antes_exp and partida(99)["puntos"] == PRECIOS[0] - 1)
     tp2 = tabla_premios()
     if tp2:
         cc = {"items": [], "plata": 0, "exp": 0}

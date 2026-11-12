@@ -4,6 +4,7 @@ Una cuenta por conexión de juego (sin launcher ni login todavía: cada conexió
 nombre libre de NOMBRES). Cada una en `<EDA_ESTADO>/cuentas/<nombre>.json`.
 """
 import json
+import tempfile
 import os
 
 from servidor import config
@@ -72,4 +73,14 @@ def leer(conexion=None):
 
 def guardar(c):
     os.makedirs(config.CUENTAS, exist_ok=True)
-    json.dump(c, open(ruta_cuenta(c["nombre"]), "w", encoding="utf-8"), indent=1)
+    temporal = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=config.CUENTAS,
+                                         suffix=".tmp", delete=False) as archivo:
+            temporal = archivo.name
+            json.dump(c, archivo, indent=1)
+        os.replace(temporal, ruta_cuenta(c["nombre"]))
+        temporal = None
+    finally:
+        if temporal is not None:
+            os.unlink(temporal)

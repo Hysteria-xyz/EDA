@@ -61,7 +61,7 @@ def miembro(c, indice, completo=False, conexion=None, para=None):
         #   mismo formato en que el cliente manda la suya en el 0x100F (u32 «al revés», u16)
         ip, puerto = udp
         struct.pack_into("<IHIH", m, 0x48, ip, puerto, ip, puerto)
-    pj = bytearray(P.registro_personaje(c["nombre"], lugar=0, clase=c["clase"], ident=c["exp"],
+    pj = bytearray(P.registro_personaje(c.get("nick", c["nombre"]), lugar=0, clase=c["clase"], ident=c["exp"],
                                         nivel=nivel(c["exp"]), partidas=c["partidas"],
                                         abandonos=c["abandonos"]))
     m[0x54:0xA6] = pj[0:0x52]
@@ -268,7 +268,7 @@ def chat(cmd, cuerpo, conexion, c, p):
     texto = cuerpo[13:13 + largo]
     # ⚠ medido con Frida (18:23): el TIPO lo lee en B+2 (con el tipo en B+0 leía 0xFF). La
     #   cabecera es u16 🟡 · u8 tipo · u32 🟡 (¿color?) · u32 🟡 · 26 B nombre UTF-16
-    nombre = c["nombre"].encode("utf-16-le")[:24].ljust(26, b"\0")
+    nombre = c.get("nick", c["nombre"]).encode("utf-16-le")[:24].ljust(26, b"\0")
     msg = (struct.pack("<HBII", 0, cuerpo[0], 0xFFFFFFFF, 0) + nombre
            + struct.pack("<I", len(texto)) + texto)
     s = SALAS.get(p.get("sala"))

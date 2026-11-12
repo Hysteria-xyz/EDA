@@ -13,7 +13,7 @@ from servidor.cuentas import nivel
 def personaje_obj(c):
     """El objeto PERSONAJE (0x52 B, `0x53F680`) con sus vtables: va dentro del miembro de la sala
     y del usuario de la lista del lobby."""
-    pj = bytearray(P.registro_personaje(c["nombre"], lugar=0, clase=c["clase"], ident=c["exp"],
+    pj = bytearray(P.registro_personaje(c.get("nick", c["nombre"]), lugar=0, clase=c["clase"], ident=c["exp"],
                                         nivel=nivel(c["exp"]), partidas=c["partidas"],
                                         abandonos=c["abandonos"])[0:0x52])
     struct.pack_into("<I", pj, 0, 0x89A3AC)
@@ -145,7 +145,7 @@ def obj_stats(c):
 
 def pj_cuenta(c):
     """El personaje (0xBA B) de la cuenta, con sus estadísticas y su EQUIPO puesto."""
-    return P.registro_personaje(c["nombre"], lugar=0, clase=c["clase"], ident=c["exp"],
+    return P.registro_personaje(c.get("nick", c["nombre"]), lugar=0, clase=c["clase"], ident=c["exp"],
                                 nivel=nivel(c["exp"]), partidas=c["partidas"],
                                 abandonos=c["abandonos"], stats=tuple(stats_de(c)),
                                 extra={0x72: struct.pack("<18I", *equipo(c)),

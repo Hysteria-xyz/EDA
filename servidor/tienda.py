@@ -23,18 +23,24 @@ def comprar(cmd, cuerpo, conexion, c, p):
     n = cuerpo[4]
     pedidos = [struct.unpack_from("<H", cuerpo, 5 + 2 * k)[0] for k in range(n)
                if 5 + 2 * k + 2 <= len(cuerpo)]
-    costo = sum(tabla[x][0] for x in pedidos if x in tabla)
-    if not pedidos or any(x not in tabla for x in pedidos) or costo > c["plata"]:
-        return [(0x1040, struct.pack("<HIIBHH", 0, c["plata"], c["cash"], 0, 0, 0), 0)]
+    costo_oro = sum(tabla[x][0] for x in pedidos if x in tabla)
+    costo_cash = sum(tabla[x][1] for x in pedidos if x in tabla)
     inv = inventario(c)
+    cupos = 150 - len({it[2] for it in inv if 18 <= it[2] < 168})
+    cantidad_items = sum(len(tabla[x][2]) for x in pedidos if x in tabla)
+    if (not pedidos or len(pedidos) != n or any(x not in tabla for x in pedidos)
+            or costo_oro > c["plata"] or costo_cash > c["cash"] or cantidad_items > cupos):
+        return [(0x1040, struct.pack("<HIIBHH", 0, c["plata"], c["cash"], 0, 0, 0), 0)]
     nuevos = []
     for x in pedidos:
         for tipo, cant in tabla[x][2]:
-            it = [tipo, cant, libre_en_bolsa(inv), serial_nuevo(inv)]
+            verificado = int(not 31000 <= tipo <= 33999)
+            it = [tipo, cant, libre_en_bolsa(inv), serial_nuevo(inv), verificado]
             inv.append(it)
-            nuevos.append(registro_item(it[3], tipo, cant, it[2]))
+            nuevos.append(registro_item(it[3], tipo, cant, it[2], verificado))
     c["items"] = inv
-    c["plata"] -= costo
+    c["plata"] -= costo_oro
+    c["cash"] -= costo_cash
     guardar(c)
     return [(0x1040, struct.pack("<HIIBHH", 1, c["plata"], c["cash"], len(pedidos),
                                  len(nuevos), 0)
