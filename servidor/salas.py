@@ -377,6 +377,55 @@ def entrada_rapida(cmd, cuerpo, conexion, c, p):
     return [(0x1026, struct.pack("<HHB", 0xBB9, 0xFFFF, 0), 0)]
 
 
+@maneja(0x1019)
+def entrar_desde_lobby(cmd, cuerpo, conexion, c, p):
+    """★ 0x1019 C→S / 0x101A S→C (`0x542990`, 9 B, aporte de Hysteria-xyz):
+    Entrar a una sala desde la lista del lobby al pulsar Enter o doble clic.
+    cuerpo: u32 num_sala (o u16), u8 flag_password.
+    0x101A: u16 resultado (1 = OK, 0x9C5 = sala llena/inexistente, 0x9C6 = en juego)
+            · u8 modo (0) · u16 sala · u16 escenario · u16 dificultad."""
+    if len(cuerpo) < 2:
+        return [(0x101A, struct.pack("<HBH HH", 0x9C5, 0, 0, 0, 0), 0)]
+    num = struct.unpack_from("<H", cuerpo, 0)[0]
+    s = SALAS.get(num)
+    if not s and len(cuerpo) >= 4:
+        num = struct.unpack_from("<I", cuerpo, 0)[0]
+        s = SALAS.get(num)
+    if not s:
+        return [(0x101A, struct.pack("<HBH HH", 0x9C5, 0, 0, 0, 0), 0)]
+    if s.get("jugando"):
+        return [(0x101A, struct.pack("<HBH HH", 0x9C6, 0, num, 0, 0), 0)]
+    max_j = s["sala"][0x2F] if len(s["sala"]) > 0x2F else 3
+    if len(s["miembros"]) >= max_j:
+        return [(0x101A, struct.pack("<HBH HH", 0x9C5, 0, num, 0, 0), 0)]
+    esc = struct.unpack_from("<H", s["sala"], 0x28)[0] if len(s["sala"]) >= 0x2A else 1011
+    dif = struct.unpack_from("<H", s["sala"], 0x2C)[0] if len(s["sala"]) >= 0x2E else 0
+    return [(0x101A, struct.pack("<HBH HH", 1, 0, num, esc, dif), 0)]
+
+
+@maneja(0x101A)
+def retransmitir_101a(cmd, cuerpo, conexion, c, p):
+    """★ 0x101A (`0x542990`): confirmación de entrada a sala."""
+    return [(0x101A, cuerpo, 0)]
+
+
+@maneja(0x1055)
+def consultar_sala_1055(cmd, cuerpo, conexion, c, p):
+    """★ 0x1055 C→S / 0x1056 S→C (`0x543BE0`, 82 B, aporte de Hysteria-xyz):
+    Actualización/consulta de estado de sala en lobby."""
+    buf = bytearray(0x52)
+    s = SALAS.get(p.get("sala"))
+    if s and len(s["sala"]) >= 0x52:
+        buf[:min(0x52, len(s["sala"]))] = s["sala"][:0x52]
+    return [(0x1056, bytes(buf), 0)]
+
+
+@maneja(0x1056)
+def aviso_sala_1056(cmd, cuerpo, conexion, c, p):
+    """★ 0x1056 (`0x543BE0`): retransmisión de estado de sala en lobby."""
+    return [(0x1056, cuerpo, 0)]
+
+
 def aviso_equipo_105b(c, yo):
     """★ 0x105B (633 B, `0x54F740`, aporte de Hysteria-xyz): actualiza el equipo y modelo 3D del miembro en sala.
     u32 yo · u8 0 · 6 u16 stats · 18 × 34 B (vt 0x89A38C · u16 tipo · vt 0x89A380 · 24 B)."""
@@ -516,7 +565,10 @@ def largar(cmd, cuerpo, conexion, c, p):
     """★ F9 START GAME (el anfitrión)"""
     # 0x104F (`0x54F170`) a TODOS los de la sala: u16 1 · u32 (+0x53: partidas) · u8 🟡 ·
     #   u8 N · N × 68 B ([u8 número de jugador][9 × 7 B: 🟡 su equipo para la partida])
+    # Si no es el anfitrión o no hay sala, 0x1050 (0x54EBA0) con error 0x138A (modal 0x191)
     s = SALAS.get(p.get("sala"))
+    if not s or s.get("anfitrion") != conexion:
+        return [(0x1050, struct.pack("<H", 0x138A), 0)]
     miembros = s["miembros"] if s else [conexion]
     if s:
         s["jugando"], s["cargados"] = True, set()
@@ -529,3 +581,9 @@ def largar(cmd, cuerpo, conexion, c, p):
         r.append((0x104F, struct.pack("<HIBB", 1, cn["partidas"], 0, len(miembros)) + lista,
                   0, n))
     return r + (avisar_lista(salvo=conexion) if s else [])
+
+
+@maneja(0x1050)
+def error_largada_1050(cmd, cuerpo, conexion, c, p):
+    """★ 0x1050 (`0x54EBA0`, 2 B, aporte de Hysteria-xyz): aviso de error al iniciar partida (0x138A o 0x6C)."""
+    return [(0x1050, cuerpo if len(cuerpo) >= 2 else struct.pack("<H", 0x138A), 0)]

@@ -95,3 +95,43 @@ def guardar_inventario(cmd, cuerpo, conexion, c, p):
         return r
     canal = struct.pack("<BHHH", 1, 200, len(ASIGNADAS), 0)
     return [(0x102E, struct.pack("<HBB", 1, 3, 0) + canal + cola, 0)]
+
+
+@maneja(0x102F)
+def asignar_stats_102f(cmd, cuerpo, conexion, c, p):
+    """★ 0x102F C→S / 0x1030 S→C (`0x54C690`, 2 B, aporte de Hysteria-xyz):
+    Repartir puntos de atributos (STR, CON, DEX, INT, WIS) ganados al subir de nivel.
+    cuerpo: u32 conexion · 6 × u16 stats.
+    0x1030: u16 resultado (1 = OK, 0 = error)."""
+    if len(cuerpo) < 16:
+        return [(0x1030, struct.pack("<H", 0), 0)]
+    stats = list(struct.unpack_from("<6H", cuerpo, 4))
+    antes = stats_de(c)
+    subio = sum(stats[:5]) - sum(antes[:5])
+    if all(n >= v for n, v in zip(stats[:5], antes[:5])) and subio <= antes[5]:
+        c["stats"] = list(stats[:5])
+        guardar(c)
+        return [(0x1030, struct.pack("<H", 1), 0)]
+    return [(0x1030, struct.pack("<H", 0), 0)]
+
+
+@maneja(0x1030)
+def confirmacion_stats_1030(cmd, cuerpo, conexion, c, p):
+    """★ 0x1030 (`0x54C690`, 2 B): confirmación de guardado de stats."""
+    return [(0x1030, cuerpo if len(cuerpo) >= 2 else struct.pack("<H", 1), 0)]
+
+
+@maneja(0x1031)
+def habilidad_1031(cmd, cuerpo, conexion, c, p):
+    """★ 0x1031 C→S / 0x1032 S→C (`0x54B2D0`, 94 B, aporte de Hysteria-xyz):
+    Gestión y confirmación de habilidades aprendidas.
+    0x1032: u16 resultado (1 = OK) + 92 B estructura de habilidad."""
+    buf = bytearray(0x5E)
+    struct.pack_into("<H", buf, 0, 1)
+    return [(0x1032, bytes(buf), 0)]
+
+
+@maneja(0x1032)
+def confirmacion_habilidad_1032(cmd, cuerpo, conexion, c, p):
+    """★ 0x1032 (`0x54B2D0`, 94 B): confirmación de habilidad."""
+    return [(0x1032, cuerpo if len(cuerpo) >= 0x5E else bytes(0x5E), 0)]

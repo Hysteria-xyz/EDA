@@ -96,3 +96,17 @@ def tick(conexiones, ahora=None):
             print("#%s NAT: ningún 0x3002 en %.1f s → el 0x0609 de siempre (irá por el relay)" % (n, ESPERA),
                   flush=True)
     return r
+
+
+def nat_bloqueado(cuerpo, conexion):
+    """★ 0x060C C→S / 0x060B S→C (`0x545920`, 6 B, aporte de Hysteria-xyz):
+    Reconfirmar broker/relay IP y puerto cuando falla el NAT traversal."""
+    r = relay()
+    ip, puerto = r if r else (0x7F000001, config.PUNCH_PUERTO)
+    return [(0x060B, struct.pack("<IH", ip, puerto), 0)]
+
+
+def nat_tipo_sort(cuerpo, conexion):
+    """★ 0x3002 C→S / 0x3003 S→C (`0x545710`, 1 B, aporte de Hysteria-xyz):
+    OnPktRBC2NATTypeSort (1 = Full Cone / Open)."""
+    return [(0x3003, b"\x01", 0)]
