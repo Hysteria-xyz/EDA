@@ -69,10 +69,13 @@ def clave_de_exe(ruta):
 #   abre igual sus paquetes. Son md5(exe + 00) de:
 #     · el EDA.exe de 2009 (md5 f0b12e6cddf3efdd0676b6491efe46be): `jugar.py --original`
 #     · exe/EDA_limpio.exe (md5 0799387e23cadd355888bd712143f2d5): `jugar.py` (por defecto)
+#     · ★ el limpio NUEVO, sin ASProtect en código vivo (md5 ba6f91dbb89faf400bc73612295ae5ef,
+#       MEDICIONES §56): ya se acepta, para probarlo antes de la mudanza (el launcher sigue con 0799387e)
 #   ⚠ Si se rearma el limpio, cambia su clave: se agrega acá (o en EDA_CLAVES, sin tocar el código).
 CLAVES_FIJAS = {
     "EDA.exe de 2009": bytes.fromhex("a57ca836788301a9aff975159cbcbe97"),
     "EDA_limpio.exe (0799387e)": bytes.fromhex("2921cf268c0d66325864aec9ab4fc7f4"),
+    "EDA_limpio.exe (ba6f91db, sin ASProtect)": bytes.fromhex("e43b8a4f9664e4145c14d16eec99de0e"),
 }
 _CACHE_CLAVES = {}
 
