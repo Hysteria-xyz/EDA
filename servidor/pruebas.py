@@ -300,6 +300,16 @@ def control():
     escribir_relay()
     chequear("relay.json: la «falsa» de quien mandó su MAC es la real (el relay no la toca)",
              json.load(open(config.RELAY_MAPA))["401"]["falsa"] == macs[401])
+    mapa_rel = json.load(open(config.RELAY_MAPA))
+    chequear("relay.json: cada uno con los de SU sala (para el descarte del relay, §47)",
+             sorted(mapa_rel["401"]["sala"]) == sorted(SALAS[88]["miembros"])
+             and all(mapa_rel[str(n)]["sala"] == [] for n in ASIGNADAS if n not in SALAS[88]["miembros"]))
+    ASIGNADAS.setdefault(499, "ren")
+    escribir_relay()
+    estaba = "499" in json.load(open(config.RELAY_MAPA))
+    cerrada(499)                                           # (uno que no está en ninguna sala)
+    chequear("★ el revés: al cerrarse una conexión, el mapa se reescribe sin ella",
+             estaba and "499" not in json.load(open(config.RELAY_MAPA)))
     config.P2P = "relay"
     chequear("★ el revés: con EDA_P2P=relay, todo por el relay aunque haya MAC",
              dir_udp(401, 402) == (0x7F000001, config.RELAY_BASE + 1 + 401))

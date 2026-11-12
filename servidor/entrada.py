@@ -46,6 +46,10 @@ def quien_soy(cmd, cuerpo, conexion, c, p):
     #   Llega bien si el juego se lanzó con la ruta entre comillas; si no, es basura y no se usa
     mac = cuerpo[0x7A:0x7A + 34].decode("utf-16-le", "replace")
     p["mac"] = mac if re.fullmatch(r"[0-9A-F]{2}(?::[0-9A-F]{2}){5}", mac) else None
+    if p["mac"] is None:
+        # 🟡 (MEDICIONES §47) en prod, juegos abiertos por el launcher llegaron SIN MAC: se anota lo que
+        #   vino en su lugar (el registro del server, en el VPS), para saber por qué
+        print("#%s 0x100F sin MAC válida en +0x7A: %s" % (conexion, cuerpo[0x7A:0x7A + 34].hex(" ")), flush=True)
     # ★★ EL LOGIN (servidor/porteria.py, MEDICIONES §45): el bloque del launcher trae «usuario
     #   ticket» → +0x04 y +0x2E del cuerpo (cuenta+0xF0 / +0x11A), UTF-16 hasta el 0 (después hay basura)
     if config.LOGIN == "pase":

@@ -34,6 +34,7 @@ from servidor.cuentas import NOMBRES, leer, ruta_cuenta, nivel   # noqa: E402
 from servidor.salas import avisar_lista, avisar_usuarios     # noqa: E402
 from servidor.partida import cuerpo_1072, game_over          # noqa: E402
 from servidor.registro import MANEJADORES                    # noqa: E402
+from servidor.relay import escribir_relay                    # noqa: E402
 # los módulos que REGISTRAN manejadores (importarlos es lo que los anota)
 from servidor import entrada, inventario, tienda, habilidades, refineria   # noqa: E402,F401
 
@@ -50,7 +51,14 @@ def responder(cmd, cuerpo, conexion):
     c = leer(conexion)
     p = partida(conexion)
     f = MANEJADORES.get(cmd)
-    return f(cmd, cuerpo, conexion, c, p) if f else None
+    r = f(cmd, cuerpo, conexion, c, p) if f else None
+    if cmd in CAMBIAN_SALAS:
+        escribir_relay()                                    # ★ el relay sabe quién está con quién (§47)
+    return r
+
+
+# crear, entrar, salir, echar: después de cada uno, el mapa del relay se reescribe con las salas
+CAMBIAN_SALAS = (0x101D, 0x101F, 0x1045, 0x1051)
 
 
 def tick(conexiones):
@@ -83,6 +91,10 @@ def cerrada(conexion):
     viejas = [k for k, v in SALAS.items() if v["anfitrion"] == conexion]
     for k in viejas:
         del SALAS[k]
+    for s in SALAS.values():                               # (si era invitado, sale de esa sala)
+        if conexion in s["miembros"]:
+            s["miembros"].remove(conexion)
+    escribir_relay()
     VIVO.LISTA_CAMBIO = True                               # salas y usuarios: uno menos
 
 
