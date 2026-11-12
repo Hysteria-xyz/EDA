@@ -56,12 +56,16 @@ for par in prod:25900:26000 prueba:35900:36000; do
     echo "  $env: puerto $puerto, relay $IP:$relay"
 done
 
-echo "· 5/5 arrancar y actualizar sola la de prueba"
+echo "· 5/5 arrancar y que las dos se actualicen solas"
 bash "$BASE/prod/despliegue/actualizar.sh" prod --forzar
 bash "$BASE/prod/despliegue/actualizar.sh" prueba --forzar
+# ★ (13-nov) PROD también sigue a su rama (main pide 2 aprobaciones; actualizar.sh respalda las cuentas
+#   antes y vuelve atrás si no contesta). Se corre una COPIA del script (el `git reset` de adentro
+#   cambia el archivo mientras corre) y con flock (una actualización a la vez por entorno).
 cat > /etc/cron.d/eda <<CRON
-# EDA: la copia de PRUEBA sigue a la rama develop (la de prod se actualiza a mano: actualizar.sh prod)
-*/5 * * * * root bash $BASE/prod/despliegue/actualizar.sh prueba >> $BASE/actualizaciones.log 2>&1
+# EDA: PRUEBA sigue a develop y PROD sigue a main, cada 5 minutos
+*/5 * * * * root cp $BASE/prod/despliegue/actualizar.sh /tmp/eda-act-prueba.sh && flock -n /tmp/eda-prueba.lock bash /tmp/eda-act-prueba.sh prueba >> $BASE/actualizaciones.log 2>&1
+*/5 * * * * root cp $BASE/prod/despliegue/actualizar.sh /tmp/eda-act-prod.sh && flock -n /tmp/eda-prod.lock bash /tmp/eda-act-prod.sh prod >> $BASE/actualizaciones.log 2>&1
 CRON
 
 cat <<FIN
