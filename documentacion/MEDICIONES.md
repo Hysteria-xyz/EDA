@@ -2192,3 +2192,10 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   `/admin*` → `https://<panel>/cuentas/admin*`, dentro del filtro «sólo Cloudflare»). Medido por
   Cloudflare: `/admin` 200 («EDA · Aprobaciones»), `/admin/lista` sin sesión 401; lo demás igual
   (`/eda/salud` 200, `/files-eda/…` 200, `/otra` 404).
+- ★★★ **EL LOGIN PRENDIDO EN PROD** (12-nov, con el OK de el tester, después de publicado el launcher 2.5 de
+  R2Beat y de la prueba en prod con un pase real: canje 200, el 2.º 409): `EDA_LOGIN=pase` en
+  `/opt/eda/prod.env` (copia `prod.env.antes_pase`). Verificado adentro del contenedor (login pase, el kid
+  de prod) y por Cloudflare (`/eda/salud` → «pase»). ★ El revés, con el juego contra prod por el
+  subdominio: un ticket inventado → «Can't Connect to server». Sólo entran las cuentas aprobadas en el
+  portero; el server de prueba (35900) sigue abierto. Volver atrás: `EDA_LOGIN=abierto` y
+  `actualizar.sh prod --forzar`.
