@@ -2172,3 +2172,11 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   R2Beat (tiene el token de esa zona): TTL largo sólo para 200 y purgar el prefijo de la release. ⇒ La
   regla para las próximas: **no pedir ningún archivo de una release antes de que esté entera** (subir,
   `md5sum -c`, y recién después probar).
+- ★ **Tiered Cache (Smart), medido** (lo pidió el tester: «que los espejos o zonas se pidan la cache entre
+  ellos y no vayan al vps»; lo prendió la sesión de R2Beat, gratis en el plan Free, confirmado con GET;
+  la regla ya no guarda errores: 300–599 sin guardar; se purgaron las 16 URLs, y `EdaENGTest.ini` volvió
+  con su md5). Con el registro de Caddy (`/var/log/caddy/eda.log`, cada pedido que LLEGA al VPS): un
+  archivo que nadie había pedido (`redist/mssdolby.flt`), pedido desde acá → lo atiende el centro de
+  **Río (GIG)**, MISS; pero el pedido que llegó al VPS vino del centro de **Miami (MIA)**, el nivel de
+  arriba. El 2º pedido: HIT en GIG, y ningún pedido más al VPS. O sea: la zona de abajo le pidió a la
+  de arriba, y sólo la de arriba fue al VPS, una vez.
