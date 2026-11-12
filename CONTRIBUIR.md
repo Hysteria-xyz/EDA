@@ -47,6 +47,9 @@ programás, también sirve un issue con una foto y lo que dice la consola.
 
 ## Dónde va cada cosa
 
+⭐ **Arreglos del juego (video, red, bytes del exe): van en NUESTRA `d3d9.dll`, nunca en el exe ni en
+`Data.dat`.** El porqué, en criollo y para quien revisa: [documentacion/POR_QUE_LA_DLL.md](documentacion/POR_QUE_LA_DLL.md).
+
 El server está partido por pantallas del juego: [servidor/LEEME.md](servidor/LEEME.md). Para
 atender un mensaje nuevo:
 
