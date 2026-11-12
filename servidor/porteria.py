@@ -16,6 +16,11 @@ Cómo entra un jugador (MEDICIONES §45; el lado de R2Beat lo arma su repo):
 Lo que se guarda (`config.PORTERIA`, SQLite): los tickets (uno por cuenta, TICKET_HORAS) y el `jti`
 de cada pase usado hasta que vence (un pase no se canjea dos veces).
 
+★ El claim «nombre» (opcional, el portero lo manda desde el 12-nov): el APODO del personaje del casillero 1
+de R2Beat, nunca el login. Se guarda con el ticket y, al entrar, el personaje que todavía se llama
+`r2b_<uid>` pasa a llamarse así (`personajes.bautizar`). Vale lo mismo que al crear un personaje
+(`NOMBRE_OK`, recortado a 12); si no entra o ya lo usa otro, se ignora y queda el nombre de antes.
+
     py servidor\juego.py control        # las pruebas (la firma, cada rechazo y su revés)
 """
 import base64
@@ -34,6 +39,16 @@ from servidor import config
 ALFABETO = string.ascii_letters + string.digits     # ⚠ sin espacios: el bloque separa A y B con uno
 LARGO_TICKET = 20                                    # el campo del juego: 21 UTF-16 con el 0 final
 TOLERANCIA = 30                                      # segundos de reloj desparejo entre Chile y acá
+NOMBRE_OK = re.compile(r"[A-Za-z0-9_]{2,12}")        # = personajes.NOMBRE_OK (crear personaje, 0x1013)
+
+
+def nombre_del_pase(datos):
+    """El claim «nombre» del pase, recortado a 12 y validado como el de crear personaje; o None."""
+    n = datos.get("nombre")
+    if not isinstance(n, str):
+        return None
+    n = n.strip()[:12]
+    return n if NOMBRE_OK.fullmatch(n) else None
 
 
 class Rechazo(Exception):
@@ -91,6 +106,8 @@ def _base():
     try:
         db.execute("CREATE TABLE IF NOT EXISTS tickets (ticket TEXT PRIMARY KEY, uid TEXT, vence REAL)")
         db.execute("CREATE TABLE IF NOT EXISTS jtis (jti TEXT PRIMARY KEY, vence REAL)")
+        if "nombre" not in [f[1] for f in db.execute("PRAGMA table_info(tickets)")]:
+            db.execute("ALTER TABLE tickets ADD COLUMN nombre TEXT")   # (la base de antes del 13-nov)
         yield db
         db.commit()
     finally:
@@ -99,7 +116,7 @@ def _base():
 
 # ── el pase ─────────────────────────────────────────────────────────────────────────────────────
 def verificar_pase(pase, ahora=None):
-    """El uid de R2Beat del pase (texto con dígitos), o `Rechazo`. Gasta el pase (su jti)."""
+    """(el uid de R2Beat del pase (texto con dígitos), su nombre o None), o `Rechazo`. Gasta el pase."""
     from Crypto.Signature import eddsa
     ahora = time.time() if ahora is None else ahora
     if not isinstance(pase, str) or len(pase) > 4096 or pase.count(".") != 2:
@@ -148,19 +165,26 @@ def verificar_pase(pase, ahora=None):
             db.execute("INSERT INTO jtis VALUES (?, ?)", (jti, exp + TOLERANCIA))
         except sqlite3.IntegrityError:
             raise Rechazo("repetido", 409)
-    return sub
+    return sub, nombre_del_pase(datos)
 
 
 # ── el ticket ───────────────────────────────────────────────────────────────────────────────────
-def dar_ticket(uid, ahora=None):
+def dar_ticket(uid, ahora=None, nombre=None):
     """Un ticket nuevo para esa cuenta (el anterior deja de valer). → (ticket, vence)"""
     ahora = time.time() if ahora is None else ahora
     t = "".join(secrets.choice(ALFABETO) for _ in range(LARGO_TICKET))
     vence = ahora + config.TICKET_HORAS * 3600
     with _base() as db:
         db.execute("DELETE FROM tickets WHERE vence < ? OR uid = ?", (ahora, uid))
-        db.execute("INSERT INTO tickets VALUES (?, ?, ?)", (t, uid, vence))
+        db.execute("INSERT INTO tickets (ticket, uid, vence, nombre) VALUES (?, ?, ?, ?)", (t, uid, vence, nombre))
     return t, vence
+
+
+def nombre_de(uid, ticket):
+    """El nombre que trajo el pase de ese ticket (None si no trajo, o si el ticket no es de esa cuenta)."""
+    with _base() as db:
+        r = db.execute("SELECT uid, nombre FROM tickets WHERE ticket = ?", (ticket,)).fetchone()
+    return r[1] if r and secrets.compare_digest(r[0], uid) else None
 
 
 def ticket_valido(uid, ticket, ahora=None):
@@ -175,6 +199,6 @@ def ticket_valido(uid, ticket, ahora=None):
 
 def canjear(pase, ahora=None):
     """POST /eda/pase: el pase → {"usuario", "ticket", "vence"} (o `Rechazo`)."""
-    uid = verificar_pase(pase, ahora)
-    ticket, vence = dar_ticket(uid, ahora)
+    uid, nombre = verificar_pase(pase, ahora)
+    ticket, vence = dar_ticket(uid, ahora, nombre)
     return {"usuario": uid, "ticket": ticket, "vence": int(vence)}
