@@ -31,8 +31,7 @@ o apagar desde un texto: `eda_d3d9.ini`.
    escribiendo encima de la misma hoja. En la dll cada uno tiene su **bloque** (`[rui]`,
    `[hysteria]`, `[mazino]`…), separado del de los demás.
 5. **Los otros archivos del juego tampoco conviene tocarlos.** `Data.dat` pesa 345 MB y es de
-   Softnyx: un parche ahí obliga a repartir de nuevo un archivo gigante que además no es nuestro
-   (no lo publicamos). El cliente original no se toca nunca.
+   Softnyx: un parche ahí obliga a repartir de nuevo un archivo gigante . El cliente original no se toca nunca.
 
 ### Lo que la dll ya arregla de Windows moderno
 
