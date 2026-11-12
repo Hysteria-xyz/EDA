@@ -49,6 +49,13 @@ PUNCH_PUERTO = int(os.environ.get("EDA_PUNCH_PUERTO") or 25001)   # `herramienta
 #   "relay" = todo pasa por el relay del server (lo de antes; para NAT que no se dejan atravesar).
 P2P = os.environ.get("EDA_P2P", "directo")
 PUNCH_MAPA = os.path.join(ESTADO, "punch.json")   # conexión → [IP, puerto] que vio el punch (relay_udp.py)
+# ★ P2P ENTRE CASAS (MEDICIONES §53, servidor/nat.py): cada juego se presenta al relay al conectarse
+#   (0x0607 → su 0x3002) y el server le dice su dirección PÚBLICA (0x0609), como el original. Así el
+#   server sabe la pública de TODOS (el anfitrión no pasa por el punch) y les da la del otro: los
+#   saludos del juego abren los dos NAT. Apagado por defecto: si un NAT no deja pasar, la sala queda en
+#   -1000 (peor que el relay). Se prende con EDA_P2P_ENTRE_CASAS=1 (el server de prueba, para medir)
+P2P_ENTRE_CASAS = os.environ.get("EDA_P2P_ENTRE_CASAS") == "1"
+NAT_MAPA = os.path.join(ESTADO, "nat.json")       # huella del 0x3002 → [IP, puerto] públicos (relay_udp.py)
 
 # ★ EL LOGIN (servidor/porteria.py, MEDICIONES §45):
 #   "abierto" = como siempre: las cuentas rui / kai / mio / ren por orden de llegada (jugar en casa)
