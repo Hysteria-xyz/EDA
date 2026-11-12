@@ -718,11 +718,15 @@ def pruebas_nat(chequear):
                                                                           config.RELAY_BASE))
     json.dump({}, open(config.NAT_MAPA, "w"))
     chequear("sin 0x3002 todavía: el 0x0609 espera", nat.tick([950]) == [])
-    json.dump({huella.hex(): ["198.51.100.20", 7544, time.time()],
+    # (como el juego: el texto, su 0 final y BASURA que cambia en cada 0x3002 — medido en prueba, §53)
+    con_basura = "12345".encode("utf-16-le") + b"\0\0" + bytes.fromhex("908f940040fe1a00f05bf976").ljust(28, b"\0")
+    json.dump({con_basura.hex(): ["198.51.100.20", 7544, time.time()],
                ("99999".encode("utf-16-le").ljust(40, b"\0")).hex(): ["192.0.2.7", 1111, time.time()]},
               open(config.NAT_MAPA, "w"))
+    chequear("★ el revés: la huella ENTERA (con la basura del final) no está en el 0x0604",
+             con_basura not in partida(950)["nat_0604"])
     r = nat.tick([950])
-    chequear("con su 0x3002 visto: 0x0609 con SU pública (la de su huella, no la de otro)",
+    chequear("con su 0x3002 visto: 0x0609 con SU pública (por el texto de su huella, no la de otro)",
              len(r) == 1 and r[0][:2] == (0x0609, struct.pack("<B3xIH", 1, ip_int("198.51.100.20"), 7544)))
     chequear("…y una sola vez", nat.tick([950]) == [])
     responder(0x0604, ("77777".encode("utf-16-le").ljust(40, b"\0")) + b"\0" * 4, 951)
