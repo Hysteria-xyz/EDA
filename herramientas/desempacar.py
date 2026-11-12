@@ -54,6 +54,40 @@ NUNCA_SE_IMPORTAN = {
 }
 
 
+# ★ (13-nov) FUNCIONES DE UNA SOLA INSTRUCCIÓN: el compilador hizo `jmp [API]` (la llamada de cola)
+#   y ASProtect lo desvió igual que un `call`. Reponerlas como `call [x]` hace que la API vuelva a
+#   +6, que es el COMIENZO DE OTRA FUNCIÓN. Cada una: un `ret` justo antes, la función siguiente a +6,
+#   y la misma forma en `msvcr71.dll` (la CRT de VC 7.1).
+SALTOS_A_MANO = {
+    0x7F525A: "_getpid de la CRT = jmp [GetCurrentProcessId]; ret en 0x7F5259, la función siguiente "
+              "arranca en 0x7F5260; la llama tmpnam (0x7E7CA6)",
+    0x7E8F64: "__threadid = jmp [GetCurrentThreadId]; ret en 0x7E8F63, sigue __threadhandle",
+    0x7E8F6A: "__threadhandle = jmp [GetCurrentThread]; la función siguiente arranca en 0x7E8F70",
+}
+
+
+def en_tabla_de_saltos(exe, sitio, desviados):
+    """★ (13-nov, MEDICIONES §55) ¿El sitio está ADENTRO de una tabla de saltos del compilador
+    (`jmp dword ptr [casillero]` = FF 25, uno cada 6 bytes)? Ahí lo que ASProtect desvió era un
+    `jmp`, no un `call`: reponerlo como `call [x]` haría que la API vuelva a la tabla y siga con el
+    salto de al lado. Se pide tabla a los DOS lados (saltando por encima de otros sitios desviados,
+    que en el exe todavía son `E8`): un `call [x]` normal pegado a un único `jmp [y]` no cuenta."""
+    def lado(paso):
+        v = sitio + paso
+        for _ in range(256):
+            o = v - BASE
+            if not (0 <= o <= len(exe) - 6):
+                return False
+            if exe[o] == 0xFF and exe[o + 1] == 0x25:
+                return True
+            if v in desviados and exe[o] == 0xE8:
+                v += paso
+                continue
+            return False
+        return False
+    return lado(6) and lado(-6)
+
+
 def corrida_mas_nueva():
     cs = sorted(glob.glob(os.path.join(RAIZ, "_trabajo", "volcado", "*", "imagen.bin")))
     if not cs:
@@ -696,12 +730,17 @@ class Volcado:
         struct.pack_into("<II", exe, dirs + 1 * 8, rva, len(descr))
         # ★ y acá se deshace el desvío: los 6 bytes del `call <stub>` vuelven a ser el
         #   `call dword ptr [casillero]` que el compilador había puesto.
-        puestos, no_eran = 0, 0
+        puestos, no_eran, saltos = 0, 0, 0
+        todos = set(parches) | set(self.sitios_desviados())
+        en_tabla = {s for s in parches if en_tabla_de_saltos(exe, s, todos)}   # (antes de reescribir)
+        en_tabla |= set(SALTOS_A_MANO) & set(parches)
         for sitio, slot in sorted(parches.items()):
             o = sitio - BASE
             if exe[o] == 0xE8:                      # control: tiene que haber un `call rel32` ahí
-                struct.pack_into("<BBI", exe, o, 0xFF, 0x15, slot)
+                # ★ (13-nov, MEDICIONES §55) en una TABLA DE SALTOS el original era `jmp [x]` (FF 25)
+                struct.pack_into("<BBI", exe, o, 0xFF, 0x25 if sitio in en_tabla else 0x15, slot)
                 puestos += 1
+                saltos += sitio in en_tabla
             else:
                 no_eran += 1
         # ★ y los que no sabemos: se les cambia el destino a la trampa (ver BASE_TRAMPA) para
@@ -766,6 +805,7 @@ class Volcado:
                       "bytes_robados_repuestos": repuestos,
                       "dlls": sorted({d for d, _, _, _ in tiras}), "oep": oep or 0x7E3A11,
                       "tam": len(exe), "desviados": len(desviados), "parchados": puestos,
+                      "como_salto_en_tablas": saltos,
                       "apis_nuevas": sum(len(f) for _, _, _, f in nuevas),
                       "dlls_nuevas": [d for d, _, _, _ in nuevas],
                       "sin_call": no_eran, "tirados_por_imposibles": len(getattr(self, "tirados", {})),

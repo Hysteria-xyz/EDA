@@ -2466,3 +2466,40 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
 - ⛔ **El casillero de una trampa de tabla NO sale de los vecinos**: la tabla no está en orden (deducir
   «−4 por cada 6 bytes» dio casilleros REPETIDOS: `0x88A208` dos veces, `0x88A2E8` dos veces). Hay que
   sacarlo de otra forma (el stub de ASProtect, `emular_stub.py`, o los casilleros que no tienen salto).
+
+### 56 · ★★★ EL EXE SIN ASPROTECT: 624/694, y las 70 trampas que quedan son código muerto (13-nov)
+
+- **Lo que hay**: `_trabajo/exe_nuevo/EDA_limpio.exe` (md5 `ba6f91db…`; el libre `EDA_libre.exe` al lado).
+  ⛔ **Prod, el launcher y `_trabajo/juego/` siguen con `0799387e`** hasta que el dueño avise el cambio
+  (cada exe nuevo cambia la clave del Broker). El exe de hoy, respaldado en `_trabajo/respaldo_exe_0799387e/`.
+- **El control del rearmado**: desde el volcado, `juntar_apis` + `desempacar construir` + `sin_gameguard
+  limpio` dan EXACTAMENTE `6bb0d9a9` / `0799387e` (los de hoy). Recién con eso se cambió algo.
+- **Cómo se llegó** (todo en `documentacion/APIS_A_MANO.md`, cada fila con su prueba):
+  1. **`herramientas/gemelas_crt.py`**: la CRT del exe (VC 7.1, firma «Rich» build 3077) contra su gemela
+     `msvcr71.dll` (la que traen los clientes de R2Beat 2013): las 10 instrucciones de antes y las 8 de
+     después, sin direcciones. Control: coincide en 179 de 184 sitios ya resueltos que juzga y no le
+     encuentra gemela a ninguna de 200 llamadas del juego. → 19 trampas.
+  2. **La medición del stub** (`_trabajo/exe_nuevo/ayudas/medir_trampas.py` → `medidas.json`): emulando el
+     stub de ASProtect de cada trampa, la función de la DLL donde corre el último bloque antes de volver
+     y lo que devuelve (ids de proceso 0x8268 / hilo 0x7E84 / página OEM 949 del volcado). ⚠ Una PISTA:
+     los «bytes de argumento» a veces son basura (WriteFile daba 124).
+  3. **Leyendo el código** sitio por sitio (tres revisiones en paralelo + verificación): cadenas que el
+     juego descifra con `0x7D9360`, constantes (HKLM, KEY_ALL_ACCESS, −2/−3/−4 de `getSystemCP`), los
+     argumentos que se empujan, llamadas vecinas ya resueltas. → 94 trampas.
+- ★★ **10 llamadas del exe de HOY estaban MAL resueltas** (el método automático había elegido una función
+  interna de ntdll/kernelbase): `RegOpenKeyExA` ×3 (`0x5DB033`, `0x7D48CB`, `0x7D4A53`; decía
+  RtlCreateUnicodeStringFromAsciiz, 2 argumentos en vez de 5), `SetThreadPriority` ×3 (TpCaptureCaller),
+  `CryptVerifySignatureA` (`0x7D79B9`, el reintento), `GetDriveTypeA` (`0x7E3789`, decía LoadLibraryA),
+  `IsValidCodePage` (`0x7F4610`, RtlIntegerToChar de 4) y `SetConsoleCtrlHandler` (`0x7F48D5`). Las de
+  cantidad de argumentos distinta corren la pila si se alcanzan.
+- ★ **Funciones de UNA instrucción** (`jmp [API]`, la llamada de cola): `_getpid` (`0x7F525A`, la llama
+  `tmpnam`), `__threadid`, `__threadhandle`. Repuestas como `call`, la API volvía al comienzo de la
+  función siguiente. `desempacar.SALTOS_A_MANO`. Y las 56 entradas de las tablas de saltos, como `jmp`.
+- **Lo que queda (70)**: las 69 de las dos tablas de saltos que nadie llama (§55; ningún método da su
+  casillero con seguridad) y `0x7CE9AF` (NPGameLib: el parche `limpio` deja `xor eax,eax; ret` en
+  `0x7CE890`). Ninguna se alcanza: **el exe ya no tiene trampas en código vivo**.
+- **Medido con el piloto** (server local): lista → login → SELECT CHARACTER → lobby → sala → partida
+  (HUD, minimapa, reloj corriendo), sin excepciones en la caja negra. ⚠ El ESC del piloto para salir no
+  anda con NINGUNO de los dos exes (control al revés hecho con `0799387e`): es el piloto, no el exe.
+- ⏭ Falta: la prueba a mano del dueño (habilidades, tienda, refinería, dos jugadores) y, cuando él
+  diga, la mudanza (exe en el launcher + su clave en el server).
