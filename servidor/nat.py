@@ -50,17 +50,27 @@ def _ip_int(t):
     return struct.unpack(">I", bytes(int(x) for x in t.split(".")))[0]
 
 
+def texto(huella):
+    """La parte que vale de la huella: el TEXTO UTF-16 hasta su 0 final (el usuario del launcher, p. ej.
+    «99901»). ⚠ Medido en el server de prueba (13-nov): lo que sigue es basura que CAMBIA en cada 0x3002
+    (tres envíos del mismo juego, tres huellas distintas), así que la huella entera no sirve."""
+    for i in range(0, len(huella) - 1, 2):
+        if huella[i:i + 2] == b"\0\0":
+            return huella[:i]
+    return huella
+
+
 def buscar(p, vistos):
-    """El 0x3002 de esta conexión: su huella (40 bytes) está en el 0x0604 que mandó y llegó DESPUÉS
-    de él. Una huella vacía (todo ceros: un juego sin el login del launcher) no distingue a nadie: ahí
-    vale la misma IP que la conexión TCP. Devuelve (IP como entero, puerto) o None."""
+    """El 0x3002 de esta conexión: el texto de su huella está en el 0x0604 que mandó, y llegó DESPUÉS
+    de él. Sin texto (un juego sin el login del launcher) la huella no distingue a nadie: ahí vale la
+    misma IP que la conexión TCP. Devuelve (IP como entero, puerto) o None."""
     cuerpo, desde, ip_tcp = p.get("nat_0604", b""), p.get("nat_desde", 0), p.get("ip_tcp")
     mejor = None
     for huella, (ip, puerto, cuando) in vistos.items():
-        h = bytes.fromhex(huella)
+        h = texto(bytes.fromhex(huella))
         if cuando < desde - 1:
             continue
-        if any(h) and h in cuerpo or (not any(h) and ip_tcp and ip == ip_tcp):
+        if h and h in cuerpo or (not h and ip_tcp and ip == ip_tcp):
             if mejor is None or cuando > mejor[2]:
                 mejor = (ip, puerto, cuando)
     return (_ip_int(mejor[0]), mejor[1]) if mejor else None
