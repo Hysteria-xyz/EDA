@@ -55,6 +55,18 @@ mejoras=1
 activo=1
 
 #####################################################################
+# P2P: que los juegos se encuentren (sin pasar por el server)
+#####################################################################
+[p2p]
+; 0 = ninguno de este bloque (la partida igual anda, por el relay del server)
+activo=1
+; 1 = la identidad del juego (su MAC) llega al server: el ticket del launcher la pisaba
+mac=1
+; 1 = la IP de la casa que se le da al otro es la de la red de verdad (cable o WiFi, la que se usa),
+;     no la de una red virtual (VMware, VirtualBox, Hyper-V)
+ip_privada=1
+
+#####################################################################
 # PARCHES DE RUI (los nuestros)
 #####################################################################
 [rui]

@@ -310,6 +310,20 @@ def control():
     chequear("el miembro lleva la MAC REAL en +0xA y la dirección directa en +0x48",
              m[0xA:0xA + 34] == macs[401].encode("utf-16-le")
              and struct.unpack_from("<IH", m, 0x48) == (ip_int("200.1.1.1"), 40001))
+    # ★ (MEDICIONES §52, lo de prod: dos PCs de la misma casa y el ANFITRIÓN sin 0x3006) → la misma IP
+    #   con que se conectaron alcanza para darse la PRIVADA
+    json.dump({"402": ["190.2.2.2", 40002]}, open(config.PUNCH_MAPA, "w"))
+    partida(401)["ip_tcp"], partida(402)["ip_tcp"] = "190.2.2.2", "190.2.2.2"
+    chequear("misma IP de conexión, el anfitrión sin punch: a 402 le llega la PRIVADA de 401",
+             dir_udp(401, 402) == (ip_int("192.168.0.1"), 50401)
+             and dir_udp(402, 401) == (ip_int("192.168.0.2"), 50402))
+    partida(402)["ip_tcp"] = "190.9.9.9"
+    chequear("★ el revés: con IPs de conexión distintas, NO la privada (la pública, o el relay)",
+             dir_udp(402, 401) == (ip_int("190.2.2.2"), 40002)
+             and dir_udp(401, 402) == (0x7F000001, config.RELAY_BASE + 1 + 401))
+    partida(401).pop("ip_tcp"), partida(402).pop("ip_tcp")
+    json.dump({"401": ["200.1.1.1", 40001], "402": ["190.2.2.2", 40002], "403": ["200.1.1.1", 40003],
+               "404": ["181.4.4.4", 40004]}, open(config.PUNCH_MAPA, "w"))
     escribir_relay()
     chequear("relay.json: la «falsa» de quien mandó su MAC es la real (el relay no la toca)",
              json.load(open(config.RELAY_MAPA))["401"]["falsa"] == macs[401])
