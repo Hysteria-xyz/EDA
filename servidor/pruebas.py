@@ -923,6 +923,32 @@ def pruebas_login(chequear):
         chequear("★ el revés: un ticket nuevo de la cuenta anula el anterior",
                  porteria.ticket_valido("4242", nuevo["ticket"], ahora)
                  and not porteria.ticket_valido("4242", r["ticket"], ahora))
+        chequear("…y sin claim «nombre», el personaje sigue sin nombre propio (se ve r2b_4242)",
+                 not leer(301).get("nick"))
+        # ★ el claim «nombre» del pase (el apodo de R2Beat, desde el 12-nov): al personaje sin nombre propio
+        chequear("nombre del pase: «Espadachin» pasa, uno de 15 se recorta a 12; ★ el revés: espacio, ñ, "
+                 "1 letra, un número o nada → None",
+                 porteria.nombre_del_pase({"nombre": "Espadachin"}) == "Espadachin"
+                 and porteria.nombre_del_pase({"nombre": "abcdefghijklmno"}) == "abcdefghijkl"
+                 and porteria.nombre_del_pase({"nombre": "dos palabras"}) is None
+                 and porteria.nombre_del_pase({"nombre": "Muñeca"}) is None
+                 and porteria.nombre_del_pase({"nombre": "x"}) is None
+                 and porteria.nombre_del_pase({"nombre": 7}) is None and porteria.nombre_del_pase({}) is None)
+        con = porteria.canjear(firmar(clave, dict(datos, sub="5151", jti="j-13", nombre="Espadachin")), ahora)
+        chequear("★ el revés: el nombre del ticket sólo sale con SU cuenta",
+                 porteria.nombre_de("5151", con["ticket"]) == "Espadachin"
+                 and porteria.nombre_de("5152", con["ticket"]) is None)
+        rr = responder(0x100F, cuerpo_100f("5151", con["ticket"]), 320)
+        chequear("login con «nombre»: el personaje de la cuenta nueva se llama así",
+                 rr[0][1][:2] == b"\1\0" and leer(320).get("nick") == "Espadachin", leer(320).get("nick"))
+        otro = porteria.canjear(firmar(clave, dict(datos, sub="5152", jti="j-14", nombre="espadachin")), ahora)
+        responder(0x100F, cuerpo_100f("5152", otro["ticket"]), 321)
+        chequear("★ el revés: el mismo nombre (otras mayúsculas) en otra cuenta → no se lo da",
+                 leer(321)["nombre"] == "r2b_5152" and not leer(321).get("nick"))
+        otra_vez = porteria.canjear(firmar(clave, dict(datos, sub="5151", jti="j-15", nombre="OtroNombre")), ahora)
+        responder(0x100F, cuerpo_100f("5151", otra_vez["ticket"]), 322)
+        chequear("★ el revés: un personaje que ya tiene nombre no lo cambia por el del pase",
+                 leer(322).get("nick") == "Espadachin")
         config.LOGIN = "abierto"
         ASIGNADAS.clear()
         rr = responder(0x100F, cuerpo_100f(), 310)

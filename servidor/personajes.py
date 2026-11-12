@@ -95,6 +95,30 @@ def nombre_tomado(nick):
     return False
 
 
+def bautizar(cuenta, nick):
+    """★ El nombre del pase del portero (porteria.nombre_del_pase) al personaje que todavía no tiene
+    nombre propio (el de una cuenta nueva se ve como `r2b_<uid>`). Sólo uno, sólo si nadie lo usa, y
+    nunca le cambia el nombre a un personaje que ya lo tiene. → True si lo puso."""
+    if not nick or not NOMBRE_OK.fullmatch(nick) or nombre_tomado(nick):
+        return False
+    try:
+        crudo = json.load(open(os.path.join(config.CUENTAS, cuenta + ".json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        crudo = {}
+    pjs, activo = personajes_de(crudo)
+    if not crudo:                                    # cuenta NUEVA: el personaje de siempre (= cuentas.leer)
+        pjs = [{k: v for k, v in INICIO.items() if k not in CUENTA_CLAVES}]
+        pjs[0]["lugar"] = 0
+        crudo = {"nombre": cuenta}
+    sin = [p for p in pjs if not p.get("nick")]
+    if not sin:
+        return False
+    min(sin, key=lambda p: p.get("lugar", 0))["nick"] = nick
+    crudo.update(pjs=pjs, activo=activo)
+    escribir(cuenta, crudo)
+    return True
+
+
 def vista(c, pj):
     """Un personaje de la lista, con la forma de una cuenta (lo que leen pj_cuenta / equipo / stats)."""
     v = dict(INICIO)
