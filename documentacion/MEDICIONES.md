@@ -2149,3 +2149,26 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   del payload → «formato» (el JSON se rompe antes); este server esperando otro `aud` → «audiencia».
   En prod, `EDA_PORTERO_CLAVES=https://r2beatlatino.com/cuentas/clave-publica`. El portero también
   da el manifest del cliente sólo a cuentas aprobadas (la descarga, del lado de R2Beat).
+
+### 46 · ★ El cliente se reparte por Cloudflare; el VPS sólo atiende a Cloudflare (12-nov)
+
+- **Lo decidido** (El tester): el cliente para repartir se baja SÓLO por la CDN de Cloudflare («ip directa
+  no se entrega»), desde el VPS de EDA. Un dominio con la nube naranja (la web: `/eda/pase` y
+  `/files-eda/`) y un subdominio sin nube para el juego (TCP directo al 25900). En todo lo técnico, el
+  dominio va en PUNYCODE (el exe de 2009 resuelve en ANSI; el launcher valida `[A-Za-z0-9.-]`).
+- **En el VPS** (`despliegue/caddy.sh` y `despliegue/cortafuegos.sh`, que se pueden volver a correr):
+  Caddy 2.11.9 con el **certificado de origen de Cloudflare** (la clave EC P-256 se generó en el VPS y
+  no salió; el CSR lo firmó Cloudflare para el dominio y su comodín, hasta 2041; verificado que es de
+  esa clave). Un `route`: lo que no viene de un rango de Cloudflare → 403; `/eda/*` → el login en
+  127.0.0.1:25901; `/files-eda/*` → `/opt/eda/files-eda/`, con `Cache-Control: public, max-age=31536000,
+  immutable`; lo demás → 404. ufw: 22, 25900, 35900 TCP y el relay UDP (26000–26300, 36000–36300)
+  abiertos; 80/443 sólo desde los rangos de Cloudflare.
+- **Medido**: los 16 archivos en el VPS con el md5 del manifiesto (`md5sum -c`: 16 OK). Por Cloudflare:
+  `LTMsg.dll` MISS → HIT, md5 igual; `Data.dat` 345.232.384 B en 18,8 s (~18 MB/s) MISS, y el pedido
+  siguiente **HIT**. ★ El revés: a la IP del VPS directo (443) no conecta (ufw). `/` → 404.
+  `/eda/salud` → 502: prod (`main`) todavía no tiene el código del login.
+- ⚠ **Un 404 quedó guardado en Cloudflare**: se probó un archivo antes de que terminara la subida y la
+  Cache Rule (Edge TTL de 1 año que pisa al origen) guardó el 404 (`HIT`). Pedido a la sesión de
+  R2Beat (tiene el token de esa zona): TTL largo sólo para 200 y purgar el prefijo de la release. ⇒ La
+  regla para las próximas: **no pedir ningún archivo de una release antes de que esté entera** (subir,
+  `md5sum -c`, y recién después probar).

@@ -141,3 +141,21 @@ Lo que falta: **HTTPS** para el `/eda/pase` (un dominio y Caddy u otro proxy del
   misma PC (MEDICIONES §30–31). Lo que sí está medido es que el server en Docker se arma, pasa las
   pruebas y contesta en Linux (las pruebas de GitHub), y que el juego llega a la partida por
   `servidor/red.py` con el relay prendido (MEDICIONES §38).
+
+## La web: el login y el cliente para repartir (Caddy + Cloudflare)
+
+El launcher canjea el pase en `https://<dominio>/eda/pase` y baja el cliente de
+`https://<dominio>/files-eda/<release>-<azar>/`, **siempre por Cloudflare** (la IP del VPS no reparte
+nada: el ancho de banda lo pone la CDN). En el VPS (MEDICIONES §46):
+
+```sh
+sh cortafuegos.sh                       # ufw: SSH, el juego y el relay abiertos; 80/443 sólo Cloudflare
+sh caddy.sh <dominio en punycode> 25901 # Caddy: sólo Cloudflare · /eda/* → el login · /files-eda/*
+```
+
+`caddy.sh` necesita el certificado de ORIGEN de Cloudflare en `/etc/caddy/origen/origen.pem` y su clave
+`origen.key` (se genera en el VPS con `openssl req -new -newkey ec …` y sólo el CSR sale para que
+Cloudflare lo firme). El cliente se arma con `py herramientas\armar_cliente.py` (y su `eda.json` con
+`… manifiesto`), se sube a `/opt/eda/files-eda/<release>-<azar>/` y se verifica con `md5sum -c` **antes**
+de pedir ningún archivo por Cloudflare (si no, la CDN puede guardar un 404). Un nombre de release ya
+servido no se reutiliza nunca.
