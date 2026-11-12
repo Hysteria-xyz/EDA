@@ -150,7 +150,7 @@ nada: el ancho de banda lo pone la CDN). En el VPS (MEDICIONES §46):
 
 ```sh
 sh cortafuegos.sh                       # ufw: SSH, el juego y el relay abiertos; 80/443 sólo Cloudflare
-sh caddy.sh <dominio en punycode> 25901 # Caddy: sólo Cloudflare · /eda/* → el login · /files-eda/*
+sh caddy.sh <dominio en punycode> 25901 [<host del panel>]  # Caddy: sólo Cloudflare · /eda/* → el login · /files-eda/* · (/admin → el panel del portero)
 ```
 
 `caddy.sh` necesita el certificado de ORIGEN de Cloudflare en `/etc/caddy/origen/origen.pem` y su clave

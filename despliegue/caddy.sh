@@ -15,8 +15,21 @@
 # Los rangos de Cloudflare se bajan de https://www.cloudflare.com/ips-v4 y ips-v6 cada vez que se
 # corre esto (correrlo de nuevo si Cloudflare los cambia).
 set -eu
-DOMINIO="${1:?uso: sh caddy.sh DOMINIO [PUERTO_HTTP]}"
+DOMINIO="${1:?uso: sh caddy.sh DOMINIO [PUERTO_HTTP] [HOST_DEL_PANEL]}"
 HTTP="${2:-25901}"
+# ★ (opcional) el panel de aprobaciones del portero de R2Beat también en https://DOMINIO/admin:
+#   /admin* → https://HOST_DEL_PANEL/cuentas/admin* (la cookie de sesión queda para DOMINIO)
+PANEL="${3:-}"
+BLOQUE_PANEL=""
+if [ -n "$PANEL" ]; then
+	echo "$PANEL" | grep -qE '^[A-Za-z0-9.-]+$' || { echo "⛔ el host del panel va sin https:// ni ruta: $PANEL"; exit 1; }
+	BLOQUE_PANEL="handle /admin* {
+			rewrite * /cuentas{uri}
+			reverse_proxy https://$PANEL {
+				header_up Host $PANEL
+			}
+		}"
+fi
 ORIGEN=/etc/caddy/origen
 [ -s "$ORIGEN/origen.pem" ] && [ -s "$ORIGEN/origen.key" ] || { echo "⛔ falta $ORIGEN/origen.pem o origen.key"; exit 1; }
 V4=$(curl -fsS https://www.cloudflare.com/ips-v4)
@@ -48,6 +61,7 @@ $DOMINIO {
 		file_server /files-eda/* {
 			root /opt/eda
 		}
+		$BLOQUE_PANEL
 		respond 404
 	}
 }
@@ -58,4 +72,4 @@ install -m 644 "$NUEVO" /etc/caddy/Caddyfile && rm -f "$NUEVO"
 # ⚠ `caddy validate` (como root) crea el log a nombre de root: el servicio (usuario caddy) no lo abre
 mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy
 systemctl reload caddy
-echo "✅ Caddy: $DOMINIO (sólo Cloudflare: $(echo "$RANGOS" | wc -w) rangos) · /eda/* → 127.0.0.1:$HTTP · /files-eda/* → /opt/eda/files-eda"
+echo "✅ Caddy: $DOMINIO (sólo Cloudflare: $(echo "$RANGOS" | wc -w) rangos) · /eda/* → 127.0.0.1:$HTTP · /files-eda/* → /opt/eda/files-eda${PANEL:+ · /admin → $PANEL}"

@@ -71,6 +71,31 @@ def cambiar(datos, real_de, falsa_de, origen, destino):
     return datos, vista
 
 
+def es_local(d):
+    """¿Es la dirección de respaldo «declarada» en el 0x100F (127.x: sólo sirve en la misma PC)?"""
+    return d is None or d[0].startswith("127.")
+
+
+def reconocer(datos, quien, destino, falsa_de, dir_de):
+    """★ (MEDICIONES §47) Un datagrama llega al puerto de `destino` desde una dirección que el relay no
+    conoce: ¿de quién es? El ANFITRIÓN de la sala nunca manda su «registrame» (0x3006), sólo el que
+    entra — medido en prod el 12-nov: 187 datagramas del anfitrión descartados y la partida cortada.
+      1) por su IDENTIDAD: en sus saludos viaja su MAC (o la inventada); si es la de un jugador del
+         mapa (que no sea el destino), es él;
+      2) si no, por DESCARTE: si en el mapa hay UN SOLO jugador (fuera del destino) sin dirección real
+         (nunca registrado o sólo con la 127.x declarada), es él.
+    Devuelve la conexión, o None (y el datagrama se sigue descartando)."""
+    if es_local(quien):
+        return None                                  # (en la misma PC, el 0x100F ya alcanza)
+    ids = {m.group(0).decode() for m in MAC.finditer(datos)} | {
+        m.group(0).decode("utf-16-le") for m in MAC16.finditer(datos)}
+    for n, f in falsa_de.items():
+        if n != destino and f in ids:
+            return n
+    sin_dir = [n for n in falsa_de if n != destino and es_local(dir_de.get(n))]
+    return sin_dir[0] if len(sin_dir) == 1 else None
+
+
 def main(ip="0.0.0.0"):
     punch = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     punch.bind((ip, RELAY_BASE))
@@ -142,6 +167,14 @@ def main(ip="0.0.0.0"):
                 continue
             destino = next(k for k, v in socks.items() if v is s)
             origen = de_dir.get(quien)
+            if origen is None:
+                n = reconocer(datos, quien, destino, falsa_de, dir_de)
+                if n is not None and n in socks:
+                    anotar("jugador %d reconocido en %s:%d (sin 0x3006: el anfitrión)" % (n, quien[0], quien[1]))
+                    viejo = dir_de.get(n)
+                    if viejo:
+                        de_dir.pop(viejo, None)
+                    dir_de[n], de_dir[quien], origen = quien, n, n
             if origen is None or destino not in dir_de or origen not in socks:
                 anotar("descartado: de %s:%d para %d (origen %s)" % (quien[0], quien[1], destino, origen))
                 continue
@@ -178,6 +211,23 @@ def control():
     chequear("★ el revés: un datagrama sin MAC pasa IGUAL", cambiar(nada, {}, falsa, 1, 2)[0] == nada)
     nuevo, vista = cambiar(b"..." + falsa[2].encode(), {}, falsa, 1, 2)
     chequear("★ el revés: una identidad inventada no se toma por MAC real", vista is None)
+    # ★ reconocer al anfitrión que nunca mandó su 0x3006 (MEDICIONES §47)
+    mapa = {1: "02:00:00:00:00:01", 2: "B0:82:E2:0A:5D:0C", 3: "02:00:00:00:00:03"}
+    dirs = {1: ("192.0.2.10", 57654), 2: ("127.0.0.1", 57654), 3: ("198.51.100.7", 51001)}
+    afuera = ("203.0.113.5", 3228)
+    saludo = b"\x15\x00\x54\xc3\x11\x00\x00\x00" + mapa[2].encode()
+    chequear("anfitrión reconocido por la MAC de su saludo",
+             reconocer(saludo, afuera, 1, mapa, dirs) == 2)
+    chequear("…también en UTF-16", reconocer(b"\0" + mapa[2].encode("utf-16-le"), afuera, 1, mapa, dirs) == 2)
+    chequear("sin identidad conocida: por descarte (el único sin dirección real)",
+             reconocer(b"\x10\x00nada", afuera, 1, mapa, dirs) == 2)
+    dos_sin = {1: dirs[1], 2: dirs[2], 3: None}
+    chequear("★ el revés: dos sin dirección y sin identidad → nadie (se sigue descartando)",
+             reconocer(b"\x10\x00nada", afuera, 1, mapa, dos_sin) is None)
+    chequear("★ el revés: la identidad del DESTINO no cuenta como la del que manda",
+             reconocer(b"..." + mapa[1].encode(), afuera, 1, mapa, dos_sin) is None)
+    chequear("★ el revés: desde 127.x no se adivina (misma PC: alcanza lo declarado)",
+             reconocer(saludo, ("127.0.0.1", 9), 1, mapa, dirs) is None)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
 
