@@ -10,6 +10,20 @@ on:
     branches: [develop, main]
 
 jobs:
+  privado:
+    # ★ que no entre nada privado (nombre, correo, IP del VPS o de una casa, MAC, rutas de usuario).
+    #   Compara HUELLAS: el valor no está escrito en el repo (herramientas/revisar_publico.py)
+    runs-on: ubuntu-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python herramientas/revisar_publico.py control
+      - run: python herramientas/revisar_publico.py
+
   server:
     runs-on: ubuntu-latest
     env:

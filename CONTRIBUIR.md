@@ -12,15 +12,28 @@ programás, también sirve un issue con una foto y lo que dice la consola.
                        ▼                                   ▼
                server de PRUEBA                      server de PROD
                (puerto 35900, se                     (puerto 25900, se
-                actualiza solo)                       actualiza a mano)
+                actualiza solo)                       actualiza solo)
 ```
 
 - **`main`** es lo estable, y es lo que corre el server de **prod**. Nadie empuja directo a `main`.
-- **`develop`** es lo próximo, y es lo que corre el server de **prueba**, que se actualiza solo
-  a los 5 minutos de cada cambio. Ahí se prueba jugando: `py jugar.py --server IP:35900`.
+- **`develop`** es lo próximo, y es lo que corre el server de **prueba**. Los dos servers se
+  actualizan **solos** a los ~5 minutos de cada cambio en su rama. Ahí se prueba jugando:
+  `py jugar.py --server IP:35900`.
 - **Tu trabajo** va en una rama tuya (`tienda-cash`, `fix-sala-llena`…), con un **PR a `develop`**.
-- Cada tanto, cuando `develop` anduvo bien en prueba, un mantenedor abre el PR `develop → main` y
-  actualiza prod.
+- Cuando `develop` anduvo bien en prueba, alguien abre el PR `develop → main`: al fusionarlo, prod
+  se actualiza solo (con respaldo de las cuentas antes).
+
+### Quién aprueba (el repo no depende de una sola persona)
+
+| para fusionar en | hace falta |
+|---|---|
+| `develop` | las pruebas en verde (`privado`, `server`, `docker`) + **1 aprobación** de un colaborador (Hysteria-xyz, Urek-Mazinoo, el dueño) que no sea el autor |
+| `main` (prod) | lo mismo + **2 aprobaciones** (o el dueño) |
+
+- El trabajo **`privado`** de las pruebas falla si el PR trae algo con forma de dato privado: una IP
+  pública desconocida (la de tu VPS o tu casa), una IP de tu red (`192.168.N.x`), una MAC de verdad,
+  una ruta de tu carpeta de usuario o un correo. En las pruebas usá IPs de documentación
+  (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`), `192.168.x.x` en los textos y MACs `02:00:00:00:00:0N`.
 
 ## Paso a paso (con un fork)
 
@@ -42,8 +55,8 @@ programás, también sirve un issue con una foto y lo que dice la consola.
    (ver abajo).
 4. Probalo **jugando**, si podés: `py jugar.py` (server local) o contra el server de prueba.
 5. `git push` a tu fork y abrí el **PR contra `develop`** (no contra `main`).
-6. GitHub corre las pruebas solo. Con todo en verde y una revisión, se fusiona. A los 5 minutos
-   está en el server de prueba.
+6. GitHub corre las pruebas solo. Con todo en verde y una aprobación (ver «Quién aprueba»), se
+   fusiona. A los 5 minutos está en el server de prueba.
 
 ## Dónde va cada cosa
 
