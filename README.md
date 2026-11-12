@@ -18,10 +18,10 @@ Windows que escondió ASProtect ya están resueltas.
 <!-- piezas: desde acá lo escribe herramientas/contar_piezas.py -->
 | pieza | tenemos | avance |
 |---|---|---|
-| mensajes del server que el cliente sabe recibir | **46 / 62** | `███████████████░░░░░` 74 % |
+| mensajes del server que el cliente sabe recibir | **47 / 62** | `███████████████░░░░░` 76 % |
 | llamadas a Windows que ASProtect desvió, ya resueltas | **511 / 694** | `███████████████░░░░░` 74 % |
 
-Faltan estos mensajes: `060B`, `1016`, `101A`, `1026`, `1030`, `1032`, `104B`, `1050`, `1056`, `105B`, `105D`, `1060`, `1062`, `1066`, `106D`, `3003`. Las llamadas que faltan no se tocan jugando (si el juego llega a una, la consola dice cuál).
+Faltan estos mensajes: `060B`, `101A`, `1026`, `1030`, `1032`, `104B`, `1050`, `1056`, `105B`, `105D`, `1060`, `1062`, `1066`, `106D`, `3003`. Las llamadas que faltan no se tocan jugando (si el juego llega a una, la consola dice cuál).
 
 <sub>Medido con `py herramientas\contar_piezas.py` sobre `EDA_limpio.exe` (md5 `0799387e23cadd355888bd712143f2d5`).</sub>
 <!-- piezas: hasta acá -->

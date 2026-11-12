@@ -2445,3 +2445,24 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
 - ★ **Medido en prod** (una cuenta real por el launcher): el registro dice «su personaje toma el nombre del
   pase»; en la cuenta, el personaje del casillero 1 pasó de `r2b_<uid>` al apodo y el del 2 (que ya tenía
   nombre propio) quedó igual; después, sala, partida y salida sin errores.
+
+### 55 · El estado del DESEMPACADO, contado (13-nov): qué falta para el exe sin ASProtect
+
+- **Las versiones coinciden**: `EDA_limpio.exe` md5 `0799387e…` es el mismo en `_trabajo/juego/`, en el
+  repo público (`exe/`) y en prod (el registro del server: «clave: EDA_limpio.exe (0799387e)»).
+- `contar_piezas.py`: **47/62 mensajes** (el README decía 46 y LEEME.md 41: corregidos) y **511/694
+  llamadas** resueltas = **183 trampas**. Por zona: 61 en TABLAS DE SALTOS (`jmp dword [IAT]` cada 6
+  bytes, en `0x741FE2…0x742420` y `0x859084…0x859330`), 69 en la CRT (`0x7C…0x7F`), 25 en el motor
+  (`0x72…0x78`), 15 en el juego (`0x56…0x6C`) y 13 sueltas en `0x859…`.
+- ★ **Las tablas de saltos no las usa nadie**: ninguna llamada directa (`call`/`jmp rel32`, 0 a cada
+  entrada, también a las sanas) y ningún puntero a una entrada desde afuera de la tabla (los 4–5 que
+  aparecen caen en medio de una instrucción o pasado el final). 🟡 Deducción: código muerto de una
+  biblioteca enlazada; sus trampas no se alcanzan jugando.
+- ⚠ **Un detalle del desempacado**: `desempacar.py construir` repone SIEMPRE `FF 15` (`call [x]`). En
+  esas tablas el original era `FF 25` (`jmp [x]`): hay **8** entradas repuestas como `call` (p. ej.
+  `0x742048` lstrlenA, `0x8590C0` GetSystemDirectoryA). Como nadie las llama, no hace daño hoy; si
+  alguna vez se alcanzaran, la API recibiría los argumentos corridos. Arreglo: en `construir`, si el
+  sitio está entre `FF 25`, escribir `FF 25`.
+- ⛔ **El casillero de una trampa de tabla NO sale de los vecinos**: la tabla no está en orden (deducir
+  «−4 por cada 6 bytes» dio casilleros REPETIDOS: `0x88A208` dos veces, `0x88A2E8` dos veces). Hay que
+  sacarlo de otra forma (el stub de ASProtect, `emular_stub.py`, o los casilleros que no tienen salto).
