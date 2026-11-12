@@ -249,7 +249,8 @@ def control():
     nuevo, vista = cambiar(b"..." + falsa[2].encode(), {}, falsa, 1, 2)
     chequear("★ el revés: una identidad inventada no se toma por MAC real", vista is None)
     # ★ reconocer al anfitrión que nunca mandó su 0x3006 (MEDICIONES §47)
-    mapa = {1: "02:00:00:00:00:01", 2: "B0:82:E2:0A:5D:0C", 3: "02:00:00:00:00:03"}
+    # (la «real» es del rango que el RFC 7042 reserva para documentación: no es la MAC de nadie)
+    mapa = {1: "02:00:00:00:00:01", 2: "00:00:5E:00:53:01", 3: "02:00:00:00:00:03"}
     dirs = {1: ("192.0.2.10", 57654), 2: ("127.0.0.1", 57654), 3: ("198.51.100.7", 51001)}
     afuera = ("203.0.113.5", 3228)
     saludo = b"\x15\x00\x54\xc3\x11\x00\x00\x00" + mapa[2].encode()
