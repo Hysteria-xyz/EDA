@@ -43,6 +43,10 @@ def responder(cmd, cuerpo, conexion):
         return None
     # (la cuenta y la partida se piden SIEMPRE, aunque nadie atienda el comando: así la conexión
     #   queda con su cuenta desde el primer mensaje, como antes de partir el server en módulos)
+    # ★ con login (config.LOGIN == "pase"), hasta que el 0x100F no trae un ticket válido, nada más
+    #   se atiende: ni las reglas fijas (por eso [] y no None)
+    if config.LOGIN == "pase" and cmd != 0x100F and conexion not in ASIGNADAS:
+        return []
     c = leer(conexion)
     p = partida(conexion)
     f = MANEJADORES.get(cmd)

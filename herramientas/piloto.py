@@ -104,7 +104,9 @@ def main():
     else:
         subprocess.run(["taskkill", "/F", "/IM", "EDA_limpio.exe"], capture_output=True)
         time.sleep(0.5)
-        p = subprocess.Popen([os.path.join(JUEGO, "EDA_limpio.exe")], cwd=JUEGO)
+        # ⚠ la ruta ENTRE COMILLAS (como Windows y Frida): sin ellas el juego toma la ruta entera por el
+        #   bloque del launcher y pisa la MAC que manda en el 0x100F (MEDICIONES §39)
+        p = subprocess.Popen('"%s"' % os.path.join(JUEGO, "EDA_limpio.exe"), cwd=JUEGO)
     hora = time.strftime("%H%M%S")
     print("★ EDA_limpio.exe pid %d" % p.pid)
     for tramo in secuencia:

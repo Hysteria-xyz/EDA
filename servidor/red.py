@@ -20,6 +20,8 @@ Variables (además de las de `servidor/config.py`):
     EDA_MAX_CONEXIONES  conexiones a la vez        (200; acota los puertos del relay)
     EDA_ANUNCIO     el texto del anuncio del Broker
     EDA_LOG_HEX     1 = anotar cada mensaje en hexa (para investigar)
+    EDA_HTTP_PUERTO / EDA_HTTP_ESCUCHAR  el login por HTTP: POST /eda/pase (PUERTO+1, 127.0.0.1;
+                    afuera va con HTTPS delante). EDA_LOGIN, EDA_PORTERO_CLAVES: servidor/config.py
 """
 import os
 import signal
@@ -43,6 +45,9 @@ ESCUCHAR = os.environ.get("EDA_ESCUCHAR", "0.0.0.0")
 PUERTO = int(os.environ.get("EDA_PUERTO") or 25900)
 MAX_CONEXIONES = int(os.environ.get("EDA_MAX_CONEXIONES") or 200)
 LOG_HEX = os.environ.get("EDA_LOG_HEX") == "1"
+# ★ el login por HTTP (`http()`): el puerto TCP + 1 si no se dice otro; 0 = apagado
+HTTP_ESCUCHAR = os.environ.get("EDA_HTTP_ESCUCHAR", "127.0.0.1")
+HTTP_PUERTO = int(os.environ.get("EDA_HTTP_PUERTO") or PUERTO + 1)
 INACTIVA_MAX = 15 * 60          # corta una conexión con 15 min SIN datos (el cliente manda 0x1001 cada 20 s)
 
 _lock_log = threading.Lock()
@@ -206,6 +211,67 @@ def relay():
             time.sleep(5)
 
 
+def http():
+    """★ El LOGIN por HTTP (servidor/porteria.py): POST /eda/pase {"pase": "<JWT del portero>"} →
+    {"usuario", "ticket", "vence"}; un rechazo → {"error": código} (400 / 401 / 409 / 503). GET
+    /eda/salud → {"login": "pase" | "abierto"}. ⚠ Es HTTP plano y escucha en 127.0.0.1: afuera se
+    publica con HTTPS (Caddy u otro proxy delante), porque el ticket es un secreto."""
+    import json
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class Atender(BaseHTTPRequestHandler):
+        server_version = "EDA"
+        sys_version = ""
+
+        def _json(self, codigo, datos):
+            b = json.dumps(datos).encode("utf-8")
+            self.send_response(codigo)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(b)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b)
+
+        def do_GET(self):
+            if self.path == "/eda/salud":
+                return self._json(200, {"login": config.LOGIN})
+            self._json(404, {"error": "ruta"})
+
+        def do_POST(self):
+            if self.path != "/eda/pase":
+                return self._json(404, {"error": "ruta"})
+            try:
+                largo = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                largo = -1
+            if not 0 < largo <= 8192:
+                return self._json(400, {"error": "largo"})
+            try:
+                pase = json.loads(self.rfile.read(largo)).get("pase")
+            except (ValueError, AttributeError):
+                return self._json(400, {"error": "formato"})
+            juego()                                           # (recarga servidor/ si cambió)
+            from servidor import porteria
+            try:
+                r = porteria.canjear(pase)
+            except porteria.Rechazo as e:
+                log("http %s: pase rechazado (%s)" % (self.client_address[0], e.codigo))
+                return self._json(e.http, {"error": e.codigo})
+            except Exception:                                 # noqa: BLE001
+                log("⛔ /eda/pase falló:\n%s" % traceback.format_exc())
+                return self._json(500, {"error": "interno"})
+            log("http %s: ticket para la cuenta r2b_%s" % (self.client_address[0], r["usuario"]))
+            self._json(200, r)
+
+        def log_message(self, *a):                            # (lo importante ya se anota arriba)
+            pass
+
+    srv = ThreadingHTTPServer((HTTP_ESCUCHAR, HTTP_PUERTO), Atender)
+    log("login por HTTP en %s:%d (modo «%s»; claves del portero: %s)" % (
+        HTTP_ESCUCHAR, HTTP_PUERTO, config.LOGIN, config.PORTERO_CLAVES or "⚠ ninguna"))
+    srv.serve_forever()
+
+
 def main():
     os.makedirs(config.ESTADO, exist_ok=True)
     signal.signal(signal.SIGTERM, lambda *a: (log("SIGTERM: me apago"), os._exit(0)))
@@ -225,6 +291,8 @@ def main():
     else:
         log("sin relay (EDA_RELAY_IP vacío): sólo para jugadores en la MISMA PC que el server")
     threading.Thread(target=reloj, daemon=True).start()
+    if HTTP_PUERTO:
+        threading.Thread(target=http, daemon=True).start()
     while True:
         cli, quien = s.accept()
         n = numero_libre()

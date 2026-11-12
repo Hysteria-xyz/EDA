@@ -6,6 +6,8 @@ r"""jugar.py -- EDA (Espada del Alma, Softnyx 2009) contra nuestro server, en tu
                                                      #   ASProtect), ajustado en memoria
     py jugar.py --server IP[:PUERTO]                 # ★ a un server de OTRA PC (un VPS): no
                                                      #   levanta el server local (puerto 25900)
+    py jugar.py --sin-dll                            # sin nuestra d3d9.dll (tope de cuadros,
+                                                     #   red inmediata): el juego como en 2009
 
 Qué hace (ver EMPEZAR.md):
   · `--preparar` copia tu cliente de 2009 a `_trabajo\juego\` (el original no se toca), verifica
@@ -76,6 +78,29 @@ def preparar(origen):
     print("✅ listo. Ahora: py jugar.py")
 
 
+def poner_dll(sacar=False):
+    """★ NUESTRA d3d9.dll al lado del juego (herramientas/dll_d3d9, MEDICIONES §41–42): tope de cuadros
+    (sin él EDA dibuja cientos por segundo y la placa va al máximo), búferes rápidos (cada dibujo
+    frenaba la placa: con dos juegos caían a ~14 cuadros/s), la red inmediata (la latencia ya no
+    depende de los cuadros) y el contador «FPS» arriba a la izquierda. Ajustes en
+    _trabajo\\juego\\eda_d3d9.ini. Con `--sin-dll` se saca y el juego vuelve al d3d9 de Windows."""
+    destino = os.path.join(JUEGO, "d3d9.dll")
+    if sacar:
+        if os.path.exists(destino):
+            os.remove(destino)
+            print("· d3d9.dll de EDA: sacada (el juego usa el d3d9 de Windows)")
+        return
+    for carpeta in (os.path.join(RAIZ, "exe"), os.path.join(RAIZ, "_trabajo", "dll")):
+        dll = os.path.join(carpeta, "d3d9.dll")
+        if os.path.exists(dll):
+            shutil.copy2(dll, destino)
+            ini = os.path.join(carpeta, "eda_d3d9.ini")
+            if os.path.exists(ini) and not os.path.exists(os.path.join(JUEGO, "eda_d3d9.ini")):
+                shutil.copy2(ini, JUEGO)
+            print("· d3d9.dll de EDA: puesta (tope de cuadros, red inmediata; ajustes en eda_d3d9.ini)")
+            return
+
+
 def server_andando():
     try:
         socket.create_connection(("127.0.0.1", 25900), timeout=0.5).close()
@@ -108,6 +133,7 @@ def main():
             shutil.copy2(lim, os.path.join(JUEGO, nombre))
         else:
             raise SystemExit("⛔ no está %s" % os.path.join(JUEGO, nombre))
+    poner_dll(sacar="--sin-dll" in a)
     import eda_original
     remoto = None
     if "--server" in a:

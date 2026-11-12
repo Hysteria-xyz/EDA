@@ -17,8 +17,8 @@ from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, partida
 from servidor.cuentas import EXPS, INICIO, cuenta_de, guardar, leer, nivel
 from servidor.datos import ESCENARIOS, NADA, PRECIOS, precios_venta, productos, puntos_de, tabla_habilidades, tabla_premios, tipos_item
 from servidor.objetos import PUNTOS_POR_NIVEL, casilleros_de, equipo, es_equipo, ficha, inventario, libre_en_bolsa, nivel_engarce, obj_habilidad, pj_cuenta, serial_nuevo, stats_de
-from servidor.relay import dir_udp, identidad_de, identidad_falsa, relay
-from servidor.salas import miembro
+from servidor.relay import dir_udp, escribir_relay, identidad_de, identidad_falsa, relay
+from servidor.salas import miembro, pares
 from servidor.partida import cuerpo_1072, dar_premio
 from servidor.juego import cerrada, responder
 
@@ -251,6 +251,60 @@ def control():
              json.load(open(config.RELAY_MAPA)).get("203", {}).get("falsa") == identidad_falsa(203))
     chequear("el 0x1012 lleva la conexión en +6 (el id del 0x3006)",
              struct.unpack_from("<I", responder(0x1011, b"\1\0\0\0", 203)[0][1], 6)[0] == 203)
+    # ★★ P2P DIRECTO (MEDICIONES §39–40): con la MAC del 0x100F y lo que vio el punch, cada uno recibe
+    #   la dirección del OTRO (pública, o privada si comparten IP pública); el relay sólo de respaldo
+    punch_real, p2p_real = config.PUNCH_MAPA, config.P2P
+    config.PUNCH_MAPA = os.path.join(config.CUENTAS, "punch.json")
+    config.P2P = "directo"
+
+    def quien(mac, ip_priv, puerto_priv):
+        b = bytearray(0xE9)
+        b[0x7A:0x7A + 34] = mac.encode("utf-16-le")[:34].ljust(34, b"\0")
+        struct.pack_into("<IH", b, 0xDD, ip_priv, puerto_priv)
+        return bytes(b)
+
+    def ip_int(t):
+        return struct.unpack(">I", bytes(int(x) for x in t.split(".")))[0]
+    macs = {401: "02:AA:00:00:00:01", 402: "02:AA:00:00:00:02", 403: "02:AA:00:00:00:03"}
+    for n, mac_n in macs.items():
+        responder(0x100F, quien(mac_n, ip_int("192.168.0.%d" % (n - 400)), 50000 + n), n)
+    basura = bytearray(quien("x", 0, 0))
+    basura[0x7A:0x7A + 34] = "H80:\u00d9089:\u008b5:6E:\u00e3".encode("utf-16-le")[:34].ljust(34, b"\0")
+    responder(0x100F, bytes(basura), 404)
+    chequear("el 0x100F trae la MAC (cuerpo +0x7A) → es su identidad", partida(401).get("mac") == macs[401]
+             and identidad_de(401) == macs[401])
+    chequear("★ el revés: con basura en ese lugar (juego sin comillas) NO hay MAC → la inventada",
+             partida(404).get("mac") is None and identidad_de(404) == identidad_falsa(404))
+    # el punch vio a 401 y 403 detrás de la MISMA IP pública (un cíber), y a 402 en otra casa
+    json.dump({"401": ["200.1.1.1", 40001], "402": ["190.2.2.2", 40002], "403": ["200.1.1.1", 40003],
+               "404": ["181.4.4.4", 40004]}, open(config.PUNCH_MAPA, "w"))
+    SALAS[88] = {"sala": bytes(0x59), "anfitrion": 401, "miembros": [401, 402, 403, 404]}
+    a = {x[3]: x[1] for x in pares(SALAS[88])}
+
+    def direccion_de(cuerpo, indice):
+        for k in range(cuerpo[0]):
+            i, ip, puerto = struct.unpack_from("<BIH", cuerpo, 7 + 7 * k)
+            if i == indice:
+                return ip, puerto
+    chequear("a 402 (otra casa) le llega la PÚBLICA de 401 (la que vio el punch)",
+             direccion_de(a[402], 0) == (ip_int("200.1.1.1"), 40001))
+    chequear("a 403 (mismo cíber que 401) le llega la PRIVADA de 401 (su 0x100F)",
+             direccion_de(a[403], 0) == (ip_int("192.168.0.1"), 50401))
+    chequear("★ el revés: 404 (sin MAC) va por el RELAY, para todos y todos hacia él",
+             direccion_de(a[401], 3) == (0x7F000001, config.RELAY_BASE + 1 + 404)
+             and direccion_de(a[404], 0) == (0x7F000001, config.RELAY_BASE + 1 + 401))
+    m = miembro(leer(401), 0, conexion=401, para=402)
+    chequear("el miembro lleva la MAC REAL en +0xA y la dirección directa en +0x48",
+             m[0xA:0xA + 34] == macs[401].encode("utf-16-le")
+             and struct.unpack_from("<IH", m, 0x48) == (ip_int("200.1.1.1"), 40001))
+    escribir_relay()
+    chequear("relay.json: la «falsa» de quien mandó su MAC es la real (el relay no la toca)",
+             json.load(open(config.RELAY_MAPA))["401"]["falsa"] == macs[401])
+    config.P2P = "relay"
+    chequear("★ el revés: con EDA_P2P=relay, todo por el relay aunque haya MAC",
+             dir_udp(401, 402) == (0x7F000001, config.RELAY_BASE + 1 + 401))
+    del SALAS[88]
+    config.PUNCH_MAPA, config.P2P = punch_real, p2p_real
     config.RELAY_BANDERA, config.RELAY_MAPA = bandera_real, mapa_real
     # ★ CREATE SOCKET (el 0x1037 de verdad: ítem 11, taladro 12)
     d = leer(203)
@@ -388,6 +442,30 @@ def control():
              sorted(x[3] for x in r if x[0] == 0x1058) == [301, 302]
              and all(x[1] == struct.pack("<BHB", 2, 1, 1) for x in r if x[0] == 0x1058))
     del SALAS[77]
+    # ★ EL CICLO DE LA SALA (aporte de Hysteria-xyz, PR #3): salir, el mando que pasa, echar, el título
+    SALAS[77] = {"sala": bytes(0x59), "anfitrion": 301, "miembros": [301, 302, 303]}
+    for n in (301, 302, 303):
+        partida(n)["sala"] = 77
+    r = responder(0x1045, b"", 301)
+    chequear("0x1045 (Leave Room) → 0x1046 (u16 1) al que sale", (0x1046, b"\1\0", 0) in r)
+    chequear("se fue el anfitrión: el mando pasa a 302, y 0x1058 (lugar 0, tipo 3, nuevo anfitrión 0) a los dos",
+             SALAS[77]["anfitrion"] == 302
+             and sorted(x[3] for x in r if x[0] == 0x1058) == [302, 303]
+             and all(x[1] == struct.pack("<BHB", 0, 3, 0) for x in r if x[0] == 0x1058))
+    r = responder(0x1051, b"\x00", 303)
+    chequear("★ el revés: 303 NO es el anfitrión: no puede echar a nadie",
+             SALAS[77]["miembros"] == [302, 303] and not any(x[0] == 0x1054 for x in r))
+    r = responder(0x1051, b"\x00", 302)
+    chequear("★ el revés: el anfitrión no se puede echar a sí mismo", SALAS[77]["miembros"] == [302, 303])
+    r = responder(0x1051, b"\x01", 302)
+    chequear("0x1051 (Kick) → 0x1052 al anfitrión y 0x1054 al echado (303)",
+             any(x[0] == 0x1052 and len(x) == 3 for x in r) and any(x[0] == 0x1054 and x[3] == 303 for x in r))
+    chequear("303 queda sin sala y en la sala sólo está 302",
+             partida(303).get("sala") is None and SALAS[77]["miembros"] == [302])
+    r = responder(0x1049, b"\0\1\0" + "Nueva".encode("utf-16-le"), 302)
+    chequear("0x1049 (título) → 0x104A con el texto", r[0][0] == 0x104A and r[0][1][4:] == "Nueva".encode("utf-16-le"))
+    responder(0x1045, b"", 302)
+    chequear("se fue el último: la sala desaparece", 77 not in SALAS)
     chequear("sala → Inventory: 0x104C → 0x104D (u16 1 · u8)",
              responder(0x104C, b"\0", 203) == [(0x104D, b"\1\0\0", 0)])
     # ★ VERIFICAR un libro de habilidad (el 0x103B de verdad: libro 14, pergamino 13)
@@ -438,12 +516,124 @@ def control():
                  struct.unpack_from("<H", r[0][1], 7)[0] == 1 and r[0][1][-13:] == obj_habilidad(d["habilidades"][0]))
     PARTIDAS.clear()
     ASIGNADAS.clear()
+    pruebas_login(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
     shutil.rmtree(config.CUENTAS, ignore_errors=True)
     if saltadas:
         print("\n  (%d pruebas; saltadas las de %s: faltan los XML del juego)"
               % (len(ok), ", ".join(saltadas)))
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
+
+
+def cuerpo_100f(usuario="", ticket="", mac="AA:BB:CC:DD:EE:01"):
+    """Un 0x100F como lo arma el juego (237 B con la cabecera): el bloque del launcher en +0x04 y
+    +0x2E (UTF-16 hasta el 0, y BASURA después, como se midió), la MAC en +0x7A y su UDP en +0xDD."""
+    c = bytearray(b"\x9b\x8d\x98\x37" * 59)[:0xE9]
+    for desde, texto in ((0x04, usuario), (0x2E, ticket), (0x7A, mac)):
+        # ⚠ con 20 caracteres el juego NO deja el 0 (medido): lo que sigue es basura de otro campo
+        b = texto.encode("utf-16-le") + (b"\0\0" if len(texto) < 20 else b"")
+        c[desde:desde + len(b)] = b
+    struct.pack_into("<IHIH", c, 0xDD, 0x0100007F, 57654, 0x0100007F, 57654)
+    return bytes(c)
+
+
+def pruebas_login(chequear):
+    """★ El LOGIN (servidor/porteria.py): el pase del portero → el ticket → el 0x100F. Con una clave
+    Ed25519 de prueba, cada rechazo del pase con su revés, y el modo «abierto» como antes."""
+    import base64
+    from Crypto.PublicKey import ECC
+    from Crypto.Signature import eddsa
+    from servidor import porteria
+
+    def b64(x):
+        return base64.urlsafe_b64encode(x).rstrip(b"=").decode()
+
+    def firmar(clave, datos, kid="k1", alg="EdDSA"):
+        h = b64(json.dumps({"alg": alg, "typ": "JWT", "kid": kid}).encode())
+        d = b64(json.dumps(datos).encode())
+        return h + "." + d + "." + b64(eddsa.new(clave, "rfc8032").sign((h + "." + d).encode()))
+
+    def rechazo(pase, ahora=None):
+        try:
+            porteria.canjear(pase, ahora)
+            return None
+        except porteria.Rechazo as e:
+            return e.codigo
+
+    guardado = (config.LOGIN, config.PORTERO_CLAVES, config.PORTERIA)
+    clave, otra = ECC.generate(curve="Ed25519"), ECC.generate(curve="Ed25519")
+    jwks = os.path.join(config.ESTADO, "control_jwks_%d.json" % os.getpid())
+    json.dump({"keys": [{"kty": "OKP", "crv": "Ed25519", "kid": "k1",
+                         "x": b64(clave.public_key().export_key(format="raw"))}]}, open(jwks, "w"))
+    config.PORTERO_CLAVES = jwks
+    config.PORTERIA = os.path.join(config.ESTADO, "control_porteria.db")
+    if os.path.exists(config.PORTERIA):
+        os.remove(config.PORTERIA)
+    try:
+        ahora = time.time()
+        datos = {"iss": "r2beat-portero", "aud": "eda", "sub": "4242", "iat": int(ahora),
+                 "exp": int(ahora) + 300, "jti": "j-1"}
+        pase = firmar(clave, datos)
+        r = porteria.canjear(pase, ahora)
+        chequear("login: el pase del portero → usuario 4242 y un ticket de 20 letras/números",
+                 r["usuario"] == "4242" and re.fullmatch(r"[A-Za-z0-9]{20}", r["ticket"]), r)
+        chequear("★ el revés: el MISMO pase otra vez → «repetido» (su jti ya se usó)", rechazo(pase, ahora) == "repetido")
+        h, d, f = firmar(clave, dict(datos, jti="j-2")).split(".")
+        d2 = b64(json.dumps(dict(datos, jti="j-2", sub="1")).encode())
+        chequear("★ el revés: cambiarle la cuenta al pase (sin volver a firmar) → «firma»",
+                 rechazo(h + "." + d2 + "." + f, ahora) == "firma")
+        chequear("★ el revés: firmado con OTRA clave (mismo kid) → «firma»",
+                 rechazo(firmar(otra, dict(datos, jti="j-3")), ahora) == "firma")
+        chequear("★ el revés: un kid que no está en el JWKS → «clave»",
+                 rechazo(firmar(clave, dict(datos, jti="j-4"), kid="k9"), ahora) == "clave")
+        sin_firma = b64(b'{"alg":"none","kid":"k1"}') + "." + b64(json.dumps(dict(datos, jti="j-5")).encode()) + "."
+        chequear("★ el revés: alg «none» → «algoritmo»", rechazo(sin_firma, ahora) == "algoritmo")
+        chequear("★ el revés: para otro juego (aud) → «audiencia»",
+                 rechazo(firmar(clave, dict(datos, jti="j-6", aud="r2beat")), ahora) == "audiencia")
+        chequear("★ el revés: de otro emisor (iss) → «emisor»",
+                 rechazo(firmar(clave, dict(datos, jti="j-7", iss="otro")), ahora) == "emisor")
+        chequear("★ el revés: vencido hace 31 s → «vencido»",
+                 rechazo(firmar(clave, dict(datos, jti="j-8", exp=int(ahora) - 31)), ahora) == "vencido")
+        chequear("…y vencido hace 29 s todavía entra (tolerancia de reloj)",
+                 rechazo(firmar(clave, dict(datos, jti="j-9", exp=int(ahora) - 29)), ahora) is None)
+        chequear("★ el revés: una cuenta que no es un uid → «cuenta»",
+                 rechazo(firmar(clave, dict(datos, jti="j-10", sub="rui")), ahora) == "cuenta")
+        chequear("★ el revés: basura → «formato»", rechazo("no.es.unpase!", ahora) == "formato")
+        r = porteria.canjear(firmar(clave, dict(datos, jti="j-11")), ahora)   # el ticket que vale
+
+        config.LOGIN = "pase"
+        rr = responder(0x100F, cuerpo_100f("4242", r["ticket"]), 301)
+        chequear("login: 0x100F con usuario y ticket → 0x1010 resultado 1, cuenta r2b_4242",
+                 rr[0][0] == 0x1010 and rr[0][1][:2] == b"\1\0" and ASIGNADAS.get(301) == "r2b_4242")
+        rr = responder(0x1011, b"\1\0\0\0", 301)
+        chequear("…y su SELECT CHARACTER es el de esa cuenta", rr and rr[0][0] == 0x1012 and leer(301)["nombre"] == "r2b_4242")
+        for n, (u, t, que) in enumerate((("4242", "X" * 20, "un ticket inventado"),
+                                         ("4243", r["ticket"], "el ticket de OTRA cuenta"),
+                                         ("", "", "sin bloque del launcher"))):
+            rr = responder(0x100F, cuerpo_100f(u, t), 302 + n)
+            chequear("★ el revés: %s → 0x1010 con error 0x66 y sin cuenta" % que,
+                     struct.unpack_from("<H", rr[0][1])[0] == 0x66 and 302 + n not in ASIGNADAS)
+        chequear("★ el revés: sin login, el 0x1011 no se atiende (ni las reglas fijas)",
+                 responder(0x1011, b"\1\0\0\0", 302) == [])
+        chequear("★ el revés: el ticket vencido (TICKET_HORAS después) ya no vale",
+                 not porteria.ticket_valido("4242", r["ticket"], ahora + config.TICKET_HORAS * 3600 + 1))
+        nuevo = porteria.canjear(firmar(clave, dict(datos, jti="j-12")), ahora)
+        chequear("★ el revés: un ticket nuevo de la cuenta anula el anterior",
+                 porteria.ticket_valido("4242", nuevo["ticket"], ahora)
+                 and not porteria.ticket_valido("4242", r["ticket"], ahora))
+        config.LOGIN = "abierto"
+        ASIGNADAS.clear()
+        rr = responder(0x100F, cuerpo_100f(), 310)
+        chequear("modo abierto (jugar en casa): sin ticket entra, como rui",
+                 rr[0][1][:2] == b"\1\0" and cuenta_de(310) == "rui")
+    finally:
+        config.LOGIN, config.PORTERO_CLAVES, config.PORTERIA = guardado
+        ASIGNADAS.clear()
+        for x in (jwks, os.path.join(config.ESTADO, "control_porteria.db")):
+            if os.path.exists(x):
+                os.remove(x)
 
 
 # El casillero de EQUIPO de cada familia de ítem (medido con el 0x102D, MEDICIONES §27)

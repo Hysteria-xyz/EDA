@@ -31,7 +31,7 @@ def lista_salas():
     return struct.pack("<BBH", 1, 0, len(regs)) + b"".join(regs)
 
 
-def miembro(c, indice, completo=False, conexion=None):
+def miembro(c, indice, completo=False, conexion=None, para=None):
     """★ Un MIEMBRO de la sala, armado sobre los constructores del cliente (los bytes se leen
     ENCIMA del objeto: cada vtable va con el valor que pone su constructor):
       0x32C (`0x540980`, el del 0x1020): +0 vt 0x89A3BC · +4 u8 id · +5 u8 número de jugador ·
@@ -46,14 +46,13 @@ def miembro(c, indice, completo=False, conexion=None):
     m[4] = m[5] = indice
     struct.pack_into("<I", m, 6, 0x89A318)
     ident = identidad_de(conexion)
-    udp = dir_udp(conexion)
+    udp = dir_udp(conexion, para)                          # (la dirección depende de QUIÉN la recibe)
     if ident:
         # ★ +0xA (texto ancho, hasta +0x48): la IDENTIDAD P2P del jugador. La capa UDP guarda a
         #   cada par por el texto que él manda en su saludo `0xC354` (su MAC «XX:XX:…»), y el ping
         #   de la sala lo busca con este campo (`0x5374A0` → `0x623070` → `0x748120`): vacío →
-        #   -1 → «-1000 ms». 🟡 Atajo LOCAL: los dos clientes en esta PC tienen la misma MAC y se
-        #   la lee de la 1ª línea de NetTrace.log (no se guarda en ningún lado). Con clientes en
-        #   otras PCs hay que sacar la de cada uno del 0x100F (va ofuscada: a descifrar).
+        #   -1 → «-1000 ms». ★ Es la MAC que mandó en su 0x100F (MEDICIONES §39); sin ella, la
+        #   inventada del relay (`relay.identidad_de`).
         t = ident.encode("utf-16-le")[:0x3C]
         m[0xA:0xA + len(t)] = t
     if udp:
@@ -92,16 +91,15 @@ def pares(s, espera=0):
     todos, para el P2P (el ping de la sala, la partida). 7 B: u8 N · 4 B 🟡 · u8 → +0x2DE · u8 →
     +0x2DF; y N × 7 B: u8 id · u32 IP · u16 puerto, COMO ENTEROS (el cliente les hace htonl /
     htons) → +0x4E / +0x52 del miembro; después la capa UDP (`0x74AA60`) les manda `0xC354`
-    durante 2 s para conectarse. En esta máquina: 127.0.0.1 + el puerto
-    privado de cada uno (del 0x100F). 🟡 Con clientes en otras redes iría la PÚBLICA (la que ve
-    el server), y para dos detrás del mismo NAT (un cíber) la privada: ver §NAT de PROTOCOLO."""
+    durante 2 s para conectarse. ★ Cada dirección se elige PARA quien la recibe (`relay.dir_udp`):
+    la pública que vio el punch, la privada si comparten IP pública, o el relay."""
     # ⚠ a cada uno SÓLO los OTROS: el cliente busca cada id en su lista de miembros (`0x61C140`)
     #   y el jugador local no está ahí → puntero nulo → se cae (medido 17:09: los DOS en 0x550CAC)
     r = []
     for dest in s["miembros"]:
         regs = []
         for i, n in enumerate(s["miembros"]):
-            udp = dir_udp(n)
+            udp = dir_udp(n, dest)
             if udp and n != dest:
                 # ⚠ la IP y el puerto como ENTEROS (little-endian), igual que en el 0x1010: el
                 #   cliente les hace htonl/htons (`[0x88A55C]`, la misma que en `0x6218F0`). En
@@ -160,15 +158,78 @@ def entrar_sala(cmd, cuerpo, conexion, c, p):
     otros = [n for n in s["miembros"] if n != conexion]
     cab = struct.pack("<HBBBIBB", 1, yo, yo, 0, 0x89A3B8, 0, 0)
     cuerpo20 = (cab + bytes(sala) + bytes([len(otros)])
-                + b"".join(miembro(leer(n), s["miembros"].index(n), conexion=n)
+                + b"".join(miembro(leer(n), s["miembros"].index(n), conexion=n, para=conexion)
                             for n in otros))
     # al anfitrión (y los demás de la sala): 0x1057 (`0x54F020`, 0x377 B) = u8 → +0x272 ·
     #   u8 → +0x271 (estado de la sala) · vt 0x89A3B8 · u8 → +0x2DE · u8 → +0x2DF · el
-    #   miembro NUEVO completo (0x36F)
-    aviso = (struct.pack("<BBIBB", 0, 0, 0x89A3B8, 0, 0)
-             + miembro(c, yo, completo=True, conexion=conexion))
-    return ([(0x1020, cuerpo20, 0)] + [(0x1057, aviso, 0, n) for n in otros]
+    #   miembro NUEVO completo (0x36F) — uno por destinatario (su dirección depende de quién la ve)
+    def aviso(para):
+        return (struct.pack("<BBIBB", 0, 0, 0x89A3B8, 0, 0)
+                + miembro(c, yo, completo=True, conexion=conexion, para=para))
+    return ([(0x1020, cuerpo20, 0)] + [(0x1057, aviso(n), 0, n) for n in otros]
             + pares(s, 500) + avisar_lista(salvo=conexion))
+
+
+@maneja(0x1049)
+def cambiar_sala(cmd, cuerpo, conexion, c, p):
+    """★ CAMBIAR TÍTULO / CONTRASEÑA de la sala (aporte de Hysteria-xyz, PR #3). Cuerpo: u8 jugador ·
+    u16 tipo (1 título, 2 contraseña) · texto. Respuesta 0x104A (manejador `0x54E3D0`): u16 1 · u16
+    tipo · texto, a él y a los demás de la sala. 🟡 sin medir en pantalla."""
+    if not (len(cuerpo) >= 3):
+        return None
+    tipo = struct.unpack_from("<H", cuerpo, 1)[0]
+    texto = cuerpo[3:]
+    s = SALAS.get(p.get("sala"))
+    r = [(0x104A, struct.pack("<HH", 1, tipo) + texto, 0)]
+    if s:
+        r += [(0x104A, struct.pack("<HH", 1, tipo) + texto, 0, n) for n in s["miembros"] if n != conexion]
+    return r
+
+
+def _sacar_de_sala(s, num, conexion):
+    """Saca a `conexion` de la sala; si era el anfitrión, el mando pasa al siguiente. Devuelve los
+    avisos 0x1058 tipo 3 («se fue», con el número del NUEVO anfitrión) para los que quedan."""
+    yo = s["miembros"].index(conexion)
+    s["miembros"].remove(conexion)
+    if not s["miembros"]:
+        del SALAS[num]
+        return []
+    if s["anfitrion"] == conexion:
+        s["anfitrion"] = s["miembros"][0]
+    nuevo = s["miembros"].index(s["anfitrion"])
+    return [(0x1058, struct.pack("<BHB", yo, 3, nuevo), 0, n) for n in s["miembros"]]
+
+
+@maneja(0x1045)
+def salir_sala(cmd, cuerpo, conexion, c, p):
+    """★ LEAVE ROOM (aporte de Hysteria-xyz, PR #3): sin respuesta el cliente se quedaba en «Waiting for
+    Response from Server». 0x1046 (manejador `0x54E380`): u16 1 → de vuelta al lobby. A los que
+    quedan, 0x1058 tipo 3 (y si se fue el anfitrión, el mando pasa al siguiente)."""
+    num = p.pop("sala", None)
+    r = [(0x1046, struct.pack("<H", 1), 0)]
+    s = SALAS.get(num)
+    if s and conexion in s["miembros"]:
+        r += _sacar_de_sala(s, num, conexion)
+    return r + avisar_lista()
+
+
+@maneja(0x1051)
+def echar(cmd, cuerpo, conexion, c, p):
+    """★ KICK (aporte de Hysteria-xyz, PR #3): el anfitrión echa al jugador del lugar cuerpo[0]. Al
+    anfitrión 0x1052 (`0x550780`, cierra su cuadro de espera); al echado 0x1054 (`0x546D90`: u16 1 ·
+    u8 → al lobby); a los que quedan 0x1058 tipo 3. Sólo el anfitrión puede, y no a sí mismo."""
+    if not (len(cuerpo) >= 1):
+        return None
+    num = p.get("sala")
+    s = SALAS.get(num)
+    if not s or s["anfitrion"] != conexion or cuerpo[0] >= len(s["miembros"]):
+        return [(0x1052, b"\0", 0)]
+    echado = s["miembros"][cuerpo[0]]
+    if echado == conexion:
+        return [(0x1052, b"\0", 0)]
+    partida(echado).pop("sala", None)
+    return ([(0x1052, b"\0", 0), (0x1054, struct.pack("<HB", 1, 0), 0, echado)]
+            + _sacar_de_sala(s, num, echado) + avisar_lista())
 
 
 @maneja(0x1047)

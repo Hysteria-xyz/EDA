@@ -47,18 +47,50 @@ def identidad_falsa(conexion):
     return "02:00:00:00:%02X:%02X" % ((conexion >> 8) & 0xFF, conexion & 0xFF)
 
 
+def mac_de(conexion):
+    """La MAC que mandó en su 0x100F (= su identidad P2P), o None (juego lanzado sin comillas)."""
+    return partida(conexion).get("mac") if conexion is not None else None
+
+
 def identidad_de(conexion):
+    """★ La identidad P2P que va en +0xA de su miembro: su MAC de verdad si la mandó (así los saludos
+    se reconocen sin que nadie los toque); si no, la inventada del relay (que reescribe sus saludos);
+    sin relay, la de esta PC (el atajo local de antes)."""
+    if mac_de(conexion):
+        return mac_de(conexion)
     if relay() and conexion is not None:
         return identidad_falsa(conexion)
     return identidad_p2p()
 
 
-def dir_udp(conexion):
-    """La dirección UDP que el server da de ese jugador: la suya, o su puerto en el relay."""
+def punch_de(conexion):
+    """(IP como entero, puerto) PÚBLICOS con que el server de punch vio a ese jugador (su 0x3006, lo
+    anota `herramientas/relay_udp.py` en punch.json), o None."""
+    try:
+        ip, puerto = json.load(open(config.PUNCH_MAPA)).get(str(conexion))
+    except (OSError, ValueError, TypeError):
+        return None
+    return struct.unpack(">I", bytes(int(x) for x in ip.split(".")))[0], puerto
+
+
+def dir_udp(conexion, para=None):
+    """★ La dirección UDP de `conexion` que el server le da a `para` (MEDICIONES §40):
+      · P2P DIRECTO (config.P2P = "directo", y los dos mandaron su MAC): la pública que vio el punch;
+        si los dos tienen la MISMA IP pública (el mismo cíber, la misma casa), la PRIVADA (su 0x100F);
+      · si no, su puerto en el RELAY (con relay); sin relay, lo de antes (127.0.0.1 + su puerto)."""
+    if conexion is None:
+        return None
+    p = partida(conexion)
+    if config.P2P == "directo" and mac_de(conexion) and (para is None or mac_de(para)):
+        mio, suyo = punch_de(conexion), (punch_de(para) if para is not None else None)
+        if mio and suyo and mio[0] == suyo[0] and p.get("privada"):
+            return tuple(p["privada"])
+        if mio:
+            return mio
     r = relay()
-    if r and conexion is not None:
+    if r:
         return r[0], config.RELAY_BASE + 1 + conexion
-    return partida(conexion).get("udp") if conexion is not None else None
+    return p.get("udp")
 
 
 def escribir_relay():
@@ -66,5 +98,6 @@ def escribir_relay():
     if relay():
         # la identidad inventada y la dirección UDP que el cliente declaró en su 0x100F (para la
         #   misma PC / LAN, de respaldo si su 0x3006 no llega)
-        json.dump({str(n): {"falsa": identidad_falsa(n), "udp": partida(n).get("udp")}
+        #   (con su MAC conocida, «falsa» = la real: el relay la deja como está)
+        json.dump({str(n): {"falsa": identidad_de(n), "udp": partida(n).get("udp")}
                    for n in ASIGNADAS}, open(config.RELAY_MAPA, "w"))
