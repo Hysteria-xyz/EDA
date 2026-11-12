@@ -4,8 +4,8 @@ Una cuenta por conexión de juego (sin launcher ni login todavía: cada conexió
 nombre libre de NOMBRES). Cada una en `<EDA_ESTADO>/cuentas/<nombre>.json`.
 """
 import json
-import tempfile
 import os
+import tempfile
 
 from servidor import config
 from servidor.estado import ASIGNADAS
@@ -59,27 +59,101 @@ def cuenta_de(conexion):
     return ASIGNADAS[conexion]
 
 
+# ★★ VARIOS PERSONAJES POR CUENTA (12-nov, MEDICIONES §50): el 0x1012 trae N3 personajes (§5.4) y la
+#   pantalla tiene 5 lugares. En el archivo: lo de la CUENTA (estas claves) + `pjs` (la lista de
+#   personajes: todo lo demás — clase, EXP, ítems, habilidades, nick, lugar…) + `activo` (el elegido).
+#   `leer` devuelve la cuenta con el personaje ACTIVO «mezclado» (así el resto del server sigue igual)
+#   y `guardar` lo vuelve a separar. Una cuenta vieja (un solo personaje, todo junto) = lugar 0.
+CUENTA_CLAVES = ("nombre", "plata", "cash", "monedas", "pjs", "activo")
+MAX_PERSONAJES = 5
+
+
+def personajes_de(crudo):
+    """(lista de personajes, índice del activo) de una cuenta como está en el archivo."""
+    if "pjs" in crudo:
+        pjs = [dict(x) for x in crudo["pjs"]]
+        return pjs, min(max(0, crudo.get("activo", 0)), max(0, len(pjs) - 1))
+    if not crudo:
+        return [], 0
+    pj = {k: v for k, v in crudo.items() if k not in CUENTA_CLAVES}
+    pj.setdefault("lugar", 0)
+    return [pj], 0
+
+
+def con_nivel_inicial(pj):
+    """★ «al menos por ahora, directo nivel 25» (El tester, 12-nov): config.NIVEL_INICIAL (EDA_NIVEL_INICIAL,
+    0 = no) es el piso de cada personaje al leerlo."""
+    n = config.NIVEL_INICIAL
+    if n and pj.get("exp", 0) < EXPS[min(n, len(EXPS)) - 1]:
+        pj["exp"] = EXPS[min(n, len(EXPS)) - 1]
+    return pj
+
+
 def leer(conexion=None):
     nombre = cuenta_de(conexion)
     if nombre == "rui" and not os.path.exists(ruta_cuenta("rui")) and os.path.exists(config.CUENTA):
         os.makedirs(config.CUENTAS, exist_ok=True)
         os.replace(config.CUENTA, ruta_cuenta("rui"))              # la cuenta de antes de las cuentas
     try:
-        c = json.load(open(ruta_cuenta(nombre), encoding="utf-8"))
+        crudo = json.load(open(ruta_cuenta(nombre), encoding="utf-8"))
     except (OSError, ValueError):
-        c = {}
-    return dict(INICIO, **dict(c, nombre=nombre))
+        crudo = {}
+    pjs, activo = personajes_de(crudo)
+    if not crudo:                                   # cuenta NUEVA: el personaje de siempre, en el lugar 0
+        pjs = [{k: v for k, v in INICIO.items() if k not in CUENTA_CLAVES}]
+        pjs[0]["lugar"] = 0
+    if not pjs:
+        # ★ una cuenta que BORRÓ todos sus personajes (se puede, el tester 12-nov): queda vacía; el 0x1012
+        #   va sin personajes y el jugador crea uno nuevo
+        c = dict(INICIO)
+        c.update({k: crudo[k] for k in ("plata", "cash", "monedas") if k in crudo})
+        c.update(nombre=nombre, pjs=[], activo=0, items=[], habilidades=[])
+        return c
+    if len(pjs) > 1:
+        from servidor.personajes import seriales_unicos
+        seriales_unicos(pjs)                        # (una cuenta vieja con seriales repetidos, arreglada)
+    c = dict(INICIO)
+    c.update({k: crudo[k] for k in ("plata", "cash", "monedas") if k in crudo})
+    c.update(con_nivel_inicial(dict(pjs[activo])))
+    c.update(nombre=nombre, pjs=pjs, activo=activo)
+    return c
+
+
+def nombre_visible(c):
+    """★ (PR #5, Urek-Mazinoo) el nombre que se VE en el juego (personaje, sala, lobby, chat): el `nick`
+    de la cuenta si tiene, si no su nombre (con login, `r2b_<uid>`)."""
+    return c.get("nick") or c["nombre"]
 
 
 def guardar(c):
+    """La cuenta con su personaje activo (separado otra vez en la lista `pjs`)."""
+    # el personaje activo vuelve a su lugar de la lista; lo de la cuenta, aparte
+    if c.get("pjs") == []:                          # (cuenta sin personajes: sólo lo de la cuenta)
+        datos = {k: c[k] for k in ("nombre", "plata", "cash", "monedas") if k in c}
+        datos.update(pjs=[], activo=0)
+        escribir(c["nombre"], datos)
+        return
+    pjs = [dict(x) for x in (c.get("pjs") or [{}])]
+    activo = min(max(0, c.get("activo", 0)), len(pjs) - 1)
+    pjs[activo] = {k: v for k, v in c.items() if k not in CUENTA_CLAVES}
+    pjs[activo].setdefault("lugar", activo)
+    datos = {k: c[k] for k in ("nombre", "plata", "cash", "monedas") if k in c}
+    datos.update(pjs=pjs, activo=activo)
+    c["pjs"] = pjs                                   # (quien siga usando `c` ve la lista al día)
+    escribir(c["nombre"], datos)
+
+
+def escribir(nombre, datos):
+    """★ (PR #5, Urek-Mazinoo) a un archivo temporal y después se REEMPLAZA de una: si el server se corta
+    a mitad de escribir, la cuenta vieja queda entera (antes podía quedar un JSON a medias)."""
     os.makedirs(config.CUENTAS, exist_ok=True)
     temporal = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=config.CUENTAS,
-                                         suffix=".tmp", delete=False) as archivo:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=config.CUENTAS, suffix=".tmp",
+                                         delete=False) as archivo:
             temporal = archivo.name
-            json.dump(c, archivo, indent=1)
-        os.replace(temporal, ruta_cuenta(c["nombre"]))
+            json.dump(datos, archivo, indent=1)
+        os.replace(temporal, ruta_cuenta(nombre))
         temporal = None
     finally:
         if temporal is not None:

@@ -213,19 +213,22 @@ def elegir_carta(cmd, cuerpo, conexion, c, p):
     #   medido 20:00: la 1ª de oro = «00 00», la 1ª de bronce = «00 0a») → la fila como la
     #   saca el cliente (`0x500810`). Antes se tomaba el 1er byte como fila: siempre «oro».
     carta_n = cuerpo[1]
+    # ★ (PR #5, Urek-Mazinoo) la MISMA carta no se cobra dos veces, ni una fuera de las 18, ni fuera
+    #   del tiempo de las cartas, ni una que no alcanza: eso no se contesta (la versión del PR #5:
+    #   antes, sin puntos salía un 0x1071 sin cobrar)
     hasta = p.get("cartas_hasta")
-    if not hasta or time.time() >= hasta or carta_n >= 18:
+    elegidas = p.setdefault("cartas_elegidas", set())
+    if carta_n >= 18 or not hasta or time.time() >= hasta or carta_n in elegidas:
         return []
-    elegidas = p["cartas_elegidas"]
     fila = 0 if carta_n < 4 else (1 if carta_n < 10 else 2)
     precio = PRECIOS[fila]
-    if carta_n in elegidas or p["puntos"] < precio:
+    if p.get("puntos", 0) < precio:
         return []
-    c["exp"] += precio
-    guardar(c)
     elegidas.add(carta_n)
     p["puntos"] -= precio
-    p["exp_cartas"] += precio
+    p["exp_cartas"] = p.get("exp_cartas", 0) + precio
+    c["exp"] += precio
+    guardar(c)
     carta = struct.pack("<BBBII", 1, fila, numero_jugador(conexion), p.get("exp_cartas", 0),
                         p.get("puntos", 0))
     r = [(0x1071, carta, 0)]
@@ -238,6 +241,8 @@ def elegir_carta(cmd, cuerpo, conexion, c, p):
 @maneja(0x1074)
 def salir_de_stage(cmd, cuerpo, conexion, c, p):
     """salió de la stage [§5.15]"""
+    # ★ (PR #9, Urek-Mazinoo) los relojes de ESA partida se cancelan: si no, el Game Over o las cartas
+    #   vencidas llegaban después, ya de vuelta en el lobby
     p["game_over_en"] = None
     p["cartas_hasta"] = None
     c["abandonos"] += 1

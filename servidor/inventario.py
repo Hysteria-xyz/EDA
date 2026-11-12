@@ -31,6 +31,7 @@ def guardar_inventario(cmd, cuerpo, conexion, c, p):
     n1 = struct.unpack_from("<H", cuerpo, off + 16)[0]
     inv = inventario(c)                                # se fijan TODOS antes de mover
     por_serial = {it[3]: it for it in inv}
+    # ★ (PR #5, Urek-Mazinoo) primero se juntan los destinos (sólo casilleros que existen: < 168) …
     destinos = {}
     for k in range(n1):
         o = off + 22 + 5 * k
@@ -39,8 +40,8 @@ def guardar_inventario(cmd, cuerpo, conexion, c, p):
         serial, casillero = struct.unpack_from("<IB", cuerpo, o)
         if serial in por_serial and casillero < 168:
             destinos[serial] = casillero
-    # Al reemplazar una poción, el cliente puede mandar solo la pila entrante.
-    # Devuelve la anterior a la casilla de bolsa que libera la nueva.
+    # … al REEMPLAZAR una poción de la barra (casilleros 12–17) por otra de la bolsa, el cliente puede
+    #   mandar sólo la que entra: la que estaba vuelve al casillero de bolsa que dejó la nueva …
     for serial, destino in list(destinos.items()):
         it = por_serial[serial]
         if not (it[2] >= 18 and 12 <= destino < 18
@@ -49,6 +50,7 @@ def guardar_inventario(cmd, cuerpo, conexion, c, p):
         anterior = next((x for x in inv if x[2] == destino and x[3] not in destinos), None)
         if anterior is not None:
             destinos[anterior[3]] = it[2]
+    # … y se mueve sólo si no quedan DOS ítems en el mismo casillero (si no, queda todo como estaba)
     movidos = []
     posiciones = [destinos.get(it[3], it[2]) for it in inv]
     if len(set(posiciones)) == len(posiciones):

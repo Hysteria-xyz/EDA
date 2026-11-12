@@ -62,6 +62,15 @@ PORTERO_AUDIENCIA = "eda"
 PORTERIA = os.path.join(ESTADO, "porteria.db")              # los tickets dados y los pases ya usados
 TICKET_HORAS = float(os.environ.get("EDA_TICKET_HORAS") or 12)
 
+# ★ la LISTA DE SERVIDORES (servidor/entrada.py · lista_servidores): el nombre y el MÁXIMO de jugadores
+#   (con los conectados de verdad, el cliente muestra [Open] / [Normal] / [Busy] / [Full])
+NOMBRE_SERVER = os.environ.get("EDA_NOMBRE_SERVER") or "EDA"
+MAX_JUGADORES = int(os.environ.get("EDA_MAX_JUGADORES") or 100)
+
+# ★ «al menos por ahora, directo nivel 25» (El tester, 12-nov): el piso de nivel de cada personaje
+#   (servidor/cuentas.py · con_nivel_inicial). 0 = sin piso (las pruebas lo usan así)
+NIVEL_INICIAL = int(os.environ.get("EDA_NIVEL_INICIAL") or 25)
+
 # ★ para probar a mano: lo que se deje en este archivo ([["1069", "00"], …]) sale con el próximo
 #   «estoy vivo» (0x1001), y el archivo se borra
 EMPUJAR = os.path.join(ESTADO, "empujar.json")

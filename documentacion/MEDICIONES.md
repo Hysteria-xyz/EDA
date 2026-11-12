@@ -2230,3 +2230,141 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   y en `juego.py control` (el mapa con las salas; el que se cierra sale del mapa, con su revés).
 - 🟡 **¿Por qué no llega la MAC?** (los juegos del launcher 2.5). Ahora el server anota en su registro
   los 34 bytes de +0x7A cuando no son una MAC válida («0x100F sin MAC válida»): a mirar en la próxima.
+
+### 48 · La dll: interruptor general, el anillo apagado y la CAJA NEGRA (12-nov)
+
+- **El pedido** (El tester): a unos amigos el juego se les caía CON la dll y SIN ella no, y no había forma
+  de saber dónde. Y poder apagarla «sin hacer nada» desde el .ini, como la de R2Beat.
+- **`[general] mejoras=0`**: no se engancha `CreateDevice` (ni Present, ni Reset, ni los dibujos) ni
+  `WSAEventSelect`. Quedan sólo el server, el login y la caja negra. Medido: el juego abre sin
+  contador, y el log dice «mejoras=0» y no tiene ningún «CreateDevice … enganchados».
+- **El anillo de vértices, APAGADO por defecto** (toca CADA dibujo: lo más invasivo). La clave pasó de
+  `buferes_rapidos` a **`anillo_vertices`**: la vieja ya no se lee, así queda apagado también en los
+  `.ini` que ya tenían los jugadores (el launcher no los pisa).
+- **La caja negra** (como `fuente/cajanegra.c` de R2Beat): un manejador vectorizado (antes que los del
+  juego) anota las excepciones graves (0xC0000005, 1D, FD, 94, 96, 374, 409; tope 3) con el MÓDULO,
+  los registros y las direcciones de código de la pila. Como la nuestra y la de Windows se llaman
+  igual, se dicen **`NUESTRA-d3d9`** y **`d3d9-de-Windows`**. El log ya no se pisa al reabrir (pasado
+  1 MB, rota a `eda_d3d9.anterior.log`). ★ Probado: con `EDA_PROBAR_CAJA=1` (nuestra dll escribe en
+  0x10 en el cuadro 60) → «EXCEPCION 0xC0000005 en NUESTRA-d3d9+0x25F3 · escribe en 0x00000010 ·
+  ★ ES EN NUESTRA DLL», con la pila. El juego además deja su `EDA_limpio.rpt` / `.dmp`. El revés: sin
+  la variable, el juego no se cae y la caja no anota nada.
+- Las reglas para agregar cosas a la dll (clave nueva apagada por defecto; cambiar el nombre si
+  cambia lo que hace): `herramientas/dll_d3d9/LEEME.md` § «Para la próxima PR».
+
+### 49 · Las PR #5 (Urek-Mazinoo) y #6 (Hysteria-xyz): qué se tomó y qué se midió (12-nov)
+
+- ⛔ **Las habilidades con `+0x5D = 8`** (las DOS PR lo proponen por separado, del desensamblado de
+  `0x64562E`; ninguna lo probó en el juego: la #5 dice «la validación en el cliente sigue pendiente»).
+  Medido con un Warrior nivel 10 y 4 habilidades en la barra (`preparar rui 1 10`), el server con
+  `+0x5D = 8` (verificado en el 0x1012), en la partida: F1, F1 + clic derecho, F2 + clic derecho,
+  3 + clic derecho → **la barra del MP 210 → 210**, sin el recuadro rojo de selección. Lo mismo
+  sacando el arma (F) antes, y lo mismo con `+0x5C = 6` (lo que suma la #5). **No alcanza.** Queda
+  `+0x5D = 8` en el server (no rompe nada y el código lo lee), con la cuenta `atajos_habilidad` para
+  probar otros valores. Las habilidades siguen sin salir.
+- **Tomado de la #5** (a los módulos, con pruebas y sus reveses):
+  - `cuentas.guardar` atómico (temporal + reemplazo);
+  - las cartas: la misma no se cobra dos veces, ni una fuera de las 18, ni fuera de tiempo. Sin
+    puntos, como antes: 0x1071 sin cobrar; la #5 no contestaba nada y eso cambia lo que ve el
+    cliente sin estar probado;
+  - la tienda cobra también el CASH, revisa que entre en la bolsa (150), y los libros salen SIN
+    verificar;
+  - la refinería valida las piedras (equipo, familia y fase, ni el mismo ítem, ni repetidas);
+  - el inventario: reemplazar una poción de la barra devuelve la anterior a la bolsa, y nunca dos
+    ítems en un casillero;
+  - el **`nick`** (`cuentas.nombre_visible`).
+  **No tomado:** el menú interactivo dentro de `juego.py` (va mejor como herramienta aparte),
+  `+0x5C = 6` (sin efecto medido), y el `juego.py` entero (reescrito: pisaba lo del relay).
+- **De la #6:** ⛔ el **ping en verde** (`push 3` → `push 0` en `0x537586`/`630`/`6D9`) NO: pinta el
+  indicador en verde siempre y esconde el -1000 de verdad (§47). Las **letras cortadas**
+  (`0x770A64`: `mov eax, 2` → `32`, el lado inicial de la textura de cada letra, verificado en el exe)
+  van a la dll como `[compat] letras_32`, APAGADO por defecto. En la PC de el tester las letras se ven
+  bien con y sin, y con el parche el juego abre igual (para quien las vea cortadas).
+- ★ **El A/B que pidió el tester: el server de la rama del PR #5 TAL CUAL** (clonado aparte en
+  `_trabajo/pr5_mazino`, su `preparar rui 1 10`, su `espiar_broker sin_admin`) **y el cliente SIN
+  nuestra dll** (`jugar.py --sin-dll`, EDA_limpio.exe): en la partida, F1 / F1 + clic derecho / F2 +
+  clic derecho / 3 + clic derecho, y sacando el arma antes → **MP 210 → 210** en todas. ⇒ Las
+  habilidades no salen tampoco con su server: no es algo de nuestra versión ni de la dll.
+  - 🟡 Con el `EDA.exe` de 2009 (`jugar.py --original --sin-dll`) salió **«Game guard error : 45»**:
+    los 4 parches se pusieron «desde el reloj» (64 ms) y ninguno desde los ganchos deterministas
+    (GetCommandLineA / SetWindowLongA): el juez de `0x403606` ganó la carrera. A revisar en
+    `eda_original.py`.
+  - (`multi.py` ahora maneja juegos ya abiertos con `EDA_MULTI_PIDS`.)
+- ★★★ **CORRECCIÓN: LAS HABILIDADES SÍ SALEN con `+0x5D = 8`** (12-nov, 22:4x). Lo que fallaba era **la
+  forma de apretar las teclas**: `control_partida.py` (registros agregados al `GetDeviceData` de
+  DirectInput) mueve al personaje, pero el juego no toma así la selección / el lanzamiento de una
+  habilidad. Con las manos de el tester y un monitor de la barra del MP (fila 52, cada 0,5 s, con foto):
+  - con el server del PR #5 y sin la dll: MP 210 → 60 → 20 (la 1.ª habilidad con su recuadro rojo);
+  - ★ con **NUESTRO server** (`+0x5D = 8`, SIN el `+0x5C = 6`) **y nuestra dll** (mejoras 1, anillo 0):
+    MP 136 → 88 → 0, vuelve a 210 y otra vez.
+  ⇒ `+0x5D = 8` es lo que faltaba desde la corrida 16 (el crédito, para los PR #5 y #6). Los
+  negativos de arriba (y el de §43 con el `0x106C`) son de las teclas inyectadas, no del juego.
+  🟡 A arreglar: que `control_partida.py` sepa lanzar habilidades (¿`GetDeviceState`, o el botón
+  derecho sostenido?), para poder probarlas sin manos.
+
+### 50 · ★★ Varios PERSONAJES por cuenta, nivel 25 de entrada (12-nov, con el tester probando)
+
+- **El pedido**: «que puedan crear más personajes, y al menos por ahora estén directo nivel 25». Antes,
+  «Create Character» lo contestaba una regla fija (siempre «rui», en el lugar 0) y no se creaba nada.
+- **Cómo se guarda** (`servidor/cuentas.py`): la cuenta = oro, cash, monedas + `pjs` (la lista: clase,
+  EXP, ítems, habilidades, fichas, nick, LUGAR…) + `activo`. `leer` devuelve el activo «mezclado» con
+  la cuenta (el resto del server no cambió) y `guardar` lo separa. Una cuenta vieja = lugar 0.
+  `EDA_NIVEL_INICIAL` (25 por defecto; 0 = no) es el piso de nivel al leer.
+- ★ **El 0x1013 MEDIDO** (dos de verdad): `u32 id de la cuenta · u8 CLASE · u8 LUGAR · nombre UTF-16`.
+  PROTOCOLO decía `u32 lugar · u16 clase`. El primero («… 02 02 Arquer») no decidía el orden; el
+  segundo («… 02 01 ruimleon», Hunter en el 2º lugar) sí. Leído al revés, el lugar ocupado daba
+  error, y el cliente muestra el 0x8FD como «Character type does not exist».
+  `servidor/personajes.py · crear`: lugar libre (0–4), clase 1/2, nombre `[A-Za-z0-9_]{2,12}` sin
+  repetir en el server → el personaje nace en nivel 25 con el set de grado 1 de su clase puesto, 20
+  pociones y sus habilidades. Medido: «Character Creation is Complete», 25LV, en su lugar.
+- ★ **El 0x1017 MEDIDO**: `u32 id · u8 LUGAR elegido` (llegaron 01, 00, 02 eligiendo cada uno).
+- ⚠ **Lo que costó, medido con fotos** (cada personaje: su vista en SELECT CHARACTER y el panel del lobby):
+  1. el equipo de un personaje (+0x72) son SERIALES que el cliente busca en el inventario del 0x1012:
+     con seriales repetidos entre personajes, el que no está activo se vestía con los ítems del otro
+     (la Hunter con la espada del Warrior: DEFORME, y rotaba al cambiar) → `seriales_unicos` (cada
+     uno en su rango; una cuenta vieja se renumera una vez, con sus fichas);
+  2. el 0x1012 que se mandaba antes del 0x1018 (para que llegue el inventario del elegido) hacía
+     que el cliente se quedara con el del LUGAR 0: el lobby mostraba a «rui» eligiendo a la Hunter.
+     Ni el `+2` del 0x1018 (lugar o posición) lo cambia. Sin ese 0x1012, el lobby mostraba al
+     elegido, pero con el inventario del anterior → ese 0x1012 va con el elegido EN EL LUGAR 0
+     (cambiado con el que estaba). Al volver a la selección el cliente pide la cuenta (0x1011) y
+     cada uno aparece en su lugar;
+  3. para que en la selección cada uno salga con SU ropa, los ítems PUESTOS de los otros van en el
+     inventario en casilleros escondidos (200+). Medido: no aparecen en el inventario del activo
+     (Arquer: su set de Hunter y sus 20 pociones, nada más) y el juego no se cae.
+  **Resultado** (fotos): Arquer, ruimleon y rui, cada uno con su ropa en la selección y él mismo,
+  con su set, en el lobby. 19 pruebas nuevas en `juego.py control`, con sus reveses.
+- 🟡 Falta: borrar personaje (el mensaje no se conoce), y que el primer personaje de una cuenta nueva
+  tome el apodo de R2Beat (el claim «nombre» del portero, ya listo en local en Chile).
+- ★ **BORRAR personaje, MEDIDO** (El tester a mano, 12-nov 23:52): 0x1015 = `u32 id · u8 LUGAR`; el cliente
+  espera 0x1016 (`0x544620`, lee 3 B: u16 resultado · u8 lugar; con 1 lo saca de su lista y redibuja).
+  `personajes.borrar`: borró rui (lugar 0) y ruimleon (lugar 1); el último (Arquer) NO se borra (resultado
+  0 → el cliente dice «Can Not delete the character. Information will be refreshed.»). Pruebas: borrar,
+  un lugar vacío (revés), el último (revés).
+
+### 51 · La dll al MÍNIMO, por bloques: lo mínimo, la caja negra, RUI, HYSTERIA, MAZINO (12-nov)
+
+- **El pedido** (El tester): «dll al mínimo: fps + ip», el `.ini` partido en secciones con `#####` y los
+  parches de cada uno aparte (Rui = los nuestros, Hysteria, Mazino) para prender o apagar todo.
+- **Por defecto ahora**: el server (`[red]` / el launcher), el login, el tope de 120 (`[video] tope_fps`)
+  y la caja negra. TODO lo demás apagado: contador, `[rui]` (tope estricto, red inmediata, anillo),
+  `[hysteria]` (letras 32), `[mazino]` (sin parches de dll: su arreglo de la región está en el exe).
+  Las claves viejas ya no se leen (las del launcher —`tope_fps`, `mostrar_fps`— siguen en `[video]`).
+- **Medido** (la línea «cargada» de `eda_d3d9.log`, cuatro arranques): por defecto → sólo Present/Reset
+  con el tope, sin red inmediata ni anillo; con `[rui] activo=1` → WSAEventSelect y el anillo
+  enganchados; con `[hysteria] activo=1` → «letras_32 … (0x770A64)»; ★ el revés, un `.ini` VIEJO con
+  `red_inmediata`, `buferes_rapidos`, `anillo_vertices` y `[compat] letras_32` prendidos → RUI 0 y
+  HYSTERIA 0 (sólo el tope y el contador, que son las claves del launcher).
+- **De los amigos** (sin medir en sus PCs): a Mazino se le caía el juego y los cuadros no se limitaban
+  como debían → con el mínimo, el tope es el `Sleep` simple (sin la red que adelanta cuadros) y el
+  anillo apagado; si se cae igual, la caja negra dice dónde. A Hysteria las letras le salían cortadas
+  → `[hysteria] activo=1`.
+- **La lista de servidores con los jugadores de verdad** (El tester: «para mandar el real»): el 0x070A lo
+  contesta ahora el server (`entrada.lista_servidores`: los conectados de verdad, máximo
+  `EDA_MAX_JUGADORES` = 100, nombre `EDA_NOMBRE_SERVER` = «EDA»). Antes salía fijo de las reglas (7 de
+  500 → siempre [Open]). Prueba con su revés (con 3 conectados dice 3). 🟡 El contador «jugadores /
+  máximo» como número no aparece en la función que dibuja la fila (`0x516C80`: sólo el nombre y el estado).
+- ⛔ **El «ping en verde» de la PR #6 NO cambia el color** (medido: dos juegos en una sala, los 3 sitios
+  puestos, y el «0 ms» sigue ROJO). `0x769770` no es el color: agrega el valor a una lista de estados
+  del rótulo (`+0x230`). El color sale de otro lado (🟡 la definición de la pantalla, en Data.dat).
+  `[hysteria] ping_verde` queda apagado. Pendiente: el color de verdad (y después, según la red).

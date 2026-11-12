@@ -7,13 +7,13 @@ valor que pone su constructor (las direcciones 0x89A3xx).
 import struct
 
 from servidor.config import P
-from servidor.cuentas import nivel
+from servidor.cuentas import nivel, nombre_visible
 
 
 def personaje_obj(c):
     """El objeto PERSONAJE (0x52 B, `0x53F680`) con sus vtables: va dentro del miembro de la sala
     y del usuario de la lista del lobby."""
-    pj = bytearray(P.registro_personaje(c.get("nick", c["nombre"]), lugar=0, clase=c["clase"], ident=c["exp"],
+    pj = bytearray(P.registro_personaje(nombre_visible(c), lugar=0, clase=c["clase"], ident=c["exp"],
                                         nivel=nivel(c["exp"]), partidas=c["partidas"],
                                         abandonos=c["abandonos"])[0:0x52])
     struct.pack_into("<I", pj, 0, 0x89A3AC)
@@ -145,7 +145,7 @@ def obj_stats(c):
 
 def pj_cuenta(c):
     """El personaje (0xBA B) de la cuenta, con sus estadísticas y su EQUIPO puesto."""
-    return P.registro_personaje(c.get("nick", c["nombre"]), lugar=0, clase=c["clase"], ident=c["exp"],
+    return P.registro_personaje(nombre_visible(c), lugar=c.get("lugar", 0), clase=c["clase"], ident=c["exp"],
                                 nivel=nivel(c["exp"]), partidas=c["partidas"],
                                 abandonos=c["abandonos"], stats=tuple(stats_de(c)),
                                 extra={0x72: struct.pack("<18I", *equipo(c)),
@@ -156,20 +156,24 @@ def pj_cuenta(c):
                                        #   enough skill slot» (19:11). 🟡 12 = una página SLOT de
                                        #   3×4 (el valor de 2009 no se sabe)
                                        0x5B: bytes([c.get("lugares_habilidad", 12)]),
-                                        # ★ +0x5D = ATAJOS DE HABILIDAD (F1–F8): `0x64562E` lee este
-                                        #   byte al entrar a la stage (`al = [pj+0x5D]`). Si es 0 (< 1),
-                                        #   salta a 0x645791 y NO registra ninguna habilidad en la entidad
-                                        #   de combate (`0x635C70`). Con 8, recorre bl = 1..al buscando
-                                        #   cada atajo en cuenta+0x728 con `0x61EC60`, lee su Skill.xml
-                                        #   con `0x604670` y la registra en la entidad del PJ.
-                                        0x5D: bytes([c.get("atajos_habilidad", 8)]),
+                                       # ★ +0x5D = cuántos ATAJOS de habilidad (F1–F8) registra el cliente
+                                       #   al entrar a la stage (PR #5 y PR #6, dos amigos por separado:
+                                       #   `0x64562E` lee [pj+0x5D]; con 0 saltea el registro de las
+                                       #   habilidades en la entidad de combate). MEDICIONES §49
+                                       0x5D: bytes([c.get("atajos_habilidad", 8)]),
+                                       # 🟡 +0x5C = 6: lo pone el PR #5 (Urek-Mazinoo) junto con el +0x5D;
+                                       #   qué es no se sabe todavía (¿la barra de pociones, 1–6?). Entra
+                                       #   porque en lo que los dos PR coinciden, manda el #5 (El tester, 12-nov)
+                                       0x5C: bytes([c.get("pj_5c", 6)]),
                                        # 🟡 PARA MEDIR: {"0x5c": "4d"} pisa esos bytes del personaje
                                        **{int(k, 16): bytes.fromhex(v)
                                           for k, v in c.get("extra_pj", {}).items()}})
 
 
-def cuerpo_cuenta(c, conexion=0):
-    """0x1012 [§5.4]: la cuenta (cash, plata, monedas, lugares) + el personaje."""
+def cuerpo_cuenta(c, conexion=0, elegido_al_frente=False):
+    """0x1012 [§5.4]: la cuenta (cash, plata, monedas, lugares) + sus personajes.
+    `elegido_al_frente`: el activo va en el LUGAR 0 (cambiado con el que estaba ahí), para el 0x1012 de
+    justo antes del lobby: al recibir la cuenta, el cliente se queda con el del lugar 0 (MEDICIONES §50)."""
     b = bytearray(struct.pack("<H", 1) + bytes(26) + struct.pack("<HHB", 0, 0, 0))
     # ★ +6 u32 → cuenta+0x2B8 = el ID con que el cliente se registra en el punch (`0x3006`). Pisa
     #   el del 0x1010: en 0 los dos clientes se anotaban como «jugador 0» (relay, 20:03)
@@ -181,7 +185,18 @@ def cuerpo_cuenta(c, conexion=0):
     # ★ +0x1A → cuenta+0x2CC = LUGARES LIBRES en la bolsa (+6 = +0x2B8, medido; nadie más lo
     #   escribe). Con 0, «Purchase All» decía «No Empty Slot Available» (`0x54DCEA`, 21:41)
     b[0x1A] = max(0, 150 - sum(1 for it in inventario(c) if it[2] >= 18))
-    b[0x20] = 1                                             # un personaje
+    # ★ N3 (+0x20) = los PERSONAJES de la cuenta (§5.4), cada uno con su lugar (MEDICIONES §50).
+    #   ⚠ El equipo del personaje (+0x72) son SERIALES que el cliente busca en ESTE inventario: con
+    #   seriales repetidos entre personajes se vestían con los ítems del otro y se deformaban (la
+    #   Hunter con la espada del Warrior; «class type not exist», medido) → `seriales_unicos`. Y para
+    #   que en SELECT CHARACTER cada uno salga con SU ropa, los ítems PUESTOS de los otros van también
+    #   en el inventario, en casilleros ESCONDIDOS (200 en adelante: fuera del equipo 0–11, la barra
+    #   12–17 y la bolsa 18–167), así no aparecen en el inventario del activo.
+    from servidor.personajes import vista
+    pjs = c.get("pjs")
+    if pjs is None:
+        pjs = [c]                                    # (una cuenta armada a mano, sin lista)
+    b[0x20] = len(pjs)
     # ★ N1 (+0x1C) × 21 B = el INVENTARIO (`0x617630` → cuenta+0x708; el mismo del PlayEnd): +4 u32
     #   🟡 serie · +8 u16 TIPO DE ÍTEM (ITEMTYPELIST) · +0xA u8 🟡 · +0xB u8 🟡 · +0xC u16 🟡 ·
     #   +0xE u8 🟡 · +0xF u16 🟡 · +0x11 u32 (−1 → vienen 36 B más, `0x6176E0`). Se copia campo
@@ -190,13 +205,31 @@ def cuerpo_cuenta(c, conexion=0):
     # ★ +0xB = EL CASILLERO (medido 18:30–18:40, foto por foto): 0–11 = EQUIPO (control − 10000,
     #   `0x51C6A5`), 12–17 = la fila de 6 de arriba (🟡 la barra de ítems de la partida, teclas
     #   1–6), 18… = la BOLSA (5 páginas de 30). Cada ítem de la cuenta: `inventario()`.
-    inv = inventario(c)
-    struct.pack_into("<H", b, 0x1C, len(inv))
-    regs = b"".join(registro_item(serial, tipo, cant, cas, ver, c=c)[0]
-                    for tipo, cant, cas, serial, ver in inv)
+    activo = c.get("activo", 0)
+    todos = [(c, it) for it in inventario(c)]
+    oculto = 200
+    for i, x in enumerate(pjs):
+        if i == activo:
+            continue
+        v = vista(c, x)
+        for tipo, cant, cas, serial, ver in inventario(v):
+            if cas < 12 and oculto < 256:
+                todos.append((v, [tipo, cant, oculto, serial, ver]))
+                oculto += 1
+    struct.pack_into("<H", b, 0x1C, len(todos))
+    regs = b"".join(registro_item(serial, tipo, cant, cas, ver, c=d)[0]
+                    for d, (tipo, cant, cas, serial, ver) in todos)
     # ★ N2 (+0x1E) × 36 B = la FICHA de cada ítem (`0x6176E0`): vt (no se copia) · u32 clave (🟡 la
     #   serie del ítem) · 28 B 🟡 (opciones / refinado). Sin ella, al pasar el mouse por un ítem
     #   EQUIPADO la ficha (`0x520336` → `0x61FDB0`) lee un puntero nulo y el juego se cae (18:24)
-    struct.pack_into("<H", b, 0x1E, len(inv))
-    fichas = b"".join(ficha(c, it[3]) for it in inv)
-    return bytes(b) + regs + fichas + pj_cuenta(c)
+    struct.pack_into("<H", b, 0x1E, len(todos))
+    fichas = b"".join(ficha(d, it[3]) for d, it in todos)
+    lugar = {i: x.get("lugar", i) for i, x in enumerate(pjs)}
+    if elegido_al_frente and pjs and lugar[activo] != 0:
+        for i in lugar:
+            if lugar[i] == 0:
+                lugar[i] = lugar[activo]
+        lugar[activo] = 0
+    orden = ([activo] + [i for i in range(len(pjs)) if i != activo]) if pjs else []
+    return bytes(b) + regs + fichas + b"".join(
+        pj_cuenta(dict(c if i == activo else vista(c, pjs[i]), lugar=lugar[i])) for i in orden)

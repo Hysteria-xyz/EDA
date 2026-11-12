@@ -68,7 +68,7 @@ def refinar_piedra(cmd, cuerpo, conexion, c, p):
         if 21 <= fam <= 25:
             if modo == 0 and 1 <= resto <= 6:
                 nuevo = fam * 1000 + 20 + resto        # fase 1 → fase 2
-            elif modo == 1 and (1 <= resto <= 5 or 21 <= resto <= 25):
+            elif modo == 1 and (1 <= resto <= 5 or 21 <= resto <= 25):   # (PR #5: antes también 41–45…)
                 nuevo = t + 1                          # nivel + 1
     if nuevo is None:
         return [(0x1036, struct.pack("<HB", 0, modo) + bytes(21) + b"\0", 0)]
@@ -96,6 +96,9 @@ def encantar(cmd, cuerpo, conexion, c, p):
     inv = inventario(c)
     it = next((x for x in inv if x[3] == it_s), None)
     f = c.setdefault("fichas", {}).setdefault(str(it_s), {"engarces": [0] * 10, "niveles": 0})
+    # ★ (PR #5, Urek-Mazinoo) el ítem tiene que ser EQUIPO; cada piedra, una piedra de verdad (familia
+    #   21–25, fase 1 o 2: 1–6 / 21–26), que no sea el ítem mismo, y ni la misma piedra ni el mismo
+    #   engarce dos veces en un pedido
     gastadas, bien = [], it is not None and es_equipo(it[0])
     usados, engarces = set(), set()
     for k in range(n):

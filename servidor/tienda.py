@@ -23,6 +23,8 @@ def comprar(cmd, cuerpo, conexion, c, p):
     n = cuerpo[4]
     pedidos = [struct.unpack_from("<H", cuerpo, 5 + 2 * k)[0] for k in range(n)
                if 5 + 2 * k + 2 <= len(cuerpo)]
+    # ★ (PR #5, Urek-Mazinoo) se cobra el ORO y el CASH de cada producto (antes sólo el oro), se pide
+    #   que el pedido entero se haya leído, y que entre en la bolsa (150 casilleros: 18–167)
     costo_oro = sum(tabla[x][0] for x in pedidos if x in tabla)
     costo_cash = sum(tabla[x][1] for x in pedidos if x in tabla)
     inv = inventario(c)
@@ -34,6 +36,8 @@ def comprar(cmd, cuerpo, conexion, c, p):
     nuevos = []
     for x in pedidos:
         for tipo, cant in tabla[x][2]:
+            # un libro de habilidad (31000–33999) sale SIN verificar («Unknown Skill Book»): se verifica
+            #   con el pergamino antes de aprender (MEDICIONES §28)
             verificado = int(not 31000 <= tipo <= 33999)
             it = [tipo, cant, libre_en_bolsa(inv), serial_nuevo(inv), verificado]
             inv.append(it)
