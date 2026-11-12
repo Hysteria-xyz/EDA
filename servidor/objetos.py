@@ -156,6 +156,13 @@ def pj_cuenta(c):
                                        #   enough skill slot» (19:11). 🟡 12 = una página SLOT de
                                        #   3×4 (el valor de 2009 no se sabe)
                                        0x5B: bytes([c.get("lugares_habilidad", 12)]),
+                                        # ★ +0x5D = ATAJOS DE HABILIDAD (F1–F8): `0x64562E` lee este
+                                        #   byte al entrar a la stage (`al = [pj+0x5D]`). Si es 0 (< 1),
+                                        #   salta a 0x645791 y NO registra ninguna habilidad en la entidad
+                                        #   de combate (`0x635C70`). Con 8, recorre bl = 1..al buscando
+                                        #   cada atajo en cuenta+0x728 con `0x61EC60`, lee su Skill.xml
+                                        #   con `0x604670` y la registra en la entidad del PJ.
+                                        0x5D: bytes([c.get("atajos_habilidad", 8)]),
                                        # 🟡 PARA MEDIR: {"0x5c": "4d"} pisa esos bytes del personaje
                                        **{int(k, 16): bytes.fromhex(v)
                                           for k, v in c.get("extra_pj", {}).items()}})

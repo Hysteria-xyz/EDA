@@ -214,6 +214,7 @@ def registro_personaje(nombre, lugar=0, clase=1, ident=1, nivel=1, marcas=False,
     if not marcas:
         d[0x52] = lugar
         struct.pack_into("<II", d, 0x53, partidas, abandonos)
+        d[0x5D] = 8                                         # ★ atajos de habilidad (F1–F8)
         struct.pack_into("<5H", d, 0x62, *stats[:5])
     for off, val in (extra or {}).items():          # para medir un campo por vez: AL FINAL
         d[off:off + len(val)] = val
