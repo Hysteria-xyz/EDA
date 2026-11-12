@@ -1145,6 +1145,11 @@ static void leer_ajustes(HMODULE self)
     g_p2p = GetPrivateProfileIntA("p2p", "activo", 1, ini);
     g_p2p_mac = g_p2p ? GetPrivateProfileIntA("p2p", "mac", 1, ini) : 0;
     g_p2p_ip = g_p2p ? GetPrivateProfileIntA("p2p", "ip_privada", 1, ini) : 0;
+    /* ★ la RED INMEDIATA (MEDICIONES §42) pasa a [p2p], prendida (pedido del dueño del proyecto, 13-nov, con el
+     *   P2P entre casas andando a 70–90 ms): el juego lee la red UNA vez por cuadro y entre cuadros espera; con
+     *   esto la espera se corta apenas llega un paquete. Medido en §42: el ping de la sala, 1 ms a 60 cuadros/s.
+     *   (Sólo despierta la espera del tope: no lee ni manda nada por el juego.) [rui] red_inmediata=1 también. */
+    if (g_p2p && GetPrivateProfileIntA("p2p", "red_inmediata", 1, ini)) g_red = 1;
     /* (las variables EDA_* mandan sobre el .ini: para medir sin tocarlo) */
     if (GetEnvironmentVariableA("EDA_MEJORAS", v, sizeof(v))) g_mejoras = atoi(v);
     if (GetEnvironmentVariableA("EDA_TOPE_FPS", v, sizeof(v))) g_tope = atoi(v);
