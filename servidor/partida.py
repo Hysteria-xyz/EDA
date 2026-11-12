@@ -238,6 +238,8 @@ def elegir_carta(cmd, cuerpo, conexion, c, p):
 @maneja(0x1074)
 def salir_de_stage(cmd, cuerpo, conexion, c, p):
     """salió de la stage [§5.15]"""
+    p["game_over_en"] = None
+    p["cartas_hasta"] = None
     c["abandonos"] += 1
     c["partidas"] += 1
     guardar(c)
