@@ -2199,3 +2199,23 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   subdominio: un ticket inventado → «Can't Connect to server». Sólo entran las cuentas aprobadas en el
   portero; el server de prueba (35900) sigue abierto. Volver atrás: `EDA_LOGIN=abierto` y
   `actualizar.sh prod --forzar`.
+
+### 47 · La 1.ª partida en prod entre dos casas: el anfitrión nunca se registra en el punch (12-nov)
+
+- **Lo que vio el tester**: sala en prod con dos cuentas reales (`r2b_<uid>`, cada una en su casa), y el
+  ping del anfitrión en **-1000 ms** (= los juegos no se hablan por UDP). Largaron la partida y a los
+  6 s el juego del anfitrión se cortó (`Connection reset by peer`).
+- **Medido en el VPS** (`relay.log`, `punch.json`, el log del server): el INVITADO mandó su «registrame»
+  (`0x3006`) al entrar a la sala → el relay lo ubicó en su IP pública. El ANFITRIÓN **nunca** lo mandó
+  (`punch.json` sólo con el invitado). Uno de los dos no había mandado su MAC en el 0x100F, así que el
+  server dio el RELAY en los dos sentidos (`dir_udp`). Resultado: **187 datagramas del anfitrión
+  «descartado … (origen None)»** (el relay no sabía de quién era esa dirección) y **185 del invitado
+  reenviados a la dirección de respaldo 127.0.0.1** del anfitrión (inútil entre dos casas).
+- **El arreglo** (`herramientas/relay_udp.py · reconocer`): a un datagrama de una dirección
+  desconocida, el relay lo atribuye 1) por la IDENTIDAD que viaja en él (la MAC de su saludo, en texto
+  o UTF-16, si es la de un jugador del mapa que no sea el destino) o 2) por DESCARTE (un único jugador,
+  fuera del destino, sin dirección real). Desde 127.x no adivina. Con eso el anfitrión queda ubicado
+  con su primer datagrama, y desde ahí el reenvío anda en los dos sentidos. Pruebas: 6 nuevas en
+  `relay_udp.py control`, con sus reveses (dos candidatos sin identidad → nadie; la identidad del
+  destino no cuenta; desde 127.x nada).
+- 🟡 Falta medirlo con dos casas de verdad (lo que pasó acá no se reproduce en una sola PC).
