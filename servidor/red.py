@@ -154,6 +154,9 @@ def contestar(cli, n, pkt, guion):
 
 def atender(cli, quien, n, guion):
     log("#%d conectó %s:%d" % (n, quien[0], quien[1]))
+    # ★ la IP con que llegó (MEDICIONES §52): dos con la MISMA están en la misma casa / el mismo cíber, y
+    #   se les da la dirección privada del otro (servidor/relay.py · dir_udp). (No va a ningún archivo.)
+    juego().partida(n)["ip_tcp"] = quien[0]
     cli.settimeout(5.0)
     pendiente = b""
     ultimo = time.time()

@@ -99,6 +99,19 @@ def reconocer(datos, quien, destino, falsa_de, dir_de, sala_de=None):
     return sin_dir[0] if len(sin_dir) == 1 else None
 
 
+def desde_misma_direccion(origen, destino, sala_de, socks):
+    """★ (MEDICIONES §52) DOS PCs de la misma casa pueden salir por la MISMA IP y el MISMO puerto públicos
+    (medido en prod: las dos en `x.x.x.x:57654`; el router reusa el puerto porque cada una le habla a
+    otro puerto del relay). Entonces la dirección no dice de quién es el datagrama, y el relay lo tomaba
+    por del DESTINO: se lo reenviaba a sí mismo (`1→1: 45.000` cada 30 s) y la sala quedaba en -1000.
+    Lo que sí lo dice es el PUERTO del relay al que llegó: nadie le manda a su propio puerto. Si la
+    dirección da el destino, el que manda es el otro de su sala (si hay uno solo)."""
+    if origen is None or origen != destino:
+        return origen
+    otros = [n for n in (sala_de or {}).get(destino, []) if n != destino and n in socks]
+    return otros[0] if len(otros) == 1 else None
+
+
 def main(ip="0.0.0.0"):
     punch = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     punch.bind((ip, RELAY_BASE))
@@ -171,7 +184,7 @@ def main(ip="0.0.0.0"):
                             pass
                 continue
             destino = next(k for k, v in socks.items() if v is s)
-            origen = de_dir.get(quien)
+            origen = desde_misma_direccion(de_dir.get(quien), destino, sala_de, socks)
             if origen is None:
                 n = reconocer(datos, quien, destino, falsa_de, dir_de, sala_de)
                 if n is not None and n in socks:
@@ -243,6 +256,16 @@ def control():
              reconocer(b"\x10\x00nada", otro, 3, sin_mac, prod) is None)
     chequear("con la sala del destino: el anfitrión de ESA sala (el 2)",
              reconocer(b"\x10\x00nada", otro, 3, sin_mac, prod, salas) == 2)
+    # ★ dos PCs de la misma casa con la MISMA dirección pública (lo de prod, MEDICIONES §52)
+    socks = {1: object(), 2: object()}
+    chequear("misma dirección: lo que llega al puerto del 1 es del 2 (nadie se manda a sí mismo)",
+             desde_misma_direccion(1, 1, {1: [1, 2], 2: [1, 2]}, socks) == 2)
+    chequear("…y lo que llega al puerto del 2, del 1 (como siempre)",
+             desde_misma_direccion(1, 2, {1: [1, 2], 2: [1, 2]}, socks) == 1)
+    chequear("★ el revés: sin sala no se adivina (y no se reenvía a sí mismo)",
+             desde_misma_direccion(1, 1, {}, socks) is None)
+    chequear("★ el revés: con dos candidatos en la sala, tampoco",
+             desde_misma_direccion(1, 1, {1: [1, 2, 3]}, {1: 0, 2: 0, 3: 0}) is None)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
 
