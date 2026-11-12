@@ -55,6 +55,9 @@ def quien_soy(cmd, cuerpo, conexion, c, p):
     # ★ la dirección PRIVADA tal cual (IP como entero, como la quiere el 0x1059): para los que
     #   comparten IP pública (el mismo cíber, la misma casa)
     p["privada"] = struct.unpack_from("<IH", cuerpo, 0xDD)
+    # ★ y la PÚBLICA que le dijimos en el 0x0609 (servidor/nat.py, MEDICIONES §53): con P2P entre casas
+    #   es la de verdad (la vio el relay); si no, la 127.0.0.1 de siempre (y `relay.publica_de` no la usa)
+    p["publica"] = struct.unpack_from("<IH", cuerpo, 0xE3)
     # ★★ la MAC = la IDENTIDAD P2P (cuenta+0x166, `0x6229F0`), en el cuerpo +0x7A (MEDICIONES §39).
     #   Llega bien si el juego se lanzó con la ruta entre comillas; si no, es basura y no se usa
     mac = cuerpo[0x7A:0x7A + 34].decode("utf-16-le", "replace")

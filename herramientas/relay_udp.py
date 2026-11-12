@@ -42,6 +42,7 @@ MAPA = os.path.join(_ESTADO, "relay.json")
 # ★ lo que vio el PUNCH: conexión → [IP, puerto] PÚBLICOS de su 0x3006. Lo lee el server para darle a
 #   cada par la dirección DIRECTA del otro (P2P sin relay, `servidor/relay.dir_udp`, MEDICIONES §40)
 PUNCH = os.path.join(_ESTADO, "punch.json")
+NAT = os.path.join(_ESTADO, "nat.json")      # ★ lo que vio de los 0x3002 (servidor/nat.py, MEDICIONES §53)
 LOG = (os.path.join(_ESTADO, "relay.log") if os.environ.get("EDA_ESTADO")
        else os.path.join(RAIZ, "_trabajo", "broker", "relay.log"))
 RELAY_BASE = int(os.environ.get("EDA_RELAY_BASE") or 26000)
@@ -133,6 +134,7 @@ def main(ip="0.0.0.0"):
     #   un resumen cada 30 s, si hubo alguno
     reenviados, desde = {}, time.time()
     punch_vio = {}                   # conexión → (IP, puerto) de su último 0x3006 (sólo eso: punch.json)
+    nat_vio, nat_escrito = {}, [0.0]  # huella del 0x3002 → [IP, puerto, cuándo] (nat.json, §53)
     try:
         json.dump({}, open(PUNCH, "w"))  # lo de una corrida anterior no vale (los números se reusan)
     except OSError:
@@ -166,6 +168,23 @@ def main(ip="0.0.0.0"):
         listos, _, _ = select.select([punch] + list(socks.values()), [], [], 0.5)
         for s in listos:
             datos, quien = s.recvfrom(65536)
+            if s is punch and len(datos) >= 44 and datos[2:4] == b"\x02\x30":
+                # ★ 0x3002 (MEDICIONES §53, `servidor/nat.py`): u16 largo · u16 0x3002 · la huella (40) ·
+                #   u32 IP local · u16 puerto local, cada 0,4 s desde que el server le mandó el 0x0607 →
+                #   de dónde llega = su dirección PÚBLICA (la de su NAT). Se anota por huella.
+                h = datos[4:44].hex()
+                if nat_vio.get(h, [None])[:2] != [quien[0], quien[1]]:
+                    anotar("0x3002 de %s:%d (su dirección pública)" % quien)
+                nat_vio[h] = [quien[0], quien[1], time.time()]
+                if time.time() - nat_escrito[0] > 0.3:
+                    nat_escrito[0] = time.time()
+                    for k in [k for k, v in nat_vio.items() if time.time() - v[2] > 300]:
+                        del nat_vio[k]
+                    try:
+                        json.dump(nat_vio, open(NAT, "w"))
+                    except OSError:
+                        pass
+                continue
             if s is punch:
                 # 0x3006: u16 largo · u16 0x3006 · u32 conexión → de dónde viene ese jugador
                 if len(datos) >= 8 and datos[2:4] == b"\x06\x30":

@@ -37,11 +37,14 @@ from servidor.registro import MANEJADORES                    # noqa: E402
 from servidor.relay import escribir_relay                    # noqa: E402
 # los módulos que REGISTRAN manejadores (importarlos es lo que los anota)
 from servidor import entrada, inventario, tienda, habilidades, refineria, personajes   # noqa: E402,F401
+from servidor import nat                                     # noqa: E402
 
 
 def responder(cmd, cuerpo, conexion):
     if cmd == 0x070A:                                       # ★ la lista de servidores, con los jugadores reales
         return [(0x070B, entrada.lista_servidores(), 0)]
+    if cmd == 0x0604 and nat.prendido():                    # ★ P2P entre casas: que se presente al relay (§53)
+        return nat.al_conectar(cuerpo, conexion)
     if cmd < 0x1000:                                        # el Broker: no es de una cuenta
         return None
     # (la cuenta y la partida se piden SIEMPRE, aunque nadie atienda el comando: así la conexión
@@ -65,7 +68,7 @@ CAMBIAN_SALAS = (0x101D, 0x101F, 0x1045, 0x1051)
 
 def tick(conexiones):
     """Cada segundo (lo llama el espía): lo que el server tiene que decir por TIEMPO."""
-    r = []
+    r = nat.tick(conexiones)                                # los 0x0609 pendientes (P2P entre casas, §53)
     forzar = os.path.join(config.ESTADO, "forzar_lista")   # (para probar a mano)
     if os.path.exists(forzar):
         os.remove(forzar)
