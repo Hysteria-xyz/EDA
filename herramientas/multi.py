@@ -95,11 +95,16 @@ def piloto(pid, hasta, desde=None):
 def main():
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 2
     hasta = sys.argv[2] if len(sys.argv) > 2 else "partida"
-    subprocess.run(["taskkill", "/F", "/IM", "EDA_limpio.exe"], capture_output=True)
-    # ⚠ abrir enseguida después de matar a los anteriores: los nuevos se cayeron al arrancar en
-    #   mss32.dll (el sonido, 17:55: 🟡 el dispositivo todavía tomado). Unos segundos de margen.
-    time.sleep(6)
     pids = []
+    if os.environ.get("EDA_MULTI_PIDS"):
+        # ★ juegos YA abiertos (p. ej. el EDA.exe de 2009 con `jugar.py --original`): sólo se manejan
+        pids = [int(x) for x in os.environ["EDA_MULTI_PIDS"].split()]
+        n = 0
+    else:
+        subprocess.run(["taskkill", "/F", "/IM", "EDA_limpio.exe"], capture_output=True)
+        # ⚠ abrir enseguida después de matar a los anteriores: los nuevos se cayeron al arrancar en
+        #   mss32.dll (el sonido, 17:55: 🟡 el dispositivo todavía tomado). Unos segundos de margen.
+        time.sleep(6)
     for i in range(n):
         # ⚠ entre comillas: si no, el juego pisa su MAC del 0x100F (MEDICIONES §39)
         p = subprocess.Popen('"%s"' % os.path.join(JUEGO, "EDA_limpio.exe"), cwd=JUEGO)

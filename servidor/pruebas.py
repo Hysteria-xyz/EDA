@@ -45,6 +45,7 @@ def control():
     os.makedirs(config.ESTADO, exist_ok=True)
     config.RELAY_IP = ""                                    # (el modo relay lo prueba más abajo)
     config.CUENTAS = os.path.join(config.ESTADO, "cuentas_control")
+    nivel_real, config.NIVEL_INICIAL = config.NIVEL_INICIAL, 0   # (las cuentas de prueba arrancan en 0 EXP)
     config.CUENTA = os.path.join(config.CUENTAS, "no_existe.json")
     shutil.rmtree(config.CUENTAS, ignore_errors=True)
     PARTIDAS.clear()
@@ -111,16 +112,28 @@ def control():
     chequear("0x1072 = el índice de la stage (1011) + (jugador 0, 1)",
              c1072 == struct.pack("<IBBB", 1011, 1, 0, 1), c1072.hex())
     for carta_n, fila_esperada in ((0, 0), (3, 0), (4, 1), (9, 1), (10, 2), (17, 2)):
-        partida(99)["puntos"], partida(99)["exp_cartas"] = 1000, 0
+        partida(99).update(puntos=1000, exp_cartas=0, cartas_hasta=time.time() + 60, cartas_elegidas=set())
+        antes_exp = leer(99)["exp"]
         r = responder(0x1070, bytes([0, carta_n]), 99)
         chequear("carta %d → fila %d (cobra %d)" % (carta_n, fila_esperada, PRECIOS[fila_esperada]),
                  r[0][1][1] == fila_esperada
                  and struct.unpack_from("<I", r[0][1], 7)[0] == 1000 - PRECIOS[fila_esperada])
+        # ★ (PR #5) la misma carta otra vez: no se contesta ni se cobra
+        repetida = responder(0x1070, bytes([0, carta_n]), 99)
+        chequear("★ el revés: la carta %d otra vez → sin 2.º cobro (la EXP quedó guardada una vez)" % carta_n,
+                 repetida == [] and leer(99)["exp"] == antes_exp + PRECIOS[fila_esperada]
+                 and partida(99)["puntos"] == 1000 - PRECIOS[fila_esperada])
     antes_exp = leer(99)["exp"]
     partida(99)["puntos"] = PRECIOS[0] - 1
-    r = responder(0x1070, b"\0\3", 99)
-    chequear("★ el revés: sin puntos para la carta de oro NO da EXP",
-             leer(99)["exp"] == antes_exp and struct.unpack_from("<I", r[0][1], 7)[0] == PRECIOS[0] - 1)
+    r = responder(0x1070, b"\0\1", 99)
+    chequear("★ el revés: sin puntos para la carta de oro NO da EXP (y no se contesta, como el PR #5)",
+             leer(99)["exp"] == antes_exp and r == [] and partida(99)["puntos"] == PRECIOS[0] - 1)
+    for carta_n, que in ((18, "fuera de las 18"), (255, "fuera de las 18")):
+        chequear("★ el revés: una carta %s (%d) no se contesta" % (que, carta_n),
+                 responder(0x1070, bytes([0, carta_n]), 99) == [])
+    partida(99).update(puntos=1000, cartas_hasta=time.time() - 1)
+    chequear("★ el revés: vencido el tiempo de las cartas, no se cobra",
+             responder(0x1070, b"\0\2", 99) == [] and partida(99)["puntos"] == 1000)
     tp2 = tabla_premios()
     if tp2:
         cc = {"items": [], "plata": 0, "exp": 0}
@@ -524,17 +537,213 @@ def control():
         r = responder(0x1017, b"", 203)
         chequear("y viene en el 0x1018 (N2 = 1, 13 B al final)",
                  struct.unpack_from("<H", r[0][1], 7)[0] == 1 and r[0][1][-13:] == obj_habilidad(d["habilidades"][0]))
+    pruebas_inventario(chequear)
+    pruebas_salir_stage(chequear)
+    pruebas_lista_servidores(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
     pruebas_login(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
+    pruebas_personajes(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
     shutil.rmtree(config.CUENTAS, ignore_errors=True)
+    config.NIVEL_INICIAL = nivel_real
     if saltadas:
         print("\n  (%d pruebas; saltadas las de %s: faltan los XML del juego)"
               % (len(ok), ", ".join(saltadas)))
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
+
+
+def pruebas_personajes(chequear):
+    """★ (MEDICIONES §50) varios personajes por cuenta: crear (0x1013), la lista en el 0x1012, elegir
+    (0x1017) y el piso de nivel 25. Cada cosa con su revés."""
+    from servidor.cuentas import nivel
+    n = 140
+    ASIGNADAS.pop(n, None)
+    real = config.NIVEL_INICIAL
+    config.NIVEL_INICIAL = 25
+    try:
+        c = leer(n)
+        chequear("cuenta nueva: un personaje, en el lugar 0", len(c["pjs"]) == 1 and c.get("lugar", 0) == 0)
+        chequear("★ nivel 25 de piso (EDA_NIVEL_INICIAL): el personaje de siempre ya es nivel 25",
+                 nivel(c["exp"]) == 25, nivel(c["exp"]))
+        guardar(c)
+
+        def crear(lugar, clase, nick):
+            # (el formato MEDIDO: u32 id de la cuenta · u8 CLASE · u8 LUGAR · nombre UTF-16)
+            return responder(0x1013, struct.pack("<IBB", n, clase, lugar) + nick.encode("utf-16-le") + b"\0" * 8, n)
+        r = crear(2, 2, "Arquera")
+        pj = r[0][1][2:]
+        chequear("0x1013 → 0x1014 resultado 1 + un personaje de 186 B",
+                 r[0][0] == 0x1014 and r[0][1][:2] == b"\1\0" and len(pj) == 186, len(r[0][1]))
+        chequear("…en el lugar 2 (+0x52), clase 2 (+0x04), «Arquera» (+0x05), nivel 25 (+0x1F)",
+                 pj[0x52] == 2 and pj[0x04] == 2 and pj[0x1F] == 25
+                 and pj[0x05:0x05 + 14].decode("utf-16-le") == "Arquera", (pj[0x52], pj[0x04], pj[0x1F]))
+        chequear("y queda guardado: la cuenta tiene 2 personajes", len(leer(n)["pjs"]) == 2)
+        from servidor.objetos import cuerpo_cuenta
+        chequear("el 0x1012 trae los DOS (N3 = 2 en +0x20)", cuerpo_cuenta(leer(n), n)[0x20] == 2)
+        for (lugar, clase, nick), que in (((2, 1, "Otro"), "el lugar ya ocupado"),
+                                          ((3, 1, "arquera"), "un nombre que ya existe (sin mayúsculas)"),
+                                          ((3, 1, "con espacio"), "un nombre con espacio"),
+                                          ((3, 3, "Clase3"), "una clase que no existe"),
+                                          ((5, 1, "Lugar5"), "el lugar 5 (hay 0–4)")):
+            r = crear(lugar, clase, nick)
+            chequear("★ el revés: %s → error y nada nuevo" % que,
+                     struct.unpack_from("<H", r[0][1])[0] != 1 and len(leer(n)["pjs"]) == 2)
+        r = responder(0x1017, struct.pack("<IB", 0, 2), n)
+        chequear("0x1017 eligiendo el lugar 2: primero la cuenta otra vez (0x1012) y el 0x1018 con +2 = 0"
+                 " (el activo va PRIMERO en la lista)",
+                 [x[0] for x in r[:2]] == [0x1012, 0x1018] and r[1][1][2] == 0, r[1][1][2] if len(r) > 1 else r)
+        cuerpo12 = r[0][1]
+        primero, segundo = cuerpo12[-186 * 2:-186], cuerpo12[-186:]
+        chequear("en ese 0x1012 el elegido va en el LUGAR 0 (el cliente se queda con ése) y el que estaba"
+                 " ahí, en el lugar del elegido (2)", cuerpo12[0x20] == 2
+                 and primero[0x52] == 0 and primero[0x04] == 2 and segundo[0x52] == 2 and segundo[0x04] == 1)
+        n1 = struct.unpack_from("<H", cuerpo12, 0x1C)[0]
+        regs = [cuerpo12[33 + 21 * k:33 + 21 * (k + 1)] for k in range(n1)]
+        casilleros = [x[0xB] for x in regs]
+        seriales = [struct.unpack_from("<I", x, 4)[0] for x in regs]
+        eq1 = set(struct.unpack_from("<18I", primero, 0x72)) - {0}
+        eq2 = set(struct.unpack_from("<18I", segundo, 0x72)) - {0}
+        chequear("los dos CON su equipo, y cada serial de equipo está en el inventario (sin repetidos)",
+                 eq1 and eq2 and not eq1 & eq2 and (eq1 | eq2) <= set(seriales)
+                 and len(seriales) == len(set(seriales)), (len(eq1), len(eq2), n1))
+        chequear("…los ítems puestos del que NO está activo van en casilleros escondidos (≥ 200)",
+                 all(cas >= 200 for cas, s in zip(casilleros, seriales) if s in eq2)
+                 and all(cas < 200 for cas, s in zip(casilleros, seriales) if s in eq1))
+        chequear("★ el revés: el 0x1012 de siempre (el de SELECT CHARACTER) deja a cada uno en su lugar",
+                 sorted(x[0x52] for x in (cuerpo_cuenta(leer(n), n)[-186 * 2:-186], cuerpo_cuenta(leer(n), n)[-186:]))
+                 == [0, 2])
+        d = leer(n)
+        chequear("…y el activo pasa a ser la Arquera (clase 2, su nombre)",
+                 d["clase"] == 2 and d.get("nick") == "Arquera")
+        d["exp"] += 7
+        guardar(d)
+        r = responder(0x1017, struct.pack("<IB", 0, 2), n)
+        chequear("★ el revés: elegir el que YA está activo no manda el 0x1012 otra vez", r[0][0] == 0x1018)
+        responder(0x1017, struct.pack("<IB", 0, 0), n)
+        d = leer(n)
+        arquera = next(x for x in d["pjs"] if x.get("lugar") == 2)
+        chequear("volviendo al lugar 0: el de siempre (clase 1), y la Arquera conservó lo suyo (+7 EXP)",
+                 d["clase"] == 1 and arquera["exp"] == EXPS[24] + 7, arquera.get("exp"))
+        crear(4, 1, "Borrable")
+        antes = len(leer(n)["pjs"])
+        r = responder(0x1015, struct.pack("<IB", n, 4), n)
+        chequear("0x1015 borrando el lugar 4 → 0x1016 = u16 1 · u8 4, y la cuenta tiene uno menos",
+                 r[0] == (0x1016, struct.pack("<HB", 1, 4), 0) and len(leer(n)["pjs"]) == antes - 1)
+        r = responder(0x1015, struct.pack("<IB", n, 4), n)
+        chequear("★ el revés: borrar un lugar VACÍO → resultado 0 y nada cambia",
+                 struct.unpack_from("<H", r[0][1])[0] == 0 and len(leer(n)["pjs"]) == antes - 1)
+        uno = 142
+        ASIGNADAS.pop(uno, None)
+        guardar(leer(uno))
+        r = responder(0x1015, struct.pack("<IB", uno, 0), uno)
+        vacia = leer(uno)
+        chequear("se puede borrar el ÚLTIMO: la cuenta queda VACÍA (y no reaparece el de siempre al releer)",
+                 r[0][1] == struct.pack("<HB", 1, 0) and vacia["pjs"] == [])
+        b = cuerpo_cuenta(vacia, uno)
+        chequear("…su 0x1012 va sin personajes y sin ítems (N3 = 0, N1 = 0), con el oro de la cuenta",
+                 b[0x20] == 0 and struct.unpack_from("<H", b, 0x1C)[0] == 0 and len(b) == 33
+                 and struct.unpack_from("<I", b, 0x13)[0] == vacia["plata"], len(b))
+        r = responder(0x1013, struct.pack("<IBB", uno, 1, 3) + "Nuevo".encode("utf-16-le") + b"\0" * 4, uno)
+        d = leer(uno)
+        chequear("…y en la cuenta vacía se crea uno nuevo, que queda como el ÚNICO y activo (su nombre y lugar)",
+                 r[0][1][:2] == b"\1\0" and len(d["pjs"]) == 1 and d.get("nick") == "Nuevo"
+                 and d.get("lugar") == 3 and d["clase"] == 1, (len(d["pjs"]), d.get("nick")))
+        ASIGNADAS.pop(uno, None)
+        from servidor.personajes import seriales_unicos
+        viejos = [{"lugar": 0, "items": [[1, 1, 10, 1, 1], [26001, 5, 18, 2, 1]], "fichas": {"1": {"niveles": 3}}},
+                  {"lugar": 2, "items": [[201, 1, 10, 1, 1], [26001, 5, 18, 2, 1]], "fichas": {"1": {"niveles": 7}}}]
+        seriales_unicos(viejos)
+        s0, s1 = [it[3] for it in viejos[0]["items"]], [it[3] for it in viejos[1]["items"]]
+        chequear("una cuenta vieja con seriales repetidos: el 2.º se renumera (su rango, 30001…) y su ficha"
+                 " lo sigue; ★ el revés: el 1.º queda igual",
+                 s0 == [1, 2] and s1 == [30001, 30002] and viejos[1]["fichas"] == {"30001": {"niveles": 7}}
+                 and viejos[0]["fichas"] == {"1": {"niveles": 3}}, (s0, s1))
+        config.NIVEL_INICIAL = 0
+        ASIGNADAS[141] = "cuenta_nueva_control"            # (una cuenta que seguro no existe)
+        from servidor.cuentas import ruta_cuenta
+        if os.path.exists(ruta_cuenta("cuenta_nueva_control")):
+            os.remove(ruta_cuenta("cuenta_nueva_control"))
+        chequear("★ el revés: sin el piso (0), una cuenta nueva arranca en nivel 1",
+                 nivel(leer(141)["exp"]) == 1)
+    finally:
+        config.NIVEL_INICIAL = real
+        ASIGNADAS.pop(n, None)
+        ASIGNADAS.pop(141, None)
+
+
+def pruebas_lista_servidores(chequear):
+    """★ La lista de servidores (0x070B) con los jugadores de verdad."""
+    ASIGNADAS.clear()
+    r = responder(0x070A, b"\0", 900)
+    reg = r[0][1][3:3 + 96]
+    nombre = reg[0x03:0x03 + 40].decode("utf-16-le").split("\0")[0]
+    chequear("0x070A → 0x070B: 1 server, «%s», 0 jugadores de %d" % (config.NOMBRE_SERVER, config.MAX_JUGADORES),
+             r[0][0] == 0x070B and r[0][1][2] == 1 and nombre == config.NOMBRE_SERVER
+             and struct.unpack_from("<HH", reg, 0x33) == (config.MAX_JUGADORES, 0) and reg[0x5F] == 1,
+             (nombre, struct.unpack_from("<HH", reg, 0x33)))
+    ASIGNADAS.update({901: "rui", 902: "kai", 903: "mio"})
+    reg = responder(0x070A, b"\0", 900)[0][1][3:3 + 96]
+    chequear("★ el revés: con 3 conectados, dice 3 (no un número fijo)",
+             struct.unpack_from("<H", reg, 0x35)[0] == 3)
+    ASIGNADAS.clear()
+
+
+def pruebas_salir_stage(chequear):
+    """★ (PR #9, Urek-Mazinoo) al salir de la stage (0x1074) se cancelan sus relojes."""
+    from servidor.juego import tick
+    n = 131
+    ASIGNADAS.pop(n, None)
+    PARTIDAS.pop(n, None)
+    p = partida(n)
+    p.update(game_over_en=time.time() - 1, cartas_hasta=time.time() - 1)
+    chequear("★ el revés: con los relojes vencidos y SIN salir, el tick manda lo de la partida",
+             any(len(x) > 3 and x[3] == n for x in tick([n])))
+    p.update(game_over_en=time.time() + 30, cartas_hasta=time.time() + 30)
+    r = responder(0x1074, b"\0" * 4, n)
+    chequear("0x1074 → 0x1075, y los relojes de esa partida quedan cancelados",
+             r[0][0] == 0x1075 and partida(n).get("game_over_en") is None and partida(n).get("cartas_hasta") is None)
+    chequear("…así el tick ya no manda nada de esa partida", not tick([n]))
+    ASIGNADAS.pop(n, None)
+    PARTIDAS.pop(n, None)
+
+
+def pruebas_inventario(chequear):
+    """★ (PR #5) guardar el inventario (0x102D): reemplazar una poción de la barra y que nunca queden dos
+    ítems en el mismo casillero."""
+    from servidor.objetos import stats_de
+    n = 130
+    ASIGNADAS.pop(n, None)
+    c = leer(n)
+    c["items"] = [[26001, 5, 12, 9001, 1], [26002, 7, 20, 9002, 1], [1, 1, 30, 9003, 1]]
+    guardar(c)
+
+    def mover(*pares):
+        cuerpo = (b"\0" * 8 + struct.pack("<6H", *(list(stats_de(c))[:5] + [0]))
+                  + struct.pack("<HHH", len(pares), 0, 0)
+                  + b"".join(struct.pack("<IB", s, cas) for s, cas in pares))
+        responder(0x102D, cuerpo, n)
+        return {it[3]: it[2] for it in leer(n)["items"]}
+    pos = mover((9002, 12))
+    chequear("poción de la bolsa a la barra (tecla 1): la que estaba vuelve a la bolsa, a su lugar",
+             pos[9002] == 12 and pos[9001] == 20, pos)
+    pos = mover((9003, 12))
+    chequear("★ el revés: un ítem al casillero de OTRO (que no es una poción a la barra) → nadie se mueve",
+             pos[9003] == 30 and pos[9002] == 12, pos)
+    pos = mover((9003, 200))
+    chequear("★ el revés: un casillero que no existe (≥ 168) → no se mueve", pos[9003] == 30, pos)
+    from servidor.objetos import pj_cuenta
+    c = leer(n)
+    nombre_en = lambda pj: pj[0x05:0x05 + 26].decode("utf-16-le").split("\0")[0]   # noqa: E731
+    sin = nombre_en(pj_cuenta(c))
+    c["nick"] = "Espada"
+    chequear("(PR #5) con «nick», el personaje se ve con ese nombre; ★ el revés: sin él, el de la cuenta",
+             nombre_en(pj_cuenta(c)) == "Espada" and sin == c["nombre"], (sin, nombre_en(pj_cuenta(c))))
+    ASIGNADAS.pop(n, None)
 
 
 def cuerpo_100f(usuario="", ticket="", mac="AA:BB:CC:DD:EE:01"):

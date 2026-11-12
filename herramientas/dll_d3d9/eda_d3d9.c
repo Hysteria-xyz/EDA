@@ -51,7 +51,10 @@ static int g_rapido = 0;
  *   La salida: crear esos búferes DYNAMIC y convertir cada Lock(0, 0, 0) en Lock(…, DISCARD) — «dame
  *   uno nuevo, lo escribo entero» —: la placa sigue con el anterior sin parar. El juego siempre escribe
  *   desde el principio lo que va a dibujar, así que el dibujo es el mismo. */
-static int g_buferes = 1;
+static int g_buferes = 0;   /* ⚠ 12-nov: APAGADO por defecto ([video] anillo_vertices=1 lo prende; ver abajo) */
+/* ★ [general] mejoras=0: la dll NO toca el video ni la red del juego (el juego como en 2009). Sigue
+ *   haciendo sólo lo imprescindible: llevar el juego al server ([red] / el launcher), el login y la caja negra. */
+static int g_mejoras = 1;
 static long g_convertidos;
 
 typedef long (WINAPI *M_CVB)(void *, UINT, DWORD, DWORD, DWORD, void **, void *);
@@ -623,15 +626,141 @@ static void preparar_linea(void)
     if (!viejo) apuntar("  ⛔ no encontré GetCommandLineA en el exe: el login no llega");
 }
 
+/* ── [hysteria] letras_32 (12-nov, de la PR #6 de Hysteria-xyz; en el bloque HYSTERIA, apagado) ─────────────────────
+ * «Las letras salen cortadas a la mitad» en algunas PCs (lo vio el autor del PR; en la PC de prueba salen bien).
+ * En 0x770a64 el juego arma la textura de cada letra empezando en 2×2 y duplicando hasta que entre
+ * (`mov eax, 2`); el PR sostiene que con texturas chicas el driver da otro largo de fila del que el juego
+ * usa. Con letras_32=1, la textura empieza en 32×32. Se toca SÓLO si los 5 bytes son los originales. */
+static int g_letras32;
+static int g_rui, g_hysteria, g_mazino;     /* los bloques de eda_d3d9.ini */
+static void parche_letras(void)
+{
+    static const BYTE viejo[5] = {0xB8, 0x02, 0x00, 0x00, 0x00}, nuevo[5] = {0xB8, 0x20, 0x00, 0x00, 0x00};
+    BYTE *p = (BYTE *)(ULONG_PTR)0x770A64;
+    DWORD prot;
+    if (!legible(p, 5) || memcmp(p, viejo, 5)) {
+        apuntar("  [hysteria] letras_32: ⚠ en 0x770A64 no están los bytes de EDA_limpio.exe: no se toca");
+        return;
+    }
+    if (!VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &prot)) return;
+    memcpy(p, nuevo, 5);
+    VirtualProtect(p, 5, prot, &prot);
+    FlushInstructionCache(GetCurrentProcess(), p, 5);
+    apuntar("  [hysteria] letras_32: las texturas de las letras empiezan en 32×32 (0x770A64)");
+}
+
+/* ── [hysteria] ping_verde (12-nov, de la PR #6 de Hysteria-xyz; el dueño del proyecto: «cambia el color por verde») ────────
+ * En la sala, el número del ping de cada lugar se pinta SIEMPRE con el estilo 3 (rojo): el juego no mira el
+ * valor (medido en el código: tu lugar, el que carga «-», un ping de verdad y el «-1000» sin dato pasan por
+ * `push 3 · call 0x769770` en 0x537586 / 0x537630 / 0x5376D9). Con ping_verde=1 → 0.
+ * ⛔ MEDIDO (12-nov, dos juegos en una sala, «3 de 3 sitios» puestos): el número SIGUE ROJO. 0x769770 no es
+ *   el color: agrega ese valor a una lista de estados del rótulo (`+0x230`). El color viene de otro lado
+ *   (🟡 la definición de la pantalla, en Data.dat). Queda apagado por defecto.
+ * 🟡 PENDIENTE: el color según la calidad de la red (verde / amarillo / rojo, y uno neutro sin dato). */
+static int g_ping_verde;
+static void parche_ping_verde(void)
+{
+    static const DWORD sitios[3] = {0x537586, 0x537630, 0x5376D9};
+    int puestos = 0;
+    for (int i = 0; i < 3; i++) {
+        BYTE *p = (BYTE *)(ULONG_PTR)sitios[i];
+        DWORD prot;
+        if (!legible(p, 2) || p[0] != 0x6A || p[1] != 0x03) continue;
+        if (!VirtualProtect(p, 2, PAGE_EXECUTE_READWRITE, &prot)) continue;
+        p[1] = 0x00;
+        VirtualProtect(p, 2, prot, &prot);
+        FlushInstructionCache(GetCurrentProcess(), p, 2);
+        puestos++;
+    }
+    apuntar("  [hysteria] ping_verde: %d de 3 sitios con el ping en verde%s", puestos,
+            puestos == 3 ? "" : " (⚠ los demás no tenían los bytes de EDA_limpio.exe: no se tocaron)");
+}
+
 /* ★ las TRAMPAS del desempacado (sin Frida): una llamada que no se pudo resolver salta a
  *   0xD0000000 + sitio − 0x400000 y el juego se cae. Queda anotado QUÉ sitio en eda_d3d9.log, para
  *   que un jugador lo pueda mandar (documentacion/APIS_A_MANO.md). No cambia nada: sigue la caída. */
+/* ── ★ LA CAJA NEGRA (12-nov, como la de R2Beat: fuente/cajanegra.c de ese proyecto) ─────────────────
+ * Unos amigos dijeron que el juego se les caía CON la dll y SIN ella no. Para que una caída diga DÓNDE:
+ * cada excepción grave (acceso inválido, instrucción ilegal, pila llena, división por 0, montón roto,
+ * pila corrompida) queda en eda_d3d9.log con el MÓDULO donde pasó («exe 0x…» = el juego; «eda_d3d9.dll» =
+ * NUESTRA dll; otro = el driver o Windows), los registros y las direcciones de código de la pila (la cadena
+ * de llamadas aproximada). Tope 3 por arranque; dice «primera oportunidad» porque puede ser una que el
+ * juego mismo maneja. Sólo MIRA: el juego sigue igual. [cajanegra] activo=0 la apaga. Además el juego
+ * escribe su propio informe al caerse (EDA_limpio.rpt / .dmp, al lado del exe). */
+static int g_caja = 1;
+static long g_caja_n;
+
+static void donde_es(DWORD a, char *out)
+{
+    HMODULE m = NULL;
+    char ruta[MAX_PATH];
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)(ULONG_PTR)a, &m) && m && GetModuleFileNameA(m, ruta, MAX_PATH)) {
+        char *b = strrchr(ruta, '\\');
+        HMODULE yo = NULL;
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)donde_es, &yo);
+        /* ⚠ la nuestra y la de Windows se llaman IGUAL (d3d9.dll): se dicen distinto */
+        const char *nombre = m == yo ? "NUESTRA-d3d9" : (m == g_real ? "d3d9-de-Windows" : (b ? b + 1 : ruta));
+        if (m == GetModuleHandleA(NULL)) wsprintfA(out, "exe 0x%08lX", (unsigned long)a);
+        else wsprintfA(out, "%s+0x%lX", nombre, (unsigned long)(a - (DWORD)(ULONG_PTR)m));
+    } else {
+        wsprintfA(out, "0x%08lX", (unsigned long)a);
+    }
+}
+
 static LONG WINAPI mi_excepcion(EXCEPTION_POINTERS *e)
 {
     DWORD eip = (DWORD)(ULONG_PTR)e->ExceptionRecord->ExceptionAddress;
-    if (eip >= 0xD0000000u && eip < 0xD0600000u)
+    if (eip >= 0xD0000000u && eip < 0xD0600000u) {
         apuntar("⛔ el juego llegó a una llamada de Windows SIN RESOLVER: sitio 0x%lX (abrí un issue con "
                 "este número)", (unsigned long)(eip - 0xD0000000u + 0x400000u));
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    DWORD cod = e->ExceptionRecord->ExceptionCode;
+    if (!g_caja || (cod != 0xC0000005 && cod != 0xC000001D && cod != 0xC00000FD && cod != 0xC0000094
+                    && cod != 0xC0000096 && cod != 0xC0000374 && cod != 0xC0000409))
+        return EXCEPTION_CONTINUE_SEARCH;
+    if (InterlockedIncrement(&g_caja_n) > 3) return EXCEPTION_CONTINUE_SEARCH;
+    char donde[MAX_PATH + 32], dir_txt[MAX_PATH + 32];
+    donde_es(eip, donde);
+    const char *que = "";
+    dir_txt[0] = 0;
+    if (cod == 0xC0000005 && e->ExceptionRecord->NumberParameters >= 2) {
+        ULONG_PTR tipo = e->ExceptionRecord->ExceptionInformation[0];
+        que = tipo == 1 ? " · escribe en" : (tipo == 8 ? " · ejecuta" : " · lee");
+        wsprintfA(dir_txt, " 0x%08lX", (unsigned long)e->ExceptionRecord->ExceptionInformation[1]);
+    }
+    HMODULE yo = NULL;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCSTR)mi_excepcion, &yo);
+    HMODULE ahi = NULL;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCSTR)(ULONG_PTR)eip, &ahi);
+    CONTEXT *r = e->ContextRecord;
+    apuntar("⛔⛔ [cajanegra] EXCEPCION 0x%08lX en %s%s%s · primera oportunidad%s", (unsigned long)cod, donde, que,
+            dir_txt, (ahi && ahi == yo) ? " · ★ ES EN NUESTRA DLL" : "");
+    apuntar("   [cajanegra] eax=%08lX ebx=%08lX ecx=%08lX edx=%08lX esi=%08lX edi=%08lX ebp=%08lX esp=%08lX",
+            r->Eax, r->Ebx, r->Ecx, r->Edx, r->Esi, r->Edi, r->Ebp, r->Esp);
+    /* la pila: las direcciones que caen en código de algún módulo (de la más cercana a la más lejana) */
+    char linea[1200];
+    int n = 0, k = 0;
+    linea[0] = 0;
+    DWORD *p = (DWORD *)(ULONG_PTR)r->Esp;
+    DWORD *tope = (DWORD *)((NT_TIB *)NtCurrentTeb())->StackBase;
+    for (int i = 0; i < 256 && p + i < tope && k < 12 && n < (int)sizeof(linea) - 80; i++) {
+        HMODULE m = NULL;
+        DWORD v = p[i];
+        if (v < 0x10000 || !GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+                                               | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                               (LPCSTR)(ULONG_PTR)v, &m) || !m)
+            continue;
+        char d[MAX_PATH + 32];
+        donde_es(v, d);
+        n += wsprintfA(linea + n, "%s%s", k ? " · " : "", d);
+        k++;
+    }
+    apuntar("   [cajanegra] la pila (de la más cercana a la más lejana): %s", linea);
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -766,6 +895,13 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
     LARGE_INTEGER ahora;
     QueryPerformanceCounter(&ahora);
     g_cuadros++;
+    /* (sólo para PROBAR la caja negra: EDA_PROBAR_CAJA=1 hace caer a NUESTRA dll en el cuadro 60) */
+    static int probar = -1, cuadro;
+    if (probar < 0) {
+        char v[8];
+        probar = GetEnvironmentVariableA("EDA_PROBAR_CAJA", v, sizeof(v)) && v[0] == '1';
+    }
+    if (probar && ++cuadro == 60) *(volatile int *)(ULONG_PTR)0x10 = 1;
     if (g_ventana.QuadPart == 0) g_ventana = ahora;
     double ms = ms_entre(g_ventana, ahora);
     if (ms >= 500) {
@@ -839,7 +975,7 @@ __declspec(dllexport) void *WINAPI Direct3DCreate9(UINT version)
 {
     void *fabrica = g_crear ? g_crear(version) : NULL;
     apuntar("Direct3DCreate9(%u) -> %s", version, fabrica ? "ok" : "NULO");
-    if (fabrica) poner(VT(fabrica), 16, (void *)mi_crear_dispositivo, (void **)&g_creardev_real);
+    if (fabrica && g_mejoras) poner(VT(fabrica), 16, (void *)mi_crear_dispositivo, (void **)&g_creardev_real);
     return fabrica;
 }
 
@@ -855,21 +991,50 @@ static void leer_ajustes(HMODULE self)
     lstrcatA(ini, "eda_d3d9.ini");
     lstrcpyA(g_log, ruta);
     lstrcatA(g_log, "eda_d3d9.log");
+    /* el registro se va sumando (no se pisa al reabrir: la caja negra de la vez anterior queda); pasado
+     *   1 MB, el viejo pasa a eda_d3d9.anterior.log */
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+    if (GetFileAttributesExA(g_log, GetFileExInfoStandard, &fa) && (fa.nFileSizeHigh || fa.nFileSizeLow > (1u << 20))) {
+        char viejo[MAX_PATH];
+        lstrcpyA(viejo, ruta);
+        lstrcatA(viejo, "eda_d3d9.anterior.log");
+        MoveFileExA(g_log, viejo, MOVEFILE_REPLACE_EXISTING);
+    }
+    /* ═══ eda_d3d9.ini POR BLOQUES (12-nov, pedido del dueño del proyecto): LO MÍNIMO (tope de cuadros + server), la CAJA NEGRA, y un
+     *   bloque por autor (RUI = los nuestros, HYSTERIA, MAZINO), cada uno con su `activo`. Por defecto: sólo
+     *   lo mínimo y la caja negra. [general] mejoras=0 apaga TODO salvo el server, el login y la caja.
+     *   ⚠ Las claves viejas ([video] tope_estricto / red_inmediata / anillo_vertices, [compat] letras_32) YA
+     *   NO SE LEEN: el .ini es del jugador y así nadie arrastra lo que tenía prendido. Las de [video] que
+     *   escribe el launcher (tope_fps, mostrar_fps) siguen donde estaban. ═══ */
+    g_mejoras = GetPrivateProfileIntA("general", "mejoras", 1, ini);
+    /* LO MÍNIMO */
     g_tope = GetPrivateProfileIntA("video", "tope_fps", 120, ini);
-    g_mostrar = GetPrivateProfileIntA("video", "mostrar_fps", 1, ini);
+    g_mostrar = GetPrivateProfileIntA("video", "mostrar_fps", 0, ini);
+    g_caja = GetPrivateProfileIntA("cajanegra", "activo", 1, ini);
+    /* PARCHES DE RUI (los nuestros: MEDICIONES §41–43) */
+    g_rui = GetPrivateProfileIntA("rui", "activo", 0, ini);
+    g_estricto = g_rui ? GetPrivateProfileIntA("rui", "tope_estricto", 1, ini) : 1;
+    g_red = g_rui ? GetPrivateProfileIntA("rui", "red_inmediata", 1, ini) : 0;
+    g_buferes = g_rui ? GetPrivateProfileIntA("rui", "anillo_vertices", 0, ini) : 0;
+    g_usar_bombeo = g_rui ? GetPrivateProfileIntA("rui", "bombeo_red", 0, ini) : 0;
+    g_rapido = g_rui ? GetPrivateProfileIntA("rui", "backbuffer_rapido", 0, ini) : 0;
+    /* PARCHES DE HYSTERIA (PR #6) */
+    g_hysteria = GetPrivateProfileIntA("hysteria", "activo", 1, ini);
+    g_letras32 = g_hysteria ? GetPrivateProfileIntA("hysteria", "letras_32", 0, ini) : 0;
+    g_ping_verde = g_hysteria ? GetPrivateProfileIntA("hysteria", "ping_verde", 0, ini) : 0;   /* ⛔ medido: no cambia el color */
+    /* PARCHES DE MAZINO (su arreglo de región, GetCPInfo en 0x7EE13C, ya está ADENTRO del exe: §37) */
+    g_mazino = GetPrivateProfileIntA("mazino", "activo", 0, ini);
+    /* (las variables EDA_* mandan sobre el .ini: para medir sin tocarlo) */
+    if (GetEnvironmentVariableA("EDA_MEJORAS", v, sizeof(v))) g_mejoras = atoi(v);
     if (GetEnvironmentVariableA("EDA_TOPE_FPS", v, sizeof(v))) g_tope = atoi(v);
     if (GetEnvironmentVariableA("EDA_MOSTRAR_FPS", v, sizeof(v))) g_mostrar = atoi(v);
     if (GetEnvironmentVariableA("EDA_MEDIR_ESCRITURA", v, sizeof(v))) g_medir_escritura = atoi(v);
-    g_usar_bombeo = GetPrivateProfileIntA("video", "bombeo_red", 0, ini);
     if (GetEnvironmentVariableA("EDA_BOMBEO_RED", v, sizeof(v))) g_usar_bombeo = atoi(v);
-    g_estricto = GetPrivateProfileIntA("video", "tope_estricto", 1, ini);
     if (GetEnvironmentVariableA("EDA_TOPE_ESTRICTO", v, sizeof(v))) g_estricto = atoi(v);
-    g_red = GetPrivateProfileIntA("video", "red_inmediata", 1, ini);
     if (GetEnvironmentVariableA("EDA_RED_INMEDIATA", v, sizeof(v))) g_red = atoi(v);
-    g_buferes = GetPrivateProfileIntA("video", "buferes_rapidos", 1, ini);
     if (GetEnvironmentVariableA("EDA_BUFERES_RAPIDOS", v, sizeof(v))) g_buferes = atoi(v);
-    g_rapido = GetPrivateProfileIntA("video", "backbuffer_rapido", 0, ini);
     if (GetEnvironmentVariableA("EDA_BACKBUFFER_RAPIDO", v, sizeof(v))) g_rapido = atoi(v);
+    if (GetEnvironmentVariableA("EDA_LETRAS_32", v, sizeof(v))) g_letras32 = atoi(v);
     if (g_tope < 0) g_tope = 0;
     GetPrivateProfileStringA("red", "server", "", g_server, sizeof(g_server), ini);
     char env[256];                                   /* ⚠ un dominio no entra en los 32 de `v` */
@@ -895,19 +1060,25 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
     leer_ajustes((HMODULE)self);
     QueryPerformanceFrequency(&g_frec);
     timeBeginPeriod(1);                                          /* Sleep(1) ≈ 1 ms */
-    apuntar("eda_d3d9 cargada · el d3d9 real: %s · tope %d · contador %d", sys, g_tope, g_mostrar);
+    apuntar("──────── eda_d3d9 cargada · el d3d9 real: %s · mejoras %d · tope %d · contador %d · caja negra %d"
+            " · RUI %d (estricto %d, red inmediata %d, anillo %d) · HYSTERIA %d (letras 32: %d, ping verde: %d) · MAZINO %d",
+            sys, g_mejoras, g_tope, g_mostrar, g_caja, g_rui, g_estricto, g_red, g_buferes, g_hysteria, g_letras32,
+            g_ping_verde, g_mazino);
+    if (!g_mejoras) apuntar("  [general] mejoras=0: el video y la red del juego quedan como en 2009 (sólo server, login y caja negra)");
     /* ★ la red inmediata: desde YA (el juego puede abrir su socket UDP antes de crear el D3D). Acá
      *   la tabla de importaciones del exe ya está resuelta (los DllMain corren después). */
-    if (g_red && g_tope > 0) {
+    if (g_mejoras && g_red && g_tope > 0) {
         g_wsaes_real = (M_WSAES)parchear_iat("WS2_32.dll", "WSAEventSelect", (void *)mi_wsa_event_select);
         apuntar("  red inmediata: %s", g_wsaes_real ? "WSAEventSelect enganchado" : "⚠ no encontré WSAEventSelect en el exe");
     }
+    if (g_mejoras && g_letras32) parche_letras();
+    if (g_mejoras && g_ping_verde) parche_ping_verde();
     preparar_linea();                                /* ★ el login del launcher (y puede traer el server) */
     if (g_server[0]) {
         g_connect_real = (M_CONNECT)parchear_iat("WS2_32.dll", "connect", (void *)mi_connect);
         apuntar("  server: %s → %s", g_server, g_connect_real ? "connect enganchado"
                 : "⛔ no encontré connect en el exe (¿el EDA.exe con ASProtect? ese va con jugar.py)");
     }
-    AddVectoredExceptionHandler(0, mi_excepcion);
+    AddVectoredExceptionHandler(1, mi_excepcion);    /* (1 = antes que los manejadores del juego) */
     return TRUE;
 }

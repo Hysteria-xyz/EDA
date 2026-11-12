@@ -11,6 +11,19 @@ from servidor.objetos import cuerpo_cuenta
 from servidor.relay import escribir_relay, relay
 
 
+def lista_servidores():
+    """★ 0x070B (la LISTA DE SERVIDORES, PROTOCOLO §4.5) con los JUGADORES DE VERDAD (12-nov, el tester: «para
+    mandar el real»). Antes salía fija de las reglas (`reglas_broker.py`: 7 de 500 → siempre [Open]).
+    El cliente saca el estado de jugadores / máximo (`0x516DD1`): < 30 % [Open] · < 60 % [Normal] ·
+    < lleno [Busy] · [Full]. La IP:puerto es la del Broker de 2009: la dll / jugar.py la desvía igual
+    que la primera conexión."""
+    from servidor.config import P
+    import reglas_broker as R
+    return P.cuerpo_servidores([
+        P.registro_servidor(config.NOMBRE_SERVER, ip=R.BROKER_IP, puerto=R.BROKER_PUERTO, idx=1, estado=12,
+                            usuarios=min(len(ASIGNADAS), 0xFFFF), maximo=config.MAX_JUGADORES)])
+
+
 # 0x1010 con resultado ≠ 1: el cliente no entra (§5.2: 0x66, 0x899, 0x89A son errores). Medido
 #   (MEDICIONES §45): 0x66 y 0x89A → «Can't Connect to server. Refreshing Server list.»; 0x899 → nada
 LOGIN_RECHAZADO = 0x66
