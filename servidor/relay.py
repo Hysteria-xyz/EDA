@@ -73,6 +73,17 @@ def punch_de(conexion):
     return struct.unpack(">I", bytes(int(x) for x in ip.split(".")))[0], puerto
 
 
+def misma_casa(a, b, punch_a=None, punch_b=None):
+    """¿`a` y `b` salen a internet por la MISMA IP pública (la misma casa, el mismo cíber)? Por la IP
+    con que se conectaron al server (`ip_tcp`, la anota `servidor/red.py`) o, si no, por la que vio el
+    punch. ★ MEDICIONES §52: el ANFITRIÓN nunca manda su 0x3006 (§47), así que con sólo el punch no
+    se sabía nunca, y dos PCs de la misma casa terminaban en el relay (con -1000 ms)."""
+    ia, ib = partida(a).get("ip_tcp"), partida(b).get("ip_tcp")
+    if ia and ib and not ia.startswith("127.") and not ib.startswith("127."):
+        return ia == ib
+    return bool(punch_a and punch_b and punch_a[0] == punch_b[0])
+
+
 def dir_udp(conexion, para=None):
     """★ La dirección UDP de `conexion` que el server le da a `para` (MEDICIONES §40):
       · P2P DIRECTO (config.P2P = "directo", y los dos mandaron su MAC): la pública que vio el punch;
@@ -83,7 +94,7 @@ def dir_udp(conexion, para=None):
     p = partida(conexion)
     if config.P2P == "directo" and mac_de(conexion) and (para is None or mac_de(para)):
         mio, suyo = punch_de(conexion), (punch_de(para) if para is not None else None)
-        if mio and suyo and mio[0] == suyo[0] and p.get("privada"):
+        if para is not None and p.get("privada") and misma_casa(conexion, para, mio, suyo):
             return tuple(p["privada"])
         if mio:
             return mio

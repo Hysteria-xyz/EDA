@@ -626,6 +626,122 @@ static void preparar_linea(void)
     if (!viejo) apuntar("  ⛔ no encontré GetCommandLineA en el exe: el login no llega");
 }
 
+/* ── ★ [p2p] QUE LOS JUEGOS SE ENCUENTREN (13-nov, MEDICIONES §52) ──────────────────────────────────────
+ * Lo que el server necesita para darle a cada par la dirección DIRECTA del otro (servidor/relay.py ·
+ * dir_udp) viaja en el 0x100F, y en las PCs de verdad llegaba roto:
+ *  · mac=1 — LA MAC (la identidad P2P, cuenta+0x166). El juego copia el ticket del launcher a un búfer
+ *    de 20 letras SIN lugar para el 0 (0x622E1D: 40 bytes en esp+0xB0) y después lo copia con wcscpy a
+ *    cuenta+0x11A (0x622E49): con el ticket de 20 justos la copia sigue leyendo basura y PISA la MAC
+ *    (medido en prod: «0x100F sin MAC válida» en las dos PCs, y en la de una se ve el «usuario ticket»
+ *    en ASCII adentro). Con uno de 9 (MEDICIONES §45) no pasaba. Arreglo: la llamada a 0x6229F0 (la
+ *    única, en 0x4E767B) pasa por acá; después, B termina en su letra 20 y la MAC vuelve a su lugar
+ *    (UTF-16 en +0x166, y ASCII en +0x1C7 si también la pisó), con la misma MAC que lee el juego.
+ *  · ip_privada=1 — LA IP PRIVADA (+0xDD del 0x100F). El juego la saca de gethostbyname(gethostname())
+ *    y se queda con la PRIMERA (0x74FDAB): en una PC con VMware / VirtualBox / Hyper-V es la de la red
+ *    virtual (medido: la de VMnet8, de VMware), a la que nadie de la casa llega. Arreglo: si el juego
+ *    pregunta por el nombre de ESTA PC, la dll pone primero la IP por la que Windows sale hacia el
+ *    server (un socket UDP «conectado» al server y getsockname: no manda nada). Sirve igual con cable o
+ *    con WiFi: es la que se está usando. (Con una VPN que se lleva todo, sería la de la VPN.) */
+static int g_p2p, g_p2p_mac, g_p2p_ip;
+typedef void (__fastcall *M_CUENTA)(void *cuenta, void *nada);
+#define CUENTA_LINEA 0x6229F0
+#define LLAMADA_CUENTA 0x4E767B
+
+static int es_mac16(const WCHAR *w)
+{
+    for (int i = 0; i < 17; i++) {
+        WCHAR c = w[i];
+        if (i % 3 == 2 ? c != ':' : !((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'))) return 0;
+    }
+    return w[17] == 0;
+}
+
+static void __fastcall mi_cuenta_linea(void *cuenta, void *nada)
+{
+    (void)nada;
+    ((M_CUENTA)(ULONG_PTR)CUENTA_LINEA)(cuenta, 0);
+    BYTE *c = (BYTE *)cuenta;
+    char mac[24];
+    if (!legible(c + 0x11A, 0xC0) || !mac_texto(mac)) return;
+    WCHAR *b = (WCHAR *)(c + 0x11A), *m16 = (WCHAR *)(c + 0x166);
+    b[20] = 0;                                        /* B (el ticket): 21 UTF-16 con el 0 final */
+    if (es_mac16(m16)) {
+        apuntar("  [p2p] mac: la identidad del juego llegó sana");
+        return;
+    }
+    for (int i = 0; i < 17; i++) m16[i] = (WCHAR)(BYTE)mac[i];
+    m16[17] = 0;
+    if (memcmp(c + 0x1C7, mac, 18)) memcpy(c + 0x1C7, mac, 18);
+    apuntar("  [p2p] mac: ★ el ticket la había pisado; vuelve a su lugar (el server ya puede dar P2P directo)");
+}
+
+static void parche_mac(void)
+{
+    BYTE *p = (BYTE *)(ULONG_PTR)LLAMADA_CUENTA;
+    LONG rel = (LONG)(CUENTA_LINEA - (LLAMADA_CUENTA + 5));
+    DWORD prot;
+    if (!legible(p, 5) || p[0] != 0xE8 || memcmp(p + 1, &rel, 4)) {
+        apuntar("  [p2p] mac: ⚠ en 0x4E767B no está la llamada de EDA_limpio.exe: no se toca");
+        return;
+    }
+    LONG nuevo = (LONG)((ULONG_PTR)mi_cuenta_linea - (LLAMADA_CUENTA + 5));
+    if (!VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &prot)) return;
+    memcpy(p + 1, &nuevo, 4);
+    VirtualProtect(p, 5, prot, &prot);
+    FlushInstructionCache(GetCurrentProcess(), p, 5);
+    apuntar("  [p2p] mac: enganchada la lectura del login (0x4E767B)");
+}
+
+typedef struct hostent *(WSAAPI *M_GHBN)(const char *);
+static M_GHBN g_ghbn_real;
+static int resolver_server(void);
+
+/* la IP local por la que Windows saldría hacia el server (o hacia internet, si no hay server) */
+static unsigned long ip_de_salida(void)
+{
+    struct sockaddr_in a, yo;
+    int largo = sizeof(yo);
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    if (g_server[0] && resolver_server()) a = g_destino;
+    else { a.sin_addr.s_addr = inet_addr("8.8.8.8"); a.sin_port = htons(53); }
+    SOCKET s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s == INVALID_SOCKET) return 0;
+    unsigned long ip = 0;
+    if (connect(s, (struct sockaddr *)&a, sizeof(a)) == 0 && getsockname(s, (struct sockaddr *)&yo, &largo) == 0)
+        ip = yo.sin_addr.s_addr;
+    closesocket(s);
+    return ip;
+}
+
+static struct hostent *WSAAPI mi_gethostbyname(const char *nombre)
+{
+    char yo[256];
+    int es_esta_pc = nombre && gethostname(yo, sizeof(yo)) == 0 && !lstrcmpiA(nombre, yo);
+    /* ⚠ ANTES de pedir el nombre: resolver el server usa gethostbyname, que devuelve SIEMPRE el mismo
+     *   búfer por hilo (pisaría la respuesta que le damos al juego) */
+    unsigned long salida = es_esta_pc ? ip_de_salida() : 0;
+    struct hostent *h = g_ghbn_real(nombre);
+    if (!h || !salida || h->h_addrtype != AF_INET || !h->h_addr_list[0]) return h;
+    for (int i = 0; h->h_addr_list[i]; i++) {
+        if (memcmp(h->h_addr_list[i], &salida, 4)) continue;
+        static int contado;
+        if (i) {
+            char *t = h->h_addr_list[0];
+            h->h_addr_list[0] = h->h_addr_list[i];
+            h->h_addr_list[i] = t;
+        }
+        if (!contado++) {
+            struct in_addr en;
+            memcpy(&en, &salida, 4);
+            apuntar("  [p2p] ip_privada: %s (la de salida a la red%s)", inet_ntoa(en),
+                    i ? "; ★ el juego iba a mandar otra: una red virtual" : ", y ya era la primera");
+        }
+        return h;
+    }
+    return h;
+}
+
 /* ── [hysteria] letras_32 (12-nov, de la PR #6 de Hysteria-xyz; en el bloque HYSTERIA, apagado) ─────────────────────
  * «Las letras salen cortadas a la mitad» en algunas PCs (lo vio el autor del PR; en la PC de prueba salen bien).
  * En 0x770a64 el juego arma la textura de cada letra empezando en 2×2 y duplicando hasta que entre
@@ -1024,6 +1140,11 @@ static void leer_ajustes(HMODULE self)
     g_ping_verde = g_hysteria ? GetPrivateProfileIntA("hysteria", "ping_verde", 0, ini) : 0;   /* ⛔ medido: no cambia el color */
     /* PARCHES DE MAZINO (su arreglo de región, GetCPInfo en 0x7EE13C, ya está ADENTRO del exe: §37) */
     g_mazino = GetPrivateProfileIntA("mazino", "activo", 0, ini);
+    /* ★ P2P: que los juegos se encuentren (MEDICIONES §52). Prendido por defecto: sólo arregla lo que
+     *   el juego manda roto, y un .ini viejo (el launcher no lo pisa) sin este bloque lo tiene igual */
+    g_p2p = GetPrivateProfileIntA("p2p", "activo", 1, ini);
+    g_p2p_mac = g_p2p ? GetPrivateProfileIntA("p2p", "mac", 1, ini) : 0;
+    g_p2p_ip = g_p2p ? GetPrivateProfileIntA("p2p", "ip_privada", 1, ini) : 0;
     /* (las variables EDA_* mandan sobre el .ini: para medir sin tocarlo) */
     if (GetEnvironmentVariableA("EDA_MEJORAS", v, sizeof(v))) g_mejoras = atoi(v);
     if (GetEnvironmentVariableA("EDA_TOPE_FPS", v, sizeof(v))) g_tope = atoi(v);
@@ -1074,6 +1195,12 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
     if (g_mejoras && g_letras32) parche_letras();
     if (g_mejoras && g_ping_verde) parche_ping_verde();
     preparar_linea();                                /* ★ el login del launcher (y puede traer el server) */
+    apuntar("  P2P %d (mac %d, ip privada %d)", g_p2p, g_p2p_mac, g_p2p_ip);
+    if (g_p2p_mac) parche_mac();
+    if (g_p2p_ip) {
+        g_ghbn_real = (M_GHBN)parchear_iat("WS2_32.dll", "gethostbyname", (void *)mi_gethostbyname);
+        if (!g_ghbn_real) apuntar("  [p2p] ip_privada: ⚠ no encontré gethostbyname en el exe");
+    }
     if (g_server[0]) {
         g_connect_real = (M_CONNECT)parchear_iat("WS2_32.dll", "connect", (void *)mi_connect);
         apuntar("  server: %s → %s", g_server, g_connect_real ? "connect enganchado"
