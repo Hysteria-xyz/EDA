@@ -2368,3 +2368,39 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   puestos, y el «0 ms» sigue ROJO). `0x769770` no es el color: agrega el valor a una lista de estados
   del rótulo (`+0x230`). El color sale de otro lado (🟡 la definición de la pantalla, en Data.dat).
   `[hysteria] ping_verde` queda apagado. Pendiente: el color de verdad (y después, según la red).
+
+### 52 · ★★★ P2P DIRECTO entre dos PCs de la misma casa (13-nov, la PC de prueba + la laptop vieja por WiFi)
+
+- **Lo que vio el tester**: su PC y la laptop vieja (misma casa, el launcher contra prod) en una sala: **-1000 ms**.
+- **Medido en prod** (log del server y `relay.log`): 1) los dos `0x100F` **sin MAC válida** → el server
+  los mandó al relay; 2) las dos PCs salen por la **misma IP y el MISMO puerto públicos** (`…:57654`: el
+  router reusa el puerto porque cada una le habla a otro puerto del relay), así que el relay tomaba cada
+  datagrama por del DESTINO y se lo reenviaba a sí mismo (`1→1: 45.000` cada 30 s); 3) el anfitrión no
+  manda su `0x3006` (§47), así que el punch tampoco decía que estaban en la misma casa.
+- ★ **Por qué no llegaba la MAC** (desarmado `0x6229F0`): el juego convierte B (el ticket) a un búfer de
+  **40 bytes = 20 letras sin lugar para el 0** (`0x622E1D`, esp+0xB0) y lo copia con wcscpy a
+  `cuenta+0x11A` (`0x622E49`). Con el ticket de 20 justos la copia sigue por la basura de la pila y
+  **pisa la MAC de `cuenta+0x166`** (en una de las dos se veía «usuario ticket» en ASCII ahí adentro).
+  En §45 se probó con un ticket de 9: no pasaba. El launcher exige 20 (`^[A-Za-z0-9]{20}$`), así que el
+  arreglo va en la dll.
+- ★ **Y la IP privada** (`+0xDD`, desarmado `0x74FD50`): `getsockname` del socket UDP da 0.0.0.0 → el
+  juego usa la PRIMERA de `gethostbyname(gethostname())`. En la PC de prueba es la de **VMnet8** (VMware):
+  nadie de la casa llega ahí. Lo mismo con VirtualBox, Hyper-V o una VPN.
+- **El arreglo** (PR #12 a develop):
+  · dll `[p2p] mac`: la única llamada a `0x6229F0` (`0x4E767B`) pasa por la dll; después, B termina en
+    su letra 20 y la MAC vuelve a `+0x166` (UTF-16) y `+0x1C7` (ASCII).
+  · dll `[p2p] ip_privada`: si el juego pregunta por el nombre de esta PC, la dll pone primero la IP por
+    la que Windows sale hacia el server (socket UDP «conectado» + getsockname, sin mandar nada): cable o
+    WiFi, la que se use.
+  · server: misma casa = misma IP de la conexión TCP (`ip_tcp`, `relay.misma_casa`) → la privada.
+  · relay: si la dirección da el DESTINO, el que manda es el otro de su sala (`desde_misma_direccion`).
+  Pruebas con sus reveses en `juego.py control` y `relay_udp.py control`.
+- ★★★ **Medido con las dos PCs** (server de PRUEBA 35900 ya con el arreglo; un ticket inventado de 20
+  letras para reproducir lo del launcher): el log de la dll en las dos dice «el ticket la había pisado;
+  vuelve a su lugar»; en la PC de prueba «ip_privada: 192.168.x.100 (★ el juego iba a mandar otra: una red
+  virtual)», en la laptop «…la de salida a la red, y ya era la primera» (WiFi). El server: los dos
+  `0x100F` CON MAC. La sala: **kai a 33 ms** (antes -1000). El relay: **0 reenviados y 0 descartados**
+  en casi 2 minutos de sala → se hablan directo por la red de la casa.
+- La laptop se maneja sin Python: `schtasks /it` con un .bat (lanzar) o un .ps1 (clics por mensaje de
+  ventana, como `clic_juego.py`; foto de pantalla). ⚠ Los .bat se escriben con la herramienta de
+  archivos: `printf` se comió `\E` de `C:\Game\EDA` (la regla de los heredocs, otra vez).

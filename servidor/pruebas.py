@@ -318,8 +318,9 @@ def control():
              dir_udp(401, 402) == (ip_int("192.168.0.1"), 50401)
              and dir_udp(402, 401) == (ip_int("192.168.0.2"), 50402))
     partida(402)["ip_tcp"] = "190.9.9.9"
-    chequear("★ el revés: con IPs de conexión distintas, NO la privada (la pública, o el relay)",
-             dir_udp(402, 401) == (ip_int("190.2.2.2"), 40002)
+    chequear("★ el revés: con IPs de conexión distintas, NO la privada; y como el anfitrión no pasó por "
+             "el punch, NO mixto: los DOS por el relay (con CGNAT el directo no entra)",
+             dir_udp(402, 401) == (0x7F000001, config.RELAY_BASE + 1 + 402)
              and dir_udp(401, 402) == (0x7F000001, config.RELAY_BASE + 1 + 401))
     partida(401).pop("ip_tcp"), partida(402).pop("ip_tcp")
     json.dump({"401": ["200.1.1.1", 40001], "402": ["190.2.2.2", 40002], "403": ["200.1.1.1", 40003],
