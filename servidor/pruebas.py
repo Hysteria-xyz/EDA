@@ -244,6 +244,19 @@ def control():
         r = responder(0x1041, struct.pack("<II", 0, equipado[3]), 203)
         chequear("★ el revés: lo que está PUESTO no se vende", r[0][1][:2] == b"\0\0"
                  and leer(203)["plata"] == d3["plata"])
+        # un ítem en la barra de atajos (casilleros 12–17) tampoco se vende
+        d_hot = leer(203)
+        inv_hot = inventario(d_hot)
+        poc = next((x for x in inv_hot if x[2] >= 18), None)
+        if poc:
+            poc[2] = 12
+            d_hot["items"] = inv_hot
+            guardar(d_hot)
+            r = responder(0x1041, struct.pack("<II", 0, poc[3]), 203)
+            chequear("★ el revés: lo que está en la barra de atajos (12–17) tampoco se vende",
+                     r[0][1][:2] == b"\0\0")
+            d_hot["items"] = inventario(d3)
+            guardar(d_hot)
         r = responder(0x1041, struct.pack("<II", 0, 777), 203)
         chequear("★ el revés: un serial que no existe → resultado 0", r[0][1][:2] == b"\0\0")
     # ★ MODO RELAY: con la bandera, identidad inventada + dirección del relay; sin ella, lo de antes
@@ -650,6 +663,30 @@ def control():
     chequear("★ el revés: 0x1019 a sala en partida responde error 0x9C6",
              responder(0x1019, struct.pack("<IB", 55, 0), 303)[0][1][:2] == b"\xC6\x09")
     del SALAS[55]
+
+    # ★ 0x101F: entrar_sala inicializa escenario para invitados y rechaza en juego
+    SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301]}
+    partida(302).pop("escenario", None)
+    r = responder(0x101F, b"\0\0\0\0\x37\x00" + bytes(20), 302)
+    chequear("0x101F inicializa escenario de la sala en la partida del invitado",
+             partida(302).get("escenario") == 1011 and 302 in SALAS[55]["miembros"])
+    # no duplicar miembro si llama de nuevo
+    responder(0x101F, b"\0\0\0\0\x37\x00" + bytes(20), 302)
+    chequear("★ el revés: 0x101F repetido no duplica el miembro en la lista",
+             SALAS[55]["miembros"].count(302) == 1)
+    SALAS[55]["jugando"] = True
+    chequear("★ el revés: 0x101F a sala en juego rechaza con resultado 0",
+             responder(0x101F, b"\0\0\0\0\x37\x00" + bytes(20), 303)[0][1][:2] == b"\0\0")
+    del SALAS[55]
+
+    # ★ cerrada(conexion): transferencia de anfitrión y limpieza de salas zombies
+    SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301, 302]}
+    cerrada(301)
+    chequear("cerrada(anfitrion) transfiere el anfitrión al siguiente miembro",
+             55 in SALAS and SALAS[55]["anfitrion"] == 302 and SALAS[55]["miembros"] == [302])
+    cerrada(302)
+    chequear("cerrada(ultimo_miembro) elimina la sala y evita salas zombies",
+             55 not in SALAS)
 
     # ★ 0x104E / 0x104F / 0x1050: F9 largada y error
     SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301, 302]}

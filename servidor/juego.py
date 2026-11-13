@@ -97,12 +97,14 @@ def cerrada(conexion):
     (Sin forma de devolver mensajes acá: la lista nueva sale con el próximo `tick`.)"""
     PARTIDAS.pop(conexion, None)
     ASIGNADAS.pop(conexion, None)
-    viejas = [k for k, v in SALAS.items() if v["anfitrion"] == conexion]
-    for k in viejas:
-        del SALAS[k]
-    for s in SALAS.values():                               # (si era invitado, sale de esa sala)
+    for k in list(SALAS.keys()):
+        s = SALAS[k]
         if conexion in s["miembros"]:
             s["miembros"].remove(conexion)
+            if not s["miembros"]:
+                del SALAS[k]
+            elif s["anfitrion"] == conexion:
+                s["anfitrion"] = s["miembros"][0]
     escribir_relay()
     VIVO.LISTA_CAMBIO = True                               # salas y usuarios: uno menos
 
