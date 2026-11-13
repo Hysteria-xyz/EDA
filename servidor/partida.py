@@ -3,6 +3,7 @@ y el premio. Y el «estoy vivo» (0x1001), que es por donde sale lo pendiente po
 """
 import json
 import os
+import random
 import struct
 import time
 
@@ -42,6 +43,35 @@ def dar_premio(c, escenario, elegir=None):
     return nuevos
 
 
+def premio_de_carta(escenario):
+    """★ Lo que trae una CARTA: UN presente de la lista de su stage en StageReward.xml (todas las
+    stages traen GiveCount="1": un solo presente → lo que destapa la carta). Al azar entre los
+    ítems (Type 2) que no son «None» (40071); 🟡 sin pesos, el XML no trae probabilidades.
+    Devuelve (tipo de ítem, cantidad) o None si la stage no tiene ítems."""
+    _, lista = tabla_premios().get(escenario, (0, []))
+    items = [(d, max(1, n)) for t, d, n in lista if t == 2 and d != NADA]
+    return random.choice(items) if items else None
+
+
+def cerrar_por_bajas(p, conexion):
+    """★ CIERRE POR BAJAS (medido en 1-4 Fácil: el cliente contó las 92 y NO mandó el 0x1064):
+    en solitario, con todas las bajas del catálogo (MONSTER_CNT) y vencida la espera, el server
+    cierra la stage como si llegara el 0x1064. Devuelve lo que éste contesta, o []."""
+    cierre = p.get("cierre_bajas")
+    if (cierre is None or time.monotonic() < cierre or p.get("game_over_en")
+            or p.get("resultado_guardado")):
+        return []
+    s = SALAS.get(p.get("sala"))
+    if not (s and s["miembros"] == [conexion]):
+        return []
+    from servidor.cuentas import leer
+    p["cierre_bajas"] = None
+    p["muertos"] = len(p.get("bajas_stage", ()))
+    print("Stage %s: objetivo cumplido (%d bajas) sin aviso de fin del cliente"
+          % (p.get("escenario"), p["muertos"]), flush=True)
+    return fin_de_stage(0x1064, b"", conexion, leer(conexion), p)
+
+
 def game_over(c, p, conexion):
     """★ GAME OVER (medido 16:20–16:26): 0x1069 = modo espectador («<Jump Key> pushing allow
     viewing of other players», sin HUD); con todos muertos (acá: uno solo) no hay a quién mirar
@@ -78,7 +108,10 @@ def cuerpo_1072(conexion, p):
 @maneja(0x105F)
 def termino_de_cargar(cmd, cuerpo, conexion, c, p):
     """terminó de cargar: corre el reloj"""
-    p.update(inicio=time.time(), muertos=0, golpes=0, revividas=0)
+    p.update(inicio=time.time(), muertos=0, golpes=0, revividas=0, resultado_guardado=False,
+             bajas_stage=set(), cierre_bajas=None)
+    if p.get("escenario") in ESCENARIOS:
+        print(f"[bajas] Stage {p['escenario']}: 0/{ESCENARIOS[p['escenario']][3]}", flush=True)
     # ★ 0x106C (aporte de Hysteria-xyz, PR #3): «activar al jugador en la stage». El manejador del
     #   cliente (`0x547A60`) lee u8 JUGADOR · u8; si el 1º no es su número (cuenta+0x706) no hace nada;
     #   si lo es, entre otras cosas manda «CursorCenter 1» (agarra el mouse). Según el PR, sin él las
@@ -102,8 +135,24 @@ def termino_de_cargar(cmd, cuerpo, conexion, c, p):
 
 @maneja(0x1061)
 def npc_muerto(cmd, cuerpo, conexion, c, p):
-    """un NPC muerto [§5.11]"""
+    """un NPC muerto [§5.11]: `u8 n · u8 1 · 6 × 0` (n = el NPC)"""
     p["muertos"] = p.get("muertos", 0) + 1
+    esc = p.get("escenario")
+    if esc in ESCENARIOS and p.get("inicio") and len(cuerpo) >= 2 and not p.get("resultado_guardado"):
+        bajas = p.setdefault("bajas_stage", set())
+        antes = len(bajas)
+        bajas.add(struct.unpack_from("<H", cuerpo)[0])
+        total = ESCENARIOS[esc][3]
+        if len(bajas) != antes:
+            print(f"[bajas] Stage {esc}: {len(bajas)}/{total}. Restantes según catálogo: "
+                  f"{max(0, total - len(bajas))}", flush=True)
+        # ★ el cierre por bajas (ver `cerrar_por_bajas`): si el aviso del cliente llega antes,
+        #   `resultado_guardado` lo frena; si llega tarde, el 0x1064 no paga dos veces.
+        #   🟡 la espera es nuestra (3 s en 1-4 Fácil, la medida; 8 s en las demás)
+        s = SALAS.get(p.get("sala"))
+        if (s and s["miembros"] == [conexion] and len(bajas) >= total
+                and p.get("cierre_bajas") is None):
+            p["cierre_bajas"] = time.monotonic() + (3 if esc == 1041 else 8)
     return []
 
 
@@ -204,6 +253,9 @@ def estoy_vivo(cmd, cuerpo, conexion, c, p):
     # ★ el único momento en que el server puede hablar sin que le pregunten (el espía sólo
     #   contesta): acá sale lo que quedó pendiente por TIEMPO, p. ej. el game over
     r = [(0x1001, b"\x80", 0)]
+    cierre = cerrar_por_bajas(p, conexion)
+    if cierre:
+        return r + [x[:3] for x in cierre]
     if p.get("game_over_en") and time.time() >= p["game_over_en"]:
         # (con un espía viejo, sin `tick`: sale con el «estoy vivo», hasta 20 s tarde)
         r += [x[:3] for x in game_over(c, p, conexion)]
@@ -255,6 +307,10 @@ def usar_moneda(cmd, cuerpo, conexion, c, p):
 @maneja(0x1064)
 def fin_de_stage(cmd, cuerpo, conexion, c, p):
     """★ la stage terminó [§5.13, §5.14]"""
+    if p.get("resultado_guardado"):                     # (el aviso tardío no paga dos veces)
+        return []
+    p["resultado_guardado"] = True
+    p["cierre_bajas"] = None
     inicio = p.get("inicio") or time.time()
     ms = int((time.time() - inicio) * 1000)
     # ★ el premio sale del XML del escenario (RANK_POINT, KILL_POINT, TOTALEXP, MONSTER_CNT,
@@ -312,38 +368,55 @@ def fin_de_stage(cmd, cuerpo, conexion, c, p):
 
 @maneja(0x1070)
 def elegir_carta(cmd, cuerpo, conexion, c, p):
-    """eligió una carta: u8 fila · u8 carta"""
+    """eligió: u8 TIPO · u8 número"""
     if not (len(cuerpo) >= 2):
         return None
-    # ★ 0x1071 (`0x546B70`, 11 B): u8 1 · u8 FILA (la animación, `0x5095F0`) · u8 JUGADOR ·
-    #   u32 EXP ganada con cartas (acumulada → `0x612AC0`; la carta muestra la diferencia) ·
-    #   u32 puntos que QUEDAN (→ +0x251). ⚠ Antes iba el número de CARTA donde va el jugador:
-    #   el cliente lo compara con el suyo (cuenta+0x705) y, distinto, NO da vuelta la carta
-    #   (El tester, 19:55: «la tarjeta no se volteó»).
-    #   🟡 Cuánta EXP da una carta no se sabe: acá, lo que costó (350 / 150 / 50).
-    # ⚠ el 0x1070 es u8 · u8 CARTA numerada de corrido (oro 0–3, plata 4–9, bronce 10–17;
-    #   medido 20:00: la 1ª de oro = «00 00», la 1ª de bronce = «00 0a») → la fila como la
-    #   saca el cliente (`0x500810`). Antes se tomaba el 1er byte como fila: siempre «oro».
-    carta_n = cuerpo[1]
+    # ★ 0x1070 (`0x546A80`) = u8 TIPO · u8 número. Medido en el exe (13-nov):
+    #   · TIPO 0 = una CARTA (doble clic, `0x5007D0`): número de corrido (oro 0–3, plata 4–9,
+    #     bronce 10–17; la fila como `0x500810`). El cliente sólo la manda si su casilla en
+    #     `+0xF8` (18 × 16 B, `0x6111E0`) está VACÍA (u8 +4 = 0xFF): sin darla vuelta, la volvía a
+    #     mandar en cada clic.
+    #   · TIPO 1 = el botón «EXP» de una FILA (`0x500840`, controles 0x29–0x2B): número = fila.
+    # ★ 0x1071 (`0x546B70`) tiene DOS formas según su 1er byte:
+    #   · u8 0 · u8 CARTA · 5 B · u32 puntos que QUEDAN, y 16 B más: la CARA de la carta
+    #     (4 B · u8 JUGADOR · u32 EXP (+5) · u32 ORO (+9) · u16 TIPO de ítem · u8 cantidad) →
+    #     `0x611BC0` la guarda en la casilla y `0x50E200` dibuja las llenas = la carta SE DA VUELTA
+    #     («Mazino · Gold · Exp» y el ícono y nombre del ítem: medido 13-nov).
+    #   · u8 1 · u8 FILA · u8 JUGADOR · u32 EXP de cartas acumulada · u32 puntos que QUEDAN → la
+    #     flecha EXP de la fila (`0x5095F0`) y la EXP que suma AWARD RESULTS (`0x612AC0`).
+    #   Antes iba sólo la forma 1: cobraba y animaba la fila, pero la carta seguía de dorso.
+    #   🟡 Cuánta EXP da una carta no se sabe: acá, lo que costó (350 / 150 / 50); oro 0.
     # ★ (PR #5, Urek-Mazinoo) la MISMA carta no se cobra dos veces, ni una fuera de las 18, ni fuera
-    #   del tiempo de las cartas, ni una que no alcanza: eso no se contesta (la versión del PR #5:
-    #   antes, sin puntos salía un 0x1071 sin cobrar)
+    #   del tiempo de las cartas, ni una que no alcanza: eso no se contesta.
+    tipo, numero = cuerpo[0], cuerpo[1]
     hasta = p.get("cartas_hasta")
     elegidas = p.setdefault("cartas_elegidas", set())
-    if carta_n >= 18 or not hasta or time.time() >= hasta or carta_n in elegidas:
+    if not hasta or time.time() >= hasta:
         return []
-    fila = 0 if carta_n < 4 else (1 if carta_n < 10 else 2)
+    if tipo == 0 and numero < 18:
+        fila, clave = (0 if numero < 4 else (1 if numero < 10 else 2)), numero
+    elif tipo == 1 and numero < 3:
+        fila, clave = numero, ("fila", numero)          # 🟡 una vez por fila (sin doble cobro)
+    else:
+        return []
     precio = PRECIOS[fila]
-    if p.get("puntos", 0) < precio:
+    if clave in elegidas or p.get("puntos", 0) < precio:
         return []
-    elegidas.add(carta_n)
+    elegidas.add(clave)
     p["puntos"] -= precio
     p["exp_cartas"] = p.get("exp_cartas", 0) + precio
     c["exp"] += precio
+    premio = premio_de_carta(p.get("escenario")) if tipo == 0 else None
+    if premio:                                          # el ítem de la carta, a la bolsa
+        dar_premio(c, p.get("escenario"), elegir=(2, premio[0], premio[1]))
     guardar(c)
-    carta = struct.pack("<BBBII", 1, fila, numero_jugador(conexion), p.get("exp_cartas", 0),
-                        p.get("puntos", 0))
-    r = [(0x1071, carta, 0)]
+    jugador = numero_jugador(conexion)
+    r = []
+    if tipo == 0:                                       # la CARA: la carta se da vuelta
+        tipo_it, cant = premio or (0, 0)
+        cara = struct.pack("<4xBIIHB", jugador, precio, 0, tipo_it, min(cant, 255))
+        r.append((0x1071, struct.pack("<BB5xI", 0, numero, p["puntos"]) + cara, 0))
+    r.append((0x1071, struct.pack("<BBBII", 1, fila, jugador, p["exp_cartas"], p["puntos"]), 0))
     if p.get("puntos", 0) < min(PRECIOS):               # ya no alcanza para otra carta
         p["cartas_hasta"] = None
         r.append((0x1072, cuerpo_1072(conexion, p), 1500))

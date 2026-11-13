@@ -32,7 +32,7 @@ from servidor import config                                  # noqa: E402
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO, partida   # noqa: E402
 from servidor.cuentas import NOMBRES, leer, ruta_cuenta, nivel   # noqa: E402
 from servidor.salas import avisar_lista, avisar_usuarios     # noqa: E402
-from servidor.partida import cuerpo_1072, game_over          # noqa: E402
+from servidor.partida import cerrar_por_bajas, cuerpo_1072, fin_de_stage, game_over  # noqa: E402
 from servidor.registro import MANEJADORES                    # noqa: E402
 from servidor.relay import escribir_relay                    # noqa: E402
 # los módulos que REGISTRAN manejadores (importarlos es lo que los anota)
@@ -70,6 +70,20 @@ def responder(cmd, cuerpo, conexion):
 CAMBIAN_SALAS = (0x101D, 0x101F, 0x1045, 0x1051)
 
 
+def segundos_fin_rapido():
+    """🧪 ATAJO DE PRUEBA (apagado si no existe el archivo): con <EDA_ESTADO>/fin_rapido la stage
+    termina sola a los N segundos de cargar (N = el número dentro; vacío = 10) → resultado →
+    REWARD CHOICE, sin jugarla entera. Con `puntos_extra` da puntos para las cartas."""
+    ruta = os.path.join(config.ESTADO, "fin_rapido")
+    if not os.path.exists(ruta):
+        return None
+    try:
+        v = float(open(ruta, encoding="utf-8").read().strip() or 10)
+    except (OSError, ValueError):
+        v = 10.0
+    return v if v > 0 else None                         # con 0 adentro: apagado
+
+
 def tick(conexiones):
     """Cada segundo (lo llama el espía): lo que el server tiene que decir por TIEMPO."""
     r = nat.tick(conexiones)                                # los 0x0609 pendientes (P2P entre casas, §53)
@@ -84,6 +98,14 @@ def tick(conexiones):
         p = PARTIDAS.get(n)
         if p and p.get("game_over_en") and time.time() >= p["game_over_en"]:
             r += game_over(leer(n), p, n)
+        if p:                                               # el cierre por bajas, al segundo
+            r += [x[:3] + (n,) for x in cerrar_por_bajas(p, n)]
+        espera = segundos_fin_rapido() if p and p.get("inicio") else None
+        if (espera is not None and not p.get("resultado_guardado") and not p.get("game_over_en")
+                and time.time() - p["inicio"] >= espera):
+            print("🧪 fin_rapido: la stage %s termina a los %g s (atajo de prueba)"
+                  % (p.get("escenario"), espera), flush=True)
+            r += [x[:3] + (n,) for x in fin_de_stage(0x1064, b"", n, leer(n), p)]
         # ★ vencido el tiempo de las cartas sin elegir (p. ej. con 0 puntos no se puede elegir
         #   ninguna: medido 19:22, el reloj llega a 0 y la pantalla se queda) → AWARD RESULTS
         if p and p.get("cartas_hasta") and time.time() >= p["cartas_hasta"]:

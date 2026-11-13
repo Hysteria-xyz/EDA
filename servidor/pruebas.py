@@ -98,10 +98,16 @@ def control():
     puntos = PRECIOS[2] + 30                                # alcanza para el bronce, no para otra
     partida(99)["puntos"] = puntos
     r = responder(0x1070, bytes.fromhex("000a"), 99)           # la 1ª de bronce, medida (20:00)
+    r1071 = [x[1] for x in r if x[0] == 0x1071]
+    chequear("carta de bronce: dos 0x1071 (la CARA de 27 B + la EXP de 11 B)",
+             [len(x) for x in r1071] == [27, 11], [len(x) for x in r1071])
     chequear("carta de bronce: %d − %d puntos" % (puntos, PRECIOS[2]),
-             struct.unpack_from("<I", r[0][1], 7)[0] == max(0, puntos - PRECIOS[2]))
-    chequear("0x1071: u8 1 · FILA 2 · JUGADOR 0 (no la carta) · EXP de cartas %d" % PRECIOS[2],
-             r[0][1][:3] == b"\1\2\0" and struct.unpack_from("<I", r[0][1], 3)[0] == PRECIOS[2])
+             all(struct.unpack_from("<I", x, 7)[0] == max(0, puntos - PRECIOS[2]) for x in r1071))
+    chequear("★ 0x1071 forma 0: CARTA 10 en el byte 1, JUGADOR 0 y EXP %d en la cara" % PRECIOS[2],
+             r1071[0][:2] == b"\0\x0a" and r1071[0][11 + 4] == 0
+             and struct.unpack_from("<I", r1071[0], 11 + 5)[0] == PRECIOS[2], r1071[0].hex())
+    chequear("0x1071 forma 1: u8 1 · FILA 2 · JUGADOR 0 · EXP de cartas %d" % PRECIOS[2],
+             r1071[1][:3] == b"\1\2\0" and struct.unpack_from("<I", r1071[1], 3)[0] == PRECIOS[2])
     quedan = max(0, puntos - PRECIOS[2])
     hay_1072 = [x for x in r if x[0] == 0x1072]
     chequear("con %d puntos %s otra carta → %s 0x1072" % (
@@ -115,9 +121,17 @@ def control():
         partida(99).update(puntos=1000, exp_cartas=0, cartas_hasta=time.time() + 60, cartas_elegidas=set())
         antes_exp = leer(99)["exp"]
         r = responder(0x1070, bytes([0, carta_n]), 99)
-        chequear("carta %d → fila %d (cobra %d)" % (carta_n, fila_esperada, PRECIOS[fila_esperada]),
-                 r[0][1][1] == fila_esperada
-                 and struct.unpack_from("<I", r[0][1], 7)[0] == 1000 - PRECIOS[fila_esperada])
+        chequear("carta %d → se da vuelta (forma 0) · fila %d (cobra %d)" % (
+            carta_n, fila_esperada, PRECIOS[fila_esperada]),
+                 r[0][1][:2] == bytes([0, carta_n]) and r[1][1][:2] == bytes([1, fila_esperada])
+                 and struct.unpack_from("<I", r[1][1], 7)[0] == 1000 - PRECIOS[fila_esperada])
+        tp_c = tabla_premios()
+        if tp_c:
+            it_carta = struct.unpack_from("<H", r[0][1], 11 + 0xD)[0]
+            chequear("carta %d: la cara trae un ítem de StageReward 1011 (%d) y entra a la bolsa" % (
+                carta_n, it_carta),
+                     it_carta in {d for t_, d, _ in tp_c[1011][1] if t_ == 2 and d != NADA}
+                     and any(x[0] == it_carta for x in leer(99)["items"]))
         # ★ (PR #5) la misma carta otra vez: no se contesta ni se cobra
         repetida = responder(0x1070, bytes([0, carta_n]), 99)
         chequear("★ el revés: la carta %d otra vez → sin 2.º cobro (la EXP quedó guardada una vez)" % carta_n,
@@ -131,9 +145,68 @@ def control():
     for carta_n, que in ((18, "fuera de las 18"), (255, "fuera de las 18")):
         chequear("★ el revés: una carta %s (%d) no se contesta" % (que, carta_n),
                  responder(0x1070, bytes([0, carta_n]), 99) == [])
+    for fila_n in (0, 1, 2):                                # el botón «EXP» de la fila (TIPO 1)
+        partida(99).update(puntos=1000, exp_cartas=0, cartas_hasta=time.time() + 60, cartas_elegidas=set())
+        r = responder(0x1070, bytes([1, fila_n]), 99)
+        repetida = responder(0x1070, bytes([1, fila_n]), 99)
+        chequear("botón EXP de la fila %d → sólo la forma 1, cobra %d una vez" % (fila_n, PRECIOS[fila_n]),
+                 [x[1][:2] for x in r if x[0] == 0x1071] == [bytes([1, fila_n])] and repetida == []
+                 and partida(99)["puntos"] == 1000 - PRECIOS[fila_n])
+    chequear("★ el revés: TIPO 1 con fila 3, o TIPO 2, no se contestan",
+             responder(0x1070, b"\1\3", 99) == [] and responder(0x1070, b"\2\0", 99) == [])
     partida(99).update(puntos=1000, cartas_hasta=time.time() - 1)
     chequear("★ el revés: vencido el tiempo de las cartas, no se cobra",
              responder(0x1070, b"\0\2", 99) == [] and partida(99)["puntos"] == 1000)
+    # ★ el cierre por bajas, en cualquier stage (2-1 Normal y 1-4 Fácil)
+    from servidor.juego import tick
+    from servidor.partida import cerrar_por_bajas
+    for esc, espera in ((1021, 8), (1041, 3)):
+        total = ESCENARIOS[esc][3]
+        SALAS["prueba_bajas"] = {"sala": bytes(0x59), "miembros": [94], "anfitrion": 94}
+        partida(94).update(sala="prueba_bajas", escenario=esc, game_over_en=None)
+        responder(0x105F, b"\0" * 4, 94)
+        for k in range(total - 1):
+            responder(0x1061, struct.pack("<H", k) + b"\0" * 6, 94)
+        responder(0x1061, struct.pack("<H", 0) + b"\0" * 6, 94)          # repetida: no cuenta
+        chequear("%d: %d de %d bajas distintas → sin cierre" % (esc, total - 1, total),
+                 partida(94).get("cierre_bajas") is None)
+        responder(0x1061, struct.pack("<H", total - 1) + b"\0" * 6, 94)
+        c_ = partida(94).get("cierre_bajas")
+        chequear("%d: con las %d → cierre programado a los %d s" % (esc, total, espera),
+                 c_ is not None and abs(c_ - time.monotonic() - espera) < 1)
+        chequear("%d: antes de la espera, tick no cierra" % esc,
+                 not [x for x in tick([94]) if x[0] == 0x1073])
+        partida(94)["cierre_bajas"] = time.monotonic() - 1
+        t = [x for x in tick([94]) if x[3] == 94]
+        chequear("%d: vencida la espera, tick → 1073 + 106E + 106F" % esc,
+                 [x[0] for x in t] == [0x1073, 0x106E, 0x106F], [hex(x[0]) for x in t])
+        chequear("%d: el aviso tardío del cliente no paga dos veces" % esc,
+                 responder(0x1064, b"\0", 94) == [] and not [x for x in tick([94]) if x[0] == 0x1073])
+    partida(94).update(escenario=1021, game_over_en=None)
+    responder(0x105F, b"\0" * 4, 94)
+    for k in range(ESCENARIOS[1021][3]):
+        responder(0x1061, struct.pack("<H", k) + b"\0" * 6, 94)
+    r = responder(0x1064, b"\0", 94)
+    chequear("★ el revés: si el cliente avisa a tiempo, el cierre por bajas no se suma",
+             [x[0] for x in r] == [0x1073, 0x106E, 0x106F]
+             and not [x for x in tick([94]) if x[0] == 0x1073]
+             and cerrar_por_bajas(dict(partida(94), cierre_bajas=time.monotonic() - 1), 94) == [])
+    # 🧪 el atajo fin_rapido (apagado sin el archivo)
+    partida(94).update(inicio=time.time() - 30, resultado_guardado=False, game_over_en=None)
+    chequear("sin el archivo fin_rapido, tick no termina la stage",
+             not [x for x in tick([94]) if x[0] == 0x1073])
+    ruta_fr = os.path.join(config.ESTADO, "fin_rapido")
+    open(ruta_fr, "w").write("0")
+    chequear("★ el revés: fin_rapido con 0 = apagado", not [x for x in tick([94]) if x[0] == 0x1073])
+    open(ruta_fr, "w").write("5")
+    try:
+        t = [x for x in tick([94]) if x[3] == 94]
+        chequear("🧪 con fin_rapido (5 s): tick → 1073 + 106E + 106F",
+                 [x[0] for x in t] == [0x1073, 0x106E, 0x106F], [hex(x[0]) for x in t])
+        chequear("🧪 fin_rapido: una sola vez", not [x for x in tick([94]) if x[0] == 0x1073])
+    finally:
+        os.remove(ruta_fr)
+    del SALAS["prueba_bajas"]
     tp2 = tabla_premios()
     if tp2:
         cc = {"items": [], "plata": 0, "exp": 0}
