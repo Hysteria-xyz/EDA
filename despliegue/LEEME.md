@@ -5,7 +5,7 @@ lado: acá se lo monta en un VPS Linux con Docker, con dos copias:
 
 | entorno | rama | puerto TCP | relay UDP | se actualiza |
 |---|---|---|---|---|
-| **prod** | `main` | 25900 | 26000–26200 | a mano: `actualizar.sh prod` |
+| **prod** | `main` | 25900 | 26000–26200 | **solo**, a los 5 min de cada fusión en `main` (2 aprobaciones): respaldo de las cuentas antes (`/opt/eda/respaldos/`) y vuelta atrás si no contesta |
 | **prueba** | `develop` | 35900 | 36000–36200 | **solo**, a los 5 min de cada cambio en `develop` |
 
 Los jugadores entran con `py jugar.py --server IP:25900` (o `:35900` para probar lo nuevo).
