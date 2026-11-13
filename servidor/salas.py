@@ -154,10 +154,16 @@ def entrar_sala(cmd, cuerpo, conexion, c, p):
     # cuerpo (26 B): u32 0 · u16 número de sala · 🟡 (16 B: ¿la clave?)
     num = struct.unpack_from("<H", cuerpo, 4)[0]
     s = SALAS.get(num)
-    if s is None or len(s["miembros"]) >= s["sala"][0x2F]:
+    if s is None or s.get("jugando") or len(s["miembros"]) >= s["sala"][0x2F]:
         return [(0x1020, struct.pack("<H", 0) + bytes(99), 0)]   # 🟡 «no se pudo»
-    s["miembros"].append(conexion)
+    # si ya estaba en otra sala, salir limpiamente de ella primero
+    vieja = p.get("sala")
+    if vieja and vieja != num and vieja in SALAS and conexion in SALAS[vieja]["miembros"]:
+        _sacar_de_sala(SALAS[vieja], vieja, conexion)
+    if conexion not in s["miembros"]:
+        s["miembros"].append(conexion)
     p["sala"] = num
+    p["escenario"] = struct.unpack_from("<H", s["sala"], 0x28)[0] if len(s["sala"]) >= 0x2A else 1011
     yo = s["miembros"].index(conexion)
     sala = bytearray(s["sala"])
     sala[0x2D], sala[0x2E] = 1, len(s["miembros"])
@@ -198,6 +204,8 @@ def cambiar_sala(cmd, cuerpo, conexion, c, p):
 def _sacar_de_sala(s, num, conexion):
     """Saca a `conexion` de la sala; si era el anfitrión, el mando pasa al siguiente. Devuelve los
     avisos 0x1058 tipo 3 («se fue», con el número del NUEVO anfitrión) para los que quedan."""
+    if conexion not in s["miembros"]:
+        return []
     yo = s["miembros"].index(conexion)
     s["miembros"].remove(conexion)
     if not s["miembros"]:
@@ -314,13 +322,18 @@ def chat(cmd, cuerpo, conexion, c, p):
             if len(partes) >= 2 and partes[1].isdigit():
                 iid = int(partes[1])
                 cant = int(partes[2]) if len(partes) >= 3 and partes[2].isdigit() else 1
-                items = c.setdefault("items", [])
-                for it in items:
-                    if it[0] == iid:
-                        it[1] += cant
-                        break
+                from servidor.objetos import inventario, libre_en_bolsa, serial_nuevo
+                inv = inventario(c)
+                it = next((x for x in inv if x[0] == iid and x[2] >= 18), None)
+                if it:
+                    it[1] += cant
                 else:
-                    items.append([iid, cant])
+                    try:
+                        slot = libre_en_bolsa(inv)
+                        inv.append([iid, cant, slot, serial_nuevo(inv), 1])
+                    except StopIteration:
+                        return _aviso("La bolsa está llena")
+                c["items"] = inv
                 guardar(c)
                 return _aviso(f"Item {iid} (x{cant}) agregado")
             return _aviso("Uso: /item <id> [cantidad]")
@@ -343,9 +356,9 @@ def chat(cmd, cuerpo, conexion, c, p):
                     pass
             return _aviso("Uso: /stats <str> <con> <dex> <int> <wis>")
         elif sub in ("limpiar", "clear"):
-            c["items"] = [x for x in c.get("items", []) if len(x) > 2 and x[2] < 12]
+            c["items"] = [x for x in c.get("items", []) if len(x) > 2 and x[2] < 18]
             guardar(c)
-            return _aviso("Bolsa limpiada (equipo conservado)")
+            return _aviso("Bolsa limpiada (equipo y atajos conservados)")
         elif sub in ("ayuda", "help"):
             return _aviso(f"Comandos GM: /oro <n>, /cash <n>, /monedas <n>, /nivel <1-{len(EXPS)}>, /item <id> [cant], /stats <5 valores>, /limpiar")
         return _aviso(f"Comando desconocido: /{sub}. Usa /ayuda")

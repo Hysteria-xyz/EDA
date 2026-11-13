@@ -65,7 +65,7 @@ def vender(cmd, cuerpo, conexion, c, p):
     inv = inventario(c)
     it = next((x for x in inv if x[3] == serial), None)
     precio = precios_venta().get(it[0]) if it else None
-    if it is None or precio is None or it[2] < 12:      # 🟡 lo puesto no se vende
+    if it is None or precio is None or it[2] < 18:      # 🟡 lo puesto y la barra de atajos no se venden
         return [(0x1042, struct.pack("<HIIB", 0, serial, c["plata"], 0), 0)]
     inv.remove(it)
     c["items"] = inv

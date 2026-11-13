@@ -240,13 +240,22 @@ def usar_moneda(cmd, cuerpo, conexion, c, p):
 @maneja(0x1064)
 def fin_de_stage(cmd, cuerpo, conexion, c, p):
     """★ la stage terminó [§5.13, §5.14]"""
-    ms = int((time.time() - (p["inicio"] or time.time())) * 1000)
+    inicio = p.get("inicio") or time.time()
+    ms = int((time.time() - inicio) * 1000)
     # ★ el premio sale del XML del escenario (RANK_POINT, KILL_POINT, TOTALEXP, MONSTER_CNT,
-    #   RANKRATE). 🟡 CÓMO los combinaba Softnyx no se sabe: acá, proporcional a los NPC muertos
-    rp, kp, te, mc = ESCENARIOS.get(p["escenario"], ESCENARIOS[1011])
-    frac = min(1.0, p["muertos"] / float(mc))
+    #   RANKRATE). Si no estaba en p, sale de la sala
+    esc = p.get("escenario")
+    if not esc:
+        s = SALAS.get(p.get("sala"))
+        if s and len(s["sala"]) >= 0x2A:
+            esc = struct.unpack_from("<H", s["sala"], 0x28)[0]
+    esc = esc or 1011
+    p["escenario"] = esc
+    rp, kp, te, mc = ESCENARIOS.get(esc, ESCENARIOS[1011])
+    muertos = p.get("muertos", 0)
+    frac = min(1.0, muertos / float(mc)) if mc > 0 else 1.0
     exp_ganada = max(1, int(round(te * frac)))
-    plata_ganada = 100 + 10 * p["muertos"]              # 🟡 la plata: inventada
+    plata_ganada = 100 + 10 * muertos              # 🟡 la plata: inventada
     rango_xml = next((5 - i for i, corte in enumerate(RANKRATE) if frac >= corte), 1)
     antes = nivel(c["exp"])
     c["exp"] += exp_ganada
@@ -270,8 +279,8 @@ def fin_de_stage(cmd, cuerpo, conexion, c, p):
     fin = (struct.pack("<HHIIHB", 1, c["monedas"], c["plata"], c["exp"], 0, n)
            + struct.pack("<IIBB", 0, p["escenario"], 1, 1) + bytes([len(nuevos), 0, 0])
            + regs + bytes([0]))
-    resultado = struct.pack("<IHHHIIB", 0, p["muertos"], p["golpes"], p["revividas"], ms,
-                            p["puntos"], rango)
+    resultado = struct.pack("<IHHHIIB", 0, muertos, p.get("golpes", 0), p.get("revividas", 0), ms,
+                            p.get("puntos", 0), rango)
     cartas = struct.pack("<IIII", 60000, *PRECIOS)
     p["cartas_hasta"] = time.time() + 8 + 60 + 2          # 0x106F a los 8 s + 60 s + margen
     p["exp_cartas"] = 0
