@@ -733,6 +733,78 @@ def control():
     chequear("★ el revés: 0x105C con jugador solitario no difunde",
              len(responder(0x105C, b"\x01\x02\x03\x04", 203)) == 0)
 
+    # ★ entrar_lobby transfiere sala o saca limpiamente
+    SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    r = responder(0x1017, struct.pack("<IB", 0, 0), 301)
+    chequear("entrar_lobby como anfitrión transfiere la sala al invitado con aviso 0x1058",
+             55 in SALAS and SALAS[55]["anfitrion"] == 302 and any(x[0] == 0x1058 and x[3] == 302 for x in r))
+    r = responder(0x1017, struct.pack("<IB", 0, 0), 302)
+    chequear("entrar_lobby como invitado saca de la sala y elimina la sala vacía",
+             55 not in SALAS)
+
+    # ★ cambiar_sala, actualizar_ajustes_sala y ciclo s["jugando"]
+    SALAS[55] = {"sala": bytearray(sala_raw), "anfitrion": 301, "miembros": [301]}
+    partida(301)["sala"] = 55
+    nuevo_tit = "SalaPro".encode("utf-16-le")
+    responder(0x1049, struct.pack("<BH", 0, 1) + nuevo_tit, 301)
+    chequear("cambiar_sala tipo 1 actualiza los bytes del título en s['sala']",
+             SALAS[55]["sala"][6:6 + len(nuevo_tit)] == nuevo_tit)
+    SALAS[55]["miembros"] = [301, 302]
+    partida(302)["sala"] = 55
+    responder(0x104B, struct.pack("<HI", 1, 1012), 301)
+    chequear("actualizar_ajustes_sala tipo 1 sincroniza escenario en todos los miembros",
+             partida(301).get("escenario") == 1012 and partida(302).get("escenario") == 1012)
+    responder(0x104E, b"", 301)
+    chequear("largar marca s['jugando'] = True", SALAS[55].get("jugando") is True)
+    r = responder(0x104E, b"", 301)
+    chequear("★ el revés: segundo 0x104E con partida en curso rechaza con 0x1050",
+             len(r) == 1 and r[0][0] == 0x1050 and struct.unpack_from("<H", r[0][1])[0] == 0x138A)
+    responder(0x1074, b"\x00", 301)
+    chequear("salir_de_stage restablece s['jugando'] = False", SALAS[55].get("jugando") is False)
+    partida(301).pop("sala", None)
+    partida(302).pop("sala", None)
+    del SALAS[55]
+
+    # ★ usar_moneda en cooperativo difunde a los compañeros
+    SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 55
+    partida(302)["sala"] = 55
+    d_rev = leer(301)
+    d_rev["monedas"] = 3
+    guardar(d_rev)
+    r = responder(0x106A, b"\x00\x01\xFF", 301)
+    chequear("usar_moneda en coop difunde 0x106B modo 2 ('revivió otro') al compañero",
+             any(x[0] == 0x106B and x[1][2] == 2 and x[3] == 302 for x in r))
+    partida(301).pop("sala", None)
+    partida(302).pop("sala", None)
+    del SALAS[55]
+
+    # ★ vender stack de consumibles paga precio * cantidad
+    d_v = leer(203)
+    inv_v = inventario(d_v)
+    s_poc = serial_nuevo(inv_v)
+    inv_v += [[26001, 5, libre_en_bolsa(inv_v), s_poc, 1]]
+    d_v["items"] = inv_v
+    oro_antes = d_v["plata"]
+    guardar(d_v)
+    precio_u = precios_venta().get(26001, 0)
+    responder(0x1041, struct.pack("<II", 0, s_poc), 203)
+    d_despues = leer(203)
+    chequear("vender stack de 5 pociones paga 5 * precio unitario",
+             d_despues["plata"] == oro_antes + precio_u * 5)
+
+    # ★ dar_premio con inventario lleno no lanza StopIteration
+    c_llena = {"items": [[1, 1, cas, 1000 + i, 1] for i, cas in enumerate(range(18, 168))],
+               "plata": 0, "exp": 0}
+    try:
+        dar_premio(c_llena, 1011)
+        premio_ok = True
+    except StopIteration:
+        premio_ok = False
+    chequear("dar_premio con bolsa llena (150 casilleros) no crashea con StopIteration", premio_ok)
+
     # ★ 0x1060 / 0x106D: sincronización de temporizador de stage
     r = responder(0x1060, struct.pack("<I", 12345), 203)
     chequear("0x1060 responde con tick de 4 bytes", len(r) == 1 and r[0][0] == 0x1060 and len(r[0][1]) == 4)
@@ -911,6 +983,10 @@ def pruebas_personajes(chequear):
         r = responder(0x1015, struct.pack("<IB", n, 4), n)
         chequear("0x1015 borrando el lugar 4 → 0x1016 = u16 1 · u8 4, y la cuenta tiene uno menos",
                  r[0] == (0x1016, struct.pack("<HB", 1, 4), 0) and len(leer(n)["pjs"]) == antes - 1)
+        r_re = crear(4, 1, "Recreado")
+        chequear("borrar lugar 4 permite recrear en ese casillero inmediatamente (memoria c sincronizada)",
+                 r_re[0][0] == 0x1014 and r_re[0][1][:2] == b"\1\0")
+        responder(0x1015, struct.pack("<IB", n, 4), n)
         r = responder(0x1015, struct.pack("<IB", n, 4), n)
         chequear("★ el revés: borrar un lugar VACÍO → resultado 0 y nada cambia",
                  struct.unpack_from("<H", r[0][1])[0] == 0 and len(leer(n)["pjs"]) == antes - 1)

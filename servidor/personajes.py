@@ -178,6 +178,11 @@ def borrar(cmd, cuerpo, conexion, c, p):
     crudo = {k: c[k] for k in ("nombre", "plata", "cash", "monedas") if k in c}
     crudo.update(pjs=pjs, activo=activo)
     escribir(c["nombre"], crudo)
+    c["pjs"] = pjs
+    c["activo"] = activo
+    nueva = leer(conexion)
+    c.clear()
+    c.update(nueva)
     return [(0x1016, struct.pack("<HB", 1, lugar), 0)]
 
 

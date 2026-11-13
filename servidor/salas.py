@@ -197,6 +197,13 @@ def cambiar_sala(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     r = [(0x104A, struct.pack("<HH", 1, tipo) + texto, 0)]
     if s:
+        if tipo == 1 and len(s["sala"]) >= 0x28:
+            sala_b = bytearray(s["sala"])
+            limite = min(len(texto), 0x22)
+            sala_b[6:6 + limite] = texto[:limite]
+            if 6 + limite < 0x28:
+                sala_b[6 + limite:0x28] = bytes(0x28 - (6 + limite))
+            s["sala"] = bytes(sala_b)
         r += [(0x104A, struct.pack("<HH", 1, tipo) + texto, 0, n) for n in s["miembros"] if n != conexion]
     return r
 
@@ -301,13 +308,13 @@ def chat(cmd, cuerpo, conexion, c, p):
         sub = partes[0].lower() if partes else ""
         if sub in ("oro", "gold"):
             if len(partes) >= 2 and partes[1].isdigit():
-                c["plata"] = max(0, int(partes[1]))
+                c["plata"] = max(0, min(int(partes[1]), 2_000_000_000))
                 guardar(c)
                 return _aviso(f"Oro actualizado a {c['plata']}")
             return _aviso("Uso: /oro <cantidad>")
         elif sub == "cash":
             if len(partes) >= 2 and partes[1].isdigit():
-                c["cash"] = max(0, int(partes[1]))
+                c["cash"] = max(0, min(int(partes[1]), 2_000_000_000))
                 guardar(c)
                 return _aviso(f"Cash actualizado a {c['cash']}")
             return _aviso("Uso: /cash <cantidad>")
@@ -322,15 +329,15 @@ def chat(cmd, cuerpo, conexion, c, p):
             if len(partes) >= 2 and partes[1].isdigit():
                 iid = int(partes[1])
                 cant = int(partes[2]) if len(partes) >= 3 and partes[2].isdigit() else 1
-                from servidor.objetos import inventario, libre_en_bolsa, serial_nuevo
+                from servidor.objetos import inventario, libre_en_bolsa, serial_nuevo, es_equipo
                 inv = inventario(c)
-                it = next((x for x in inv if x[0] == iid and x[2] >= 18), None)
+                it = next((x for x in inv if x[0] == iid and x[2] >= 18 and not es_equipo(iid)), None)
                 if it:
-                    it[1] += cant
+                    it[1] = min(999, it[1] + cant)
                 else:
                     try:
                         slot = libre_en_bolsa(inv)
-                        inv.append([iid, cant, slot, serial_nuevo(inv), 1])
+                        inv.append([iid, min(999, cant) if not es_equipo(iid) else 1, slot, serial_nuevo(inv), 1])
                     except StopIteration:
                         return _aviso("La bolsa está llena")
                 c["items"] = inv
@@ -339,14 +346,14 @@ def chat(cmd, cuerpo, conexion, c, p):
             return _aviso("Uso: /item <id> [cantidad]")
         elif sub in ("moneda", "monedas"):
             if len(partes) >= 2 and partes[1].isdigit():
-                c["monedas"] = max(0, int(partes[1]))
+                c["monedas"] = max(0, min(int(partes[1]), 999))
                 guardar(c)
                 return _aviso(f"Monedas actualizadas a {c['monedas']}")
             return _aviso("Uso: /monedas <cantidad>")
         elif sub == "stats":
             if len(partes) >= 2:
                 try:
-                    vals = [max(0, int(x)) for x in partes[1:6]]
+                    vals = [max(0, min(int(x), 9999)) for x in partes[1:6]]
                     while len(vals) < 5:
                         vals.append(0)
                     c["stats"] = vals
@@ -479,10 +486,16 @@ def actualizar_ajustes_sala(cmd, cuerpo, conexion, c, p):
     tipo = struct.unpack_from("<H", cuerpo, 0)[0]
     if tipo == 1 and len(cuerpo) >= 6:
         esc = struct.unpack_from("<I", cuerpo, 2)[0]
-        struct.pack_into("<I", s["sala"], 0x28, esc)
+        sala_b = bytearray(s["sala"])
+        struct.pack_into("<I", sala_b, 0x28, esc)
+        s["sala"] = bytes(sala_b)
         p["escenario"] = esc
+        for m in s["miembros"]:
+            partida(m)["escenario"] = esc
     elif tipo == 2 and len(cuerpo) >= 3 and len(s["sala"]) > 0x2C:
-        s["sala"][0x2C] = cuerpo[2]
+        sala_b = bytearray(s["sala"])
+        sala_b[0x2C] = cuerpo[2]
+        s["sala"] = bytes(sala_b)
     return [(0x104B, cuerpo, 0, n) for n in s["miembros"] if n != conexion]
 
 
@@ -542,11 +555,13 @@ def entrar_lobby(cmd, cuerpo, conexion, c, p):
     cuerpo18 = (struct.pack("<HBIH", 1, 0, len(n1), len(habs)) + canal
                 + b"".join(struct.pack("<IIBB", 0, m, 1, 1) for m in n1)
                 + b"".join(obj_habilidad(h) for h in habs))
-    # al volver al lobby deja de ser anfitrión de su sala
-    for viejo in [k for k, v in SALAS.items() if v["anfitrion"] == conexion]:
-        del SALAS[viejo]
+    # al volver al lobby sale limpiamente de cualquier sala
+    avisos_salida = []
+    vieja = p.pop("sala", None)
+    if vieja and vieja in SALAS and conexion in SALAS[vieja]["miembros"]:
+        avisos_salida = _sacar_de_sala(SALAS[vieja], vieja, conexion)
     # ★ y la lista de salas, apenas entra (cuando ya está en la pantalla del lobby)
-    return (previo + [(0x1018, cuerpo18, 0), (0x101C, lista_salas(), 1500),
+    return (avisos_salida + previo + [(0x1018, cuerpo18, 0), (0x101C, lista_salas(), 1500),
              (0x101B, lista_usuarios(), 1700)]
             + [(x[0], x[1], 1700, x[3]) for x in avisar_usuarios(salvo=conexion)])
 
@@ -565,11 +580,14 @@ def crear_sala(cmd, cuerpo, conexion, c, p):
     struct.pack_into("<H", sala, 4, num)                # número de sala (el cliente: 0xFFFF)
     if sala[0x2F] == 0:
         sala[0x2F] = 3                                  # máximo de jugadores
-    for viejo in [k for k, v in SALAS.items() if v["anfitrion"] == conexion]:
-        del SALAS[viejo]                                # una sala por anfitrión
+    # si ya estaba en otra sala (como anfitrión o invitado), salir limpiamente de ella
+    avisos_salida = []
+    vieja = p.get("sala")
+    if vieja and vieja in SALAS and conexion in SALAS[vieja]["miembros"]:
+        avisos_salida = _sacar_de_sala(SALAS[vieja], vieja, conexion)
     SALAS[num] = {"sala": bytes(sala), "anfitrion": conexion, "miembros": [conexion]}
     p["sala"] = num
-    return ([(0x101E, struct.pack("<HBBB", 1, 0, 0, 0) + bytes(sala), 0)]
+    return (avisos_salida + [(0x101E, struct.pack("<HBBB", 1, 0, 0, 0) + bytes(sala), 0)]
             + avisar_lista(salvo=conexion))
 
 
@@ -580,7 +598,7 @@ def largar(cmd, cuerpo, conexion, c, p):
     #   u8 N · N × 68 B ([u8 número de jugador][9 × 7 B: 🟡 su equipo para la partida])
     # Si no es el anfitrión o no hay sala, 0x1050 (0x54EBA0) con error 0x138A (modal 0x191)
     s = SALAS.get(p.get("sala"))
-    if not s or s.get("anfitrion") != conexion:
+    if not s or s.get("anfitrion") != conexion or s.get("jugando"):
         return [(0x1050, struct.pack("<H", 0x138A), 0)]
     miembros = s["miembros"] if s else [conexion]
     if s:

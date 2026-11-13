@@ -184,7 +184,7 @@ def cuerpo_cuenta(c, conexion=0, elegido_al_frente=False):
     b[0x19] = 5                                             # lugares habilitados
     # ★ +0x1A → cuenta+0x2CC = LUGARES LIBRES en la bolsa (+6 = +0x2B8, medido; nadie más lo
     #   escribe). Con 0, «Purchase All» decía «No Empty Slot Available» (`0x54DCEA`, 21:41)
-    b[0x1A] = max(0, 150 - sum(1 for it in inventario(c) if it[2] >= 18))
+    b[0x1A] = max(0, 150 - sum(1 for it in inventario(c) if 18 <= it[2] < 168))
     # ★ N3 (+0x20) = los PERSONAJES de la cuenta (§5.4), cada uno con su lugar (MEDICIONES §50).
     #   ⚠ El equipo del personaje (+0x72) son SERIALES que el cliente busca en ESTE inventario: con
     #   seriales repetidos entre personajes se vestían con los ítems del otro y se deformaban (la

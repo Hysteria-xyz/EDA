@@ -69,6 +69,6 @@ def vender(cmd, cuerpo, conexion, c, p):
         return [(0x1042, struct.pack("<HIIB", 0, serial, c["plata"], 0), 0)]
     inv.remove(it)
     c["items"] = inv
-    c["plata"] += precio
+    c["plata"] = min(c["plata"] + precio * max(1, it[1]), 2_000_000_000)
     guardar(c)
     return [(0x1042, struct.pack("<HIIB", 1, serial, c["plata"], 1 if it[0] <= 19999 else 0), 0)]
