@@ -2503,3 +2503,31 @@ CreateVertexBuffer del dispositivo y `WSAEventSelect` del exe (por su tabla de i
   anda con NINGUNO de los dos exes (control al revés hecho con `0799387e`): es el piloto, no el exe.
 - ⏭ Falta: la prueba a mano del dueño (habilidades, tienda, refinería, dos jugadores) y, cuando él
   diga, la mudanza (exe en el launcher + su clave en el server).
+
+### 57 · ★★ LO DE FRIDA, A LA DLL: botones, selección múltiple y foco llegan con el launcher (14-nov)
+
+- **El problema**: lo del cliente que se hizo con Frida (`herramientas/eda_original.py`: los botones del
+  lobby y del inventario, la selección múltiple, que EDA no se pause sin foco) andaba SÓLO en la PC que lo
+  abre con Python. El launcher reparte `exe/EDA_limpio.exe` + `exe/d3d9.dll` (medido: el cliente que instaló
+  el launcher en una PC tiene EXACTAMENTE esos md5, `0799387e…` y `12f30dbe…`), sin Python.
+- **El arreglo**: el bloque `[mazino]` de la dll, PRENDIDO por defecto (el `.ini` del jugador no lo pisa el
+  launcher: uno viejo no tiene estas claves y las toma prendidas). Cada sitio del exe se verifica antes de
+  tocarlo. `botones` (la llamada de `0x4F6061` a `0x4DF900` + los clics de la barra en las pantallas 4–7),
+  `seleccion_multiple` (PeekMessageA del hilo del juego + el byte `+0x248` de cada casilla; la llamada de
+  `0x51A12B` a `0x54A990` manda el 0x1041 de las demás marcadas) y `foco` (WndProc + `SetPhysicalCursorPos` /
+  `ClipCursor` por la tabla de importaciones). `eda_original.py` ya no los inyecta (sólo con
+  `EDA_FRIDA_MEJORAS=1`): con los dos a la vez cada ítem marcado se vendería dos veces.
+- **Medido** (el exe del repo + la dll nueva, `jugar.py --como-launcher`, SIN Frida, server local): en el
+  lobby «Clan, Messenger y Options unidos» y Messenger / Options mandan su comando; Ctrl+clic en 5 ítems →
+  «marcas: 5» con el marco celeste del juego en cada uno, «Sell» → «venta múltiple: 5 ítems» (dos veces);
+  con otra ventana al frente el juego siguió (~30 cuadros/s) en vez de pausarse. Sin excepciones en la caja
+  negra.
+- ⚠ **Windows 11 con «Control inteligente de aplicaciones» activado BLOQUEA una dll nueva sin firmar**
+  («Imagen incorrecta», 0xc0e90002 = sin firma y sin reputación). La dll de hoy (`12f30dbe…`) carga porque
+  Microsoft ya la conoce; cada dll nueva tiene otra huella. ⇒ Antes de publicar una release con una dll
+  nueva hay que FIRMARLA (certificado de una CA del Trusted Root Program; para proyectos de código abierto,
+  gratis con la SignPath Foundation desde GitHub Actions). Mientras tanto, sólo se puede probar en PCs con
+  ese control apagado.
+- **Para trabajar siempre sobre lo que reciben los jugadores**: `py jugar.py --como-launcher` (el exe del
+  repo + la dll, sin Frida; usa la dll recién compilada si es más nueva que la del repo). La dll se compila
+  con `herramientas/dll_d3d9/bajar_zig.py` (una vez) + `compilar.py`, y GitHub la compila en cada PR.
