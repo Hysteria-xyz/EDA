@@ -964,6 +964,9 @@ def control():
     pruebas_nat(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
+    pruebas_messenger(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
     pruebas_login(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
@@ -1403,3 +1406,43 @@ def preparar(nombre, clase, nivel_pedido):
     c["lugares_habilidad"] = max(12, len(habs))
     guardar(c)
     return c
+
+
+def pruebas_messenger(chequear):
+    """★ el MESSENGER por chat (servidor/messenger.py): dos conectados, rui = 301 y kai = 302."""
+    from servidor.juego import tick
+
+    def chat_(texto):
+        t = texto.encode("utf-16-le")
+        return struct.pack("<BIII", 1, 0xFFFFFFFF, 0, len(t)) + t
+
+    def textos(r, destino):
+        return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino]
+    responder(0x1017, b"", 301)
+    responder(0x1017, b"", 302)
+    nom_a, nom_b = ASIGNADAS[301], ASIGNADAS[302]
+    r = responder(0x100D, chat_("/amigos"), 301)
+    chequear("messenger: /amigos sin amigos → un aviso sólo al que pregunta",
+             textos(r, 301) and not textos(r, 302))
+    r = responder(0x100D, chat_("/amigo %s" % nom_b), 301)
+    chequear("/amigo %s → guardado, y al otro le llega el aviso" % nom_b,
+             leer(301).get("amigos") == [nom_b] and any("te agregó como amigo" in t for t in textos(r, 302)))
+    chequear("★ el revés: /amigo de alguien que no existe no agrega",
+             responder(0x100D, chat_("/amigo nadie_xyz"), 301) and leer(301)["amigos"] == [nom_b])
+    r = responder(0x100D, chat_("/amigos"), 301)
+    chequear("/amigos → conectado, en el lobby", any("conectado, en el lobby" in t for t in textos(r, 301)),
+             textos(r, 301))
+    r = responder(0x100D, chat_("/m %s hola amigo" % nom_b), 301)
+    chequear("/m → el mensaje sólo al otro (y el eco al que lo manda)",
+             textos(r, 302) == ["hola amigo"] and textos(r, 301) == ["hola amigo"])
+    r = responder(0x100D, chat_("/oro 5"), 301)
+    chequear("★ el revés: los comandos GM siguen andando (/oro no es del messenger)",
+             any("Oro actualizado" in t for t in textos([x + (301,) if len(x) == 3 else x for x in r], 301)))
+    r = responder(0x1017, b"", 302)
+    chequear("el amigo entra al lobby → «se conectó»", any("se conectó" in t for t in textos(r, 301)))
+    cerrada(302)
+    t = tick([301])
+    chequear("el amigo se va → con el tick, «se desconectó»", any("se desconectó" in x for x in textos(t, 301)))
+    r = responder(0x100D, chat_("/m %s sigues?" % nom_b), 301)
+    chequear("★ el revés: /m a un desconectado → aviso, sin mensaje",
+             textos(r, 301) == ["%s no está conectado." % nom_b])

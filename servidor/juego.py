@@ -38,6 +38,7 @@ from servidor.relay import escribir_relay                    # noqa: E402
 # los módulos que REGISTRAN manejadores (importarlos es lo que los anota)
 from servidor import entrada, inventario, tienda, habilidades, refineria, personajes   # noqa: E402,F401
 from servidor import nat                                     # noqa: E402
+from servidor import messenger                               # noqa: E402
 
 
 def responder(cmd, cuerpo, conexion):
@@ -87,6 +88,7 @@ def segundos_fin_rapido():
 def tick(conexiones):
     """Cada segundo (lo llama el espía): lo que el server tiene que decir por TIEMPO."""
     r = nat.tick(conexiones)                                # los 0x0609 pendientes (P2P entre casas, §53)
+    r += messenger.tick()                                   # «X se desconectó» a sus amigos
     forzar = os.path.join(config.ESTADO, "forzar_lista")   # (para probar a mano)
     if os.path.exists(forzar):
         os.remove(forzar)
@@ -118,7 +120,9 @@ def cerrada(conexion):
     """El espía avisa que la conexión se cerró: olvidar su partida, su sala y soltar su cuenta.
     (Sin forma de devolver mensajes acá: la lista nueva sale con el próximo `tick`.)"""
     PARTIDAS.pop(conexion, None)
-    ASIGNADAS.pop(conexion, None)
+    nombre = ASIGNADAS.pop(conexion, None)
+    if nombre:                                              # el aviso a sus amigos, con el tick
+        messenger.al_salir(nombre)
     for k in list(SALAS.keys()):
         s = SALAS[k]
         if conexion in s["miembros"]:

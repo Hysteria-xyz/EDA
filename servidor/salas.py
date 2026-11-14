@@ -298,6 +298,11 @@ def chat(cmd, cuerpo, conexion, c, p):
         texto_str = ""
 
     if texto_str.startswith("/"):
+        from servidor import messenger
+        r = messenger.comando(texto_str, conexion, c)
+        if r is not None:
+            return r
+
         def _aviso(txt):
             b = txt.encode("utf-16-le")
             nom = "[Sistema]".encode("utf-16-le")[:24].ljust(26, b"\0")
@@ -367,7 +372,7 @@ def chat(cmd, cuerpo, conexion, c, p):
             guardar(c)
             return _aviso("Bolsa limpiada (equipo y atajos conservados)")
         elif sub in ("ayuda", "help"):
-            return _aviso(f"Comandos GM: /oro <n>, /cash <n>, /monedas <n>, /nivel <1-{len(EXPS)}>, /item <id> [cant], /stats <5 valores>, /limpiar")
+            return _aviso(f"Comandos GM: /oro <n>, /cash <n>, /monedas <n>, /nivel <1-{len(EXPS)}>, /item <id> [cant], /stats <5 valores>, /limpiar · Messenger: /messenger")
         return _aviso(f"Comando desconocido: /{sub}. Usa /ayuda")
 
     # ⚠ medido con Frida (18:23): el TIPO lo lee en B+2 (con el tipo en B+0 leía 0xFF). La
@@ -561,9 +566,12 @@ def entrar_lobby(cmd, cuerpo, conexion, c, p):
     if vieja and vieja in SALAS and conexion in SALAS[vieja]["miembros"]:
         avisos_salida = _sacar_de_sala(SALAS[vieja], vieja, conexion)
     # ★ y la lista de salas, apenas entra (cuando ya está en la pantalla del lobby)
+    from servidor import messenger
     return (avisos_salida + previo + [(0x1018, cuerpo18, 0), (0x101C, lista_salas(), 1500),
              (0x101B, lista_usuarios(), 1700)]
-            + [(x[0], x[1], 1700, x[3]) for x in avisar_usuarios(salvo=conexion)])
+            + [(x[0], x[1], 1700, x[3]) for x in avisar_usuarios(salvo=conexion)]
+            + [(x[0], x[1], 2000, x[3]) for x in messenger.avisar_amigos(
+                c["nombre"], "%s se conectó (en el lobby)." % nombre_visible(c))])
 
 
 @maneja(0x101D)
