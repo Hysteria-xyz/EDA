@@ -1,7 +1,18 @@
-# los scripts de Linux con fin de línea Unix aunque se clone en Windows (si no, bash falla con «\r»)
-*.sh text eol=lf
-despliegue/Dockerfile text eol=lf
-despliegue/*.yml text eol=lf
-despliegue/*.env text eol=lf
-.github/** text eol=lf
+# Un solo final de linea en todo el repo: LF. git lo ordena solo al commitear, venga de donde venga
+# (un Windows con autocrlf, un sandbox Linux, una exportacion). Ver documentacion/ENTORNOS.md, seccion 2.1.
+* text=auto eol=lf
+
+# lo que lee Windows o el juego: CRLF en la copia de trabajo
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ini text eol=crlf
+*.cfg text eol=crlf
+
+# binarios
 *.exe binary
+*.dll binary
+*.dat binary
+
+# lo que reciben los jugadores y lo que salio del juego: ni un byte cambiado
+exe/*.ini -text
+datos/*.xml -text

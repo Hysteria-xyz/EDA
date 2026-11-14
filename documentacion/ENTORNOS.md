@@ -30,20 +30,24 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
 ## 2. Diferencias que ya nos causaron problemas
 
 ### 2.1 Finales de línea (CRLF / LF)
-- El repo **mezcla** los dos formatos. Medido en `develop@f2a2862`, sobre 110 archivos de texto:
-  **86 en LF, 21 en CRLF y 3 con los dos adentro** (`documentacion/MEDICIONES.md`, `APIS_A_MANO.md`,
-  `CODIGO_ROBADO.md`).
-- `.gitattributes` obliga LF solo en `*.sh`, `despliegue/*`, `.github/**`. Para el resto, git no normaliza.
+- **Cómo estaba:** el repo mezclaba los dos formatos. Medido en `develop@f2a2862`, sobre 110 archivos de
+  texto: **86 en LF, 21 en CRLF y 3 con los dos adentro** (`documentacion/MEDICIONES.md`,
+  `APIS_A_MANO.md`, `CODIGO_ROBADO.md`). Los 23 con CRLF habían entrado todos por las exportaciones del
+  entorno E (§2.13).
 - **Qué pasó:** en el sandbox (B) un archivo se reescribió todo en LF y la PR #40 mostró unas 2.400 líneas
-  cambiadas que no existían. Y el espejo privado del entorno E exportaba en CRLF (§2.13).
-- **Decidido (14-nov, Rui):** un solo formato para todo el repo. La PR que lo ordena viene aparte y
-  cambia esta sección.
-- **Regla mientras tanto:** al editar un archivo existente, **conservar los bytes de los finales de
-  línea**. Si solo se agrega una sección, se agrega al final sin reescribir el resto.
-  - Antes de commitear, hacer `git diff --stat` y compararlo con `git diff --stat --ignore-cr-at-eol`.
-    Si los números difieren mucho, hay ruido de finales de línea.
-  - En el sandbox, usar `git config core.autocrlf false`.
-- `exe/eda_d3d9.ini` y los `.bat` van en **CRLF**, porque los lee Windows.
+  cambiadas que no existían.
+- **Cómo queda (decidido el 14-nov por Rui):** un solo formato, **LF**, y lo ordena git solo. El
+  `.gitattributes` dice `* text=auto eol=lf`: al commitear, git guarda LF venga el archivo como venga
+  (un Windows con `autocrlf`, el sandbox, una exportación). **Nadie tiene que configurar nada.**
+  - Excepción 1: lo que lee Windows o el juego (`*.bat`, `*.cmd`, `*.ini`, `*.cfg`) sale en **CRLF** en
+    la copia de trabajo.
+  - Excepción 2: `exe/eda_d3d9.ini` y `datos/*.xml` van **byte a byte** (`-text`): son lo que reciben los
+    jugadores y lo que salió del juego, y su md5 tiene que ser el del archivo.
+- **Regla:** al editar un archivo existente no hace falta cuidar los finales de línea, pero **sí** mirar
+  el diff antes de commitear: si `git diff --stat` muestra un archivo entero cambiado por una edición
+  chica, algo anda mal (avisar, no commitear).
+- Una rama abierta de **antes** de este cambio: al traer `develop`, usar
+  `git merge -X renormalize origin/develop` para que los archivos reordenados no den conflicto.
 
 ### 2.2 Codificación de texto
 - La consola de Windows (A) muestra los acentos de `git log` como basura (`documentaci├│n`). Es solo
@@ -152,7 +156,7 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
   conozca, una PR del entorno E la **borraría** (casi pasa con `paneles/` y con `servidor/*.json`).
   **Regla:** si una PR agrega una carpeta nueva en la raíz, o un tipo de archivo nuevo en una carpeta que
   ya existe, se dice en la descripción.
-- **Trampa 2:** el espejo exportaba en CRLF. De ahí vino parte de la mezcla de §2.1.
+- **Trampa 2:** el espejo exportaba en CRLF: de ahí vino la mezcla de §2.1. Arreglado en los dos lados: la herramienta ahora exporta en LF, y el `.gitattributes` lo ordena igual.
 
 ---
 
@@ -257,8 +261,7 @@ lo que reciben los jugadores por el launcher: release 2026.11.14, d3d9.dll 8c577
 
 - [x] El agente de Rui completa su fila (E) y la huella del VPS (D). → §1, §2.13, §4.1
 - [ ] Confirmar la versión de Python en la PC de cada colaborador (A) y en el sandbox (B).
-- [ ] Ordenar los finales de línea de todo el repo con `.gitattributes`: **decidido**, viene en una PR
-      aparte (un solo diff grande, una sola vez).
+- [x] Ordenar los finales de línea de todo el repo con `.gitattributes` (todo en LF; §2.1).
 - [ ] **Medir la DLL publicada (`8c577791…`) con Smart App Control prendido.** Solo se puede en una PC
       que todavía lo tenga prendido. ¿El entorno A lo tiene?
 - [ ] Firma de la DLL (SignPath) para que Smart App Control deje de ser una diferencia entre jugadores.
