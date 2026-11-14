@@ -1,6 +1,6 @@
 # Entornos de EDA: diferencias que hay que conocer para que los agentes se sincronicen
 
-Varios agentes trabajan sobre el mismo repo: el de Urek-Mazinoo, el del dueño y los de otros colaboradores.
+Varios agentes trabajan sobre el mismo repo: el de Urek-Mazinoo, el de Rui y los de otros colaboradores.
 Cada uno corre en un lugar distinto. La mayoría de los problemas que tuvimos no fueron de código:
 fueron de **entorno**: finales de línea, un `.bundle` viejo, una DLL bloqueada por Windows o un `git`
 que no estaba en el PATH.
@@ -9,7 +9,7 @@ Este documento lista esas diferencias y propone una **forma común de trabajar**
 Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máquina y no en la tuya».
 
 > Lo escribió el agente de Urek-Mazinoo (14-nov-2026). Las filas E y D, las huellas de §4.1 y las
-> correcciones medidas son del agente del dueño. Lo marcado **(a confirmar)** no se pudo medir: el agente
+> correcciones medidas son del agente de Rui. Lo marcado **(a confirmar)** no se pudo medir: el agente
 > de cada entorno lo completa con la «huella» de la sección 4, **en una PR a este archivo**.
 
 ---
@@ -21,8 +21,8 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
 | A | **PC de jugador / colaborador** | Urek-Mazinoo (y cualquiera) | Windows 11 | jugar, probar en el juego, compilar la DLL, `git push` al fork |
 | B | **Sandbox del agente (nube)** | el agente de Urek-Mazinoo | Linux, sin red salvo GitHub de lectura | editar código, correr `servidor/juego.py control`, armar commits y `.bundle` |
 | C | **CI de GitHub** | todos | Ubuntu, Python 3.13 | jobs `privado`, `server`, `docker`, `dll` |
-| D | **VPS** | el dueño | Linux + Docker | server de **prod** (25900, rama `main`) y de **prueba** (35900, rama `develop`); archivos del launcher y manifiesto firmado |
-| E | **Entorno del agente del dueño** | r2beatlatino | Windows 11, en la PC del dueño | revisar PRs, escribir las propias desde un espejo privado (§2.13), publicar releases con la orden del dueño |
+| D | **VPS** | Rui | Linux + Docker | server de **prod** (25900, rama `main`) y de **prueba** (35900, rama `develop`); archivos del launcher y manifiesto firmado |
+| E | **Entorno del agente de Rui** | r2beatlatino | Windows 11, en la PC de Rui | revisar PRs, escribir las propias desde un espejo privado (§2.13), publicar releases con la orden de Rui |
 | F | **Cliente instalado por el launcher** | cada jugador | Windows | `C:\Game\EDA` (u otra carpeta): lo que realmente juega la gente |
 
 ---
@@ -36,7 +36,7 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
 - `.gitattributes` obliga LF solo en `*.sh`, `despliegue/*`, `.github/**`. Para el resto, git no normaliza.
 - **Qué pasó:** en el sandbox (B) un archivo se reescribió todo en LF y la PR #40 mostró unas 2.400 líneas
   cambiadas que no existían. Y el espejo privado del entorno E exportaba en CRLF (§2.13).
-- **Decidido (14-nov, el dueño):** un solo formato para todo el repo. La PR que lo ordena viene aparte y
+- **Decidido (14-nov, Rui):** un solo formato para todo el repo. La PR que lo ordena viene aparte y
   cambia esta sección.
 - **Regla mientras tanto:** al editar un archivo existente, **conservar los bytes de los finales de
   línea**. Si solo se agrega una sección, se agrega al final sin reescribir el resto.
@@ -62,8 +62,8 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
 - **Regla:** cada bundle y cada `.bat` llevan un **nombre nuevo** (`eda-dll2.bundle`, `eda-dll3.bundle`, …).
   Después de subir, se verifica el **hash** del tip en el log (`_trabajo\subir_dll.log`) y no se confía en
   que «dijo listo».
-- El entorno E sí hace push, con la sesión de GitHub del dueño, a una rama del repo; la PR la aprueba un
-  colaborador o la fusiona el dueño.
+- El entorno E sí hace push, con la sesión de GitHub de Rui, a una rama del repo; la PR la aprueba un
+  colaborador o la fusiona Rui.
 
 ### 2.4 Git en Windows
 - En algunas PCs `git` no está en el PATH. Los `.bat` lo buscan en `Program Files`, `LocalAppData` y
@@ -79,9 +79,9 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
 - **Consecuencia:** «a mí me anda» no prueba nada si el que prueba tiene Smart App Control apagado.
 - ⚠ **Estado de hoy:** la release 2026.11.14 entrega la DLL de la PR #40 (`8c577791…`), nueva y sin firma.
   **Nadie la midió con Smart App Control prendido** (en el entorno E está apagado).
-- **Decidido (14-nov, el dueño):** por ahora se publica sin firma, y a quien lo tenga prendido se le
+- **Decidido (14-nov, Rui):** por ahora se publica sin firma, y a quien lo tenga prendido se le
   sugiere apagarlo (no es el antivirus: el antivirus queda como está). La **firma** queda como mejora.
-  Propuesta: SignPath Foundation desde GitHub Actions; la solicitud la hace el dueño. (Sin medir: si
+  Propuesta: SignPath Foundation desde GitHub Actions; la solicitud la hace Rui. (Sin medir: si
   aceptan un proyecto que también reparte un exe de terceros. Preguntarlo antes de armar el flujo.)
 
 ### 2.6 Qué cliente se está probando
@@ -95,7 +95,7 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
   Frida). Los scripts Frida de botones, inventario y foco solo se inyectan con `EDA_FRIDA_MEJORAS=1`.
 - La clave AES del juego es el md5 del exe, así que **una PR no parchea el exe nunca**. Todo arreglo va en
   la DLL (`documentacion/POR_QUE_LA_DLL.md`).
-  - La única excepción es una **mudanza de exe que anuncia el dueño**: server, launcher y jugadores
+  - La única excepción es una **mudanza de exe que anuncia Rui**: server, launcher y jugadores
     cambian el mismo día. Hoy hay una preparada y sin fecha: la PR #29 (borrador), el exe sin ASProtect.
 
 ### 2.7 Archivos que son del jugador, no del repo
@@ -145,7 +145,7 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
 - En `MEDICIONES.md` y en los logs, escribir la fecha con zona o en UTC.
 
 ### 2.13 El espejo privado del entorno E
-- El agente del dueño no edita este repo directo. Trabaja en una copia privada (ahí quedan las notas y lo
+- El agente de Rui no edita este repo directo. Trabaja en una copia privada (ahí quedan las notas y lo
   que no se publica) y la pasa con dos herramientas: una trae lo fusionado en `develop`, la otra arma la
   copia limpia que va a la rama de la PR.
 - **Trampa 1:** esa copia limpia se arma **desde cero**. Una carpeta nueva en la raíz que la herramienta no
@@ -162,12 +162,12 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
   dos servers se actualizan solos a los pocos minutos de fusionar.
 - **Aprobaciones:**
   - para `develop`: pruebas en verde + 1 aprobación que no sea del autor;
-  - para `main`: pruebas en verde + 2 aprobaciones, o la del dueño.
+  - para `main`: pruebas en verde + 2 aprobaciones, o la de Rui.
 - **Qué no se sube nunca:** `_trabajo/`, cuentas, logs, capturas, el cliente de Softnyx. Excepciones:
   `exe/EDA_limpio.exe` y `exe/d3d9.dll`.
-- **Publicar a jugadores** = con la orden del dueño, se suben los archivos al VPS y se firma el manifiesto
+- **Publicar a jugadores** = con la orden de Rui, se suben los archivos al VPS y se firma el manifiesto
   con `firmar_manifiesto.py` (Ed25519). La clave en uso **solo** está en el VPS; hay una de reserva, fuera
-  del VPS, en poder del dueño. El launcher acepta las dos.
+  del VPS, en poder de Rui. El launcher acepta las dos.
 - **Una DLL nueva no llega a nadie por fusionar la PR:** llega con una release del cliente.
 - **Direcciones del exe:** las de `documentacion/` y `eda_d3d9.c` valen para los dos exes. Cada parche
   nuevo verifica sus bytes con `firma()` antes de escribir.
@@ -213,7 +213,7 @@ Smart App Control: On/Off/Evaluation   NAT: <normal/simétrico/desconocido>
 ### 4.1 Huellas medidas
 
 ```
-ENTORNO: E · agente del dueño                                   (medido 2026-11-14 UTC)
+ENTORNO: E · agente de Rui                                   (medido 2026-11-14 UTC)
 SO: Windows 11 (10.0.26200)  Python: 3.13 (py)  git: 2.55 para Windows  autocrlf: false en el clon
 repo: develop@f2a2862  (archivos sin commitear: 0)
 d3d9.dll md5: 8c57779190b02e26301bd237f06aa09a   EDA_limpio.exe md5: 0799387e23cadd355888bd712143f2d5
@@ -247,15 +247,15 @@ lo que reciben los jugadores por el launcher: release 2026.11.14, d3d9.dll 8c577
    al final, con número.
 6. **Nunca:**
    - pedir credenciales por chat;
-   - fusionar la PR propia (salvo el dueño);
-   - publicar al VPS sin el dueño;
+   - fusionar la PR propia (salvo Rui);
+   - publicar al VPS sin Rui;
    - parchear el exe (salvo la mudanza de §2.6).
 
 ---
 
 ## 6. Pendientes para cerrar este documento
 
-- [x] El agente del dueño completa su fila (E) y la huella del VPS (D). → §1, §2.13, §4.1
+- [x] El agente de Rui completa su fila (E) y la huella del VPS (D). → §1, §2.13, §4.1
 - [ ] Confirmar la versión de Python en la PC de cada colaborador (A) y en el sandbox (B).
 - [ ] Ordenar los finales de línea de todo el repo con `.gitattributes`: **decidido**, viene en una PR
       aparte (un solo diff grande, una sola vez).
