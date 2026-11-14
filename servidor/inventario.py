@@ -58,6 +58,22 @@ def guardar_inventario(cmd, cuerpo, conexion, c, p):
             por_serial[serial][2] = destino
             movidos.append(por_serial[serial])
     c["items"] = inv
+    # ★ HABILIDADES (pantalla 7 = Skill, medido 14-nov): tras los N1 vienen N2 × (u32 CLAVE · u8
+    #   casilla en la grilla de APRENDIDAS, `0x5298b2`: el mapa +0x10C al intercambiar dos) y
+    #   N3 × (u32 CLAVE · u8 ATAJO F1…F8, 0 = quitado, `0x528df0`: el mapa +0x118). Antes se
+    #   ignoraban y el orden de las skills se perdía al reabrir EDA.
+    n2, n3 = struct.unpack_from("<2H", cuerpo, off + 18)
+    por_clave = {h[0]: h for h in c.get("habilidades", [])}
+    o = off + 22 + 5 * n1
+    for campo, cuantos in ((3, n2), (4, n3)):
+        for _ in range(cuantos):
+            if o + 5 > len(cuerpo):
+                break
+            clave, valor = struct.unpack_from("<IB", cuerpo, o)
+            o += 5
+            h = por_clave.get(clave)
+            if h is not None and (campo == 3 or valor <= 8):
+                h[campo] = valor
     # ★ el REPARTO de puntos: el cliente manda las 5 nuevas + en la 6ª los puntos GASTADOS en
     #   esta tanda (medido 21:10: 5 Str + 3 Con → «… 05 00 03 00 … 08 00», mientras la pantalla
     #   decía «Bonus Stat : 64»). Se acepta sólo si ninguna baja, lo que subió = los gastados y no
@@ -102,7 +118,14 @@ def asignar_stats_102f(cmd, cuerpo, conexion, c, p):
     """★ 0x102F C→S / 0x1030 S→C (`0x54C690`, 2 B, aporte de Hysteria-xyz):
     Repartir puntos de atributos (STR, CON, DEX, INT, WIS) ganados al subir de nivel.
     cuerpo: u32 conexion · 6 × u16 stats.
-    0x1030: u16 resultado (1 = OK, 0 = error)."""
+    0x1030: u16 resultado (1 = OK, 0 = error).
+
+    ★ (medido 14-nov) el botón «Exit Game» del INVENTORY también manda 0x102F (`0x54c280`) con el
+    cuerpo ENTERO del 0x102D (stats + lo movido + las habilidades): se guarda igual que al volver
+    al lobby y se contesta 1 (sin respuesta, el juego quedaba congelado esperando)."""
+    if len(cuerpo) >= 0x1A:
+        guardar_inventario(0x102D, cuerpo, conexion, c, p)
+        return [(0x1030, struct.pack("<H", 1), 0)]
     if len(cuerpo) < 16:
         return [(0x1030, struct.pack("<H", 0), 0)]
     stats = list(struct.unpack_from("<6H", cuerpo, 4))

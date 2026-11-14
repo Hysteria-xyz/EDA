@@ -4,7 +4,9 @@ premios de cada stage y tipos de ítem.
 Las que salen de los XML de `Data.dat` (`<EDA_DATOS>/*.xml`) devuelven {} si falta el archivo:
 el server anda igual, pero esa parte (la tienda, por ejemplo) queda vacía.
 """
+import json
 import re
+from pathlib import Path
 
 from servidor import config
 
@@ -12,8 +14,8 @@ from servidor import config
 # ★ De los XML de cada escenario (`Data\Scenario\<dificultad>\Chapter1_N_X.xml`, volcados):
 #   <INFO RANK_POINT KILL_POINT TOTALEXP MONSTER_CNT>. Y <RANKRATE S="0.8" A="0.6" B="0.4" C="0.2"
 #   D="0.1"/> (el mismo en todos los vistos).
-ESCENARIOS = {1011: (29, 120, 128, 56), 1012: (38, 168, 179, 78), 1013: (48, 240, 256, 78),
-              1021: (42, 173, 184, 92)}
+with Path(__file__).with_name("escenarios.json").open(encoding="utf-8") as archivo:
+    ESCENARIOS = {int(indice): tuple(valores) for indice, valores in json.load(archivo).items()}
 
 
 RANKRATE = (0.8, 0.6, 0.4, 0.2, 0.1)                       # S A B C D

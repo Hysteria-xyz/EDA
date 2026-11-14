@@ -48,6 +48,9 @@ def control():
     nivel_real, config.NIVEL_INICIAL = config.NIVEL_INICIAL, 0   # (las cuentas de prueba arrancan en 0 EXP)
     config.CUENTA = os.path.join(config.CUENTAS, "no_existe.json")
     shutil.rmtree(config.CUENTAS, ignore_errors=True)
+    from servidor import messenger              # (la conversación y los inventarios de la prueba: en su carpeta)
+    messenger.ruta_chat = lambda: os.path.join(config.CUENTAS, "msn_chat.jsonl")
+    messenger.ruta_inventario = lambda nombre: os.path.join(config.CUENTAS, "inv_%s.json" % nombre)
     PARTIDAS.clear()
     ASIGNADAS.clear()
     r = responder(0x1011, b"\1\0\0\0", 99)
@@ -98,10 +101,16 @@ def control():
     puntos = PRECIOS[2] + 30                                # alcanza para el bronce, no para otra
     partida(99)["puntos"] = puntos
     r = responder(0x1070, bytes.fromhex("000a"), 99)           # la 1ª de bronce, medida (20:00)
+    r1071 = [x[1] for x in r if x[0] == 0x1071]
+    chequear("carta de bronce: dos 0x1071 (la CARA de 27 B + la EXP de 11 B)",
+             [len(x) for x in r1071] == [27, 11], [len(x) for x in r1071])
     chequear("carta de bronce: %d − %d puntos" % (puntos, PRECIOS[2]),
-             struct.unpack_from("<I", r[0][1], 7)[0] == max(0, puntos - PRECIOS[2]))
-    chequear("0x1071: u8 1 · FILA 2 · JUGADOR 0 (no la carta) · EXP de cartas %d" % PRECIOS[2],
-             r[0][1][:3] == b"\1\2\0" and struct.unpack_from("<I", r[0][1], 3)[0] == PRECIOS[2])
+             all(struct.unpack_from("<I", x, 7)[0] == max(0, puntos - PRECIOS[2]) for x in r1071))
+    chequear("★ 0x1071 forma 0: CARTA 10 en el byte 1, JUGADOR 0 y EXP %d en la cara" % PRECIOS[2],
+             r1071[0][:2] == b"\0\x0a" and r1071[0][11 + 4] == 0
+             and struct.unpack_from("<I", r1071[0], 11 + 5)[0] == PRECIOS[2], r1071[0].hex())
+    chequear("0x1071 forma 1: u8 1 · FILA 2 · JUGADOR 0 · EXP de cartas %d" % PRECIOS[2],
+             r1071[1][:3] == b"\1\2\0" and struct.unpack_from("<I", r1071[1], 3)[0] == PRECIOS[2])
     quedan = max(0, puntos - PRECIOS[2])
     hay_1072 = [x for x in r if x[0] == 0x1072]
     chequear("con %d puntos %s otra carta → %s 0x1072" % (
@@ -115,9 +124,17 @@ def control():
         partida(99).update(puntos=1000, exp_cartas=0, cartas_hasta=time.time() + 60, cartas_elegidas=set())
         antes_exp = leer(99)["exp"]
         r = responder(0x1070, bytes([0, carta_n]), 99)
-        chequear("carta %d → fila %d (cobra %d)" % (carta_n, fila_esperada, PRECIOS[fila_esperada]),
-                 r[0][1][1] == fila_esperada
-                 and struct.unpack_from("<I", r[0][1], 7)[0] == 1000 - PRECIOS[fila_esperada])
+        chequear("carta %d → se da vuelta (forma 0) · fila %d (cobra %d)" % (
+            carta_n, fila_esperada, PRECIOS[fila_esperada]),
+                 r[0][1][:2] == bytes([0, carta_n]) and r[1][1][:2] == bytes([1, fila_esperada])
+                 and struct.unpack_from("<I", r[1][1], 7)[0] == 1000 - PRECIOS[fila_esperada])
+        tp_c = tabla_premios()
+        if tp_c:
+            it_carta = struct.unpack_from("<H", r[0][1], 11 + 0xD)[0]
+            chequear("carta %d: la cara trae un ítem de StageReward 1011 (%d) y entra a la bolsa" % (
+                carta_n, it_carta),
+                     it_carta in {d for t_, d, _ in tp_c[1011][1] if t_ == 2 and d != NADA}
+                     and any(x[0] == it_carta for x in leer(99)["items"]))
         # ★ (PR #5) la misma carta otra vez: no se contesta ni se cobra
         repetida = responder(0x1070, bytes([0, carta_n]), 99)
         chequear("★ el revés: la carta %d otra vez → sin 2.º cobro (la EXP quedó guardada una vez)" % carta_n,
@@ -131,9 +148,68 @@ def control():
     for carta_n, que in ((18, "fuera de las 18"), (255, "fuera de las 18")):
         chequear("★ el revés: una carta %s (%d) no se contesta" % (que, carta_n),
                  responder(0x1070, bytes([0, carta_n]), 99) == [])
+    for fila_n in (0, 1, 2):                                # el botón «EXP» de la fila (TIPO 1)
+        partida(99).update(puntos=1000, exp_cartas=0, cartas_hasta=time.time() + 60, cartas_elegidas=set())
+        r = responder(0x1070, bytes([1, fila_n]), 99)
+        repetida = responder(0x1070, bytes([1, fila_n]), 99)
+        chequear("botón EXP de la fila %d → sólo la forma 1, cobra %d una vez" % (fila_n, PRECIOS[fila_n]),
+                 [x[1][:2] for x in r if x[0] == 0x1071] == [bytes([1, fila_n])] and repetida == []
+                 and partida(99)["puntos"] == 1000 - PRECIOS[fila_n])
+    chequear("★ el revés: TIPO 1 con fila 3, o TIPO 2, no se contestan",
+             responder(0x1070, b"\1\3", 99) == [] and responder(0x1070, b"\2\0", 99) == [])
     partida(99).update(puntos=1000, cartas_hasta=time.time() - 1)
     chequear("★ el revés: vencido el tiempo de las cartas, no se cobra",
              responder(0x1070, b"\0\2", 99) == [] and partida(99)["puntos"] == 1000)
+    # ★ el cierre por bajas, en cualquier stage (2-1 Normal y 1-4 Fácil)
+    from servidor.juego import tick
+    from servidor.partida import cerrar_por_bajas
+    for esc, espera in ((1021, 8), (1041, 3)):
+        total = ESCENARIOS[esc][3]
+        SALAS["prueba_bajas"] = {"sala": bytes(0x59), "miembros": [94], "anfitrion": 94}
+        partida(94).update(sala="prueba_bajas", escenario=esc, game_over_en=None)
+        responder(0x105F, b"\0" * 4, 94)
+        for k in range(total - 1):
+            responder(0x1061, struct.pack("<H", k) + b"\0" * 6, 94)
+        responder(0x1061, struct.pack("<H", 0) + b"\0" * 6, 94)          # repetida: no cuenta
+        chequear("%d: %d de %d bajas distintas → sin cierre" % (esc, total - 1, total),
+                 partida(94).get("cierre_bajas") is None)
+        responder(0x1061, struct.pack("<H", total - 1) + b"\0" * 6, 94)
+        c_ = partida(94).get("cierre_bajas")
+        chequear("%d: con las %d → cierre programado a los %d s" % (esc, total, espera),
+                 c_ is not None and abs(c_ - time.monotonic() - espera) < 1)
+        chequear("%d: antes de la espera, tick no cierra" % esc,
+                 not [x for x in tick([94]) if x[0] == 0x1073])
+        partida(94)["cierre_bajas"] = time.monotonic() - 1
+        t = [x for x in tick([94]) if x[3] == 94]
+        chequear("%d: vencida la espera, tick → 1073 + 106E + 106F" % esc,
+                 [x[0] for x in t] == [0x1073, 0x106E, 0x106F], [hex(x[0]) for x in t])
+        chequear("%d: el aviso tardío del cliente no paga dos veces" % esc,
+                 responder(0x1064, b"\0", 94) == [] and not [x for x in tick([94]) if x[0] == 0x1073])
+    partida(94).update(escenario=1021, game_over_en=None)
+    responder(0x105F, b"\0" * 4, 94)
+    for k in range(ESCENARIOS[1021][3]):
+        responder(0x1061, struct.pack("<H", k) + b"\0" * 6, 94)
+    r = responder(0x1064, b"\0", 94)
+    chequear("★ el revés: si el cliente avisa a tiempo, el cierre por bajas no se suma",
+             [x[0] for x in r] == [0x1073, 0x106E, 0x106F]
+             and not [x for x in tick([94]) if x[0] == 0x1073]
+             and cerrar_por_bajas(dict(partida(94), cierre_bajas=time.monotonic() - 1), 94) == [])
+    # 🧪 el atajo fin_rapido (apagado sin el archivo)
+    partida(94).update(inicio=time.time() - 30, resultado_guardado=False, game_over_en=None)
+    chequear("sin el archivo fin_rapido, tick no termina la stage",
+             not [x for x in tick([94]) if x[0] == 0x1073])
+    ruta_fr = os.path.join(config.ESTADO, "fin_rapido")
+    open(ruta_fr, "w").write("0")
+    chequear("★ el revés: fin_rapido con 0 = apagado", not [x for x in tick([94]) if x[0] == 0x1073])
+    open(ruta_fr, "w").write("5")
+    try:
+        t = [x for x in tick([94]) if x[3] == 94]
+        chequear("🧪 con fin_rapido (5 s): tick → 1073 + 106E + 106F",
+                 [x[0] for x in t] == [0x1073, 0x106E, 0x106F], [hex(x[0]) for x in t])
+        chequear("🧪 fin_rapido: una sola vez", not [x for x in tick([94]) if x[0] == 0x1073])
+    finally:
+        os.remove(ruta_fr)
+    del SALAS["prueba_bajas"]
     tp2 = tabla_premios()
     if tp2:
         cc = {"items": [], "plata": 0, "exp": 0}
@@ -891,6 +967,9 @@ def control():
     pruebas_nat(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
+    pruebas_messenger(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
     pruebas_login(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
@@ -1152,6 +1231,33 @@ def pruebas_inventario(chequear):
              pos[9003] == 30 and pos[9002] == 12, pos)
     pos = mover((9003, 200))
     chequear("★ el revés: un casillero que no existe (≥ 168) → no se mueve", pos[9003] == 30, pos)
+    # ★ HABILIDADES: el 0x102B de la pantalla Skill trae N2 (casilla) y N3 (atajo F1…F8)
+    c = leer(n)
+    c["habilidades"] = [[1000, 1, 1, 0, 1], [1001, 1, 3, 1, 2]]
+    guardar(c)
+    cuerpo_sk = (struct.pack("<IB", 0, 7) + struct.pack("<I6H", 0, *(list(stats_de(c))[:5] + [0]))
+                 + struct.pack("<3H", 0, 2, 3) + struct.pack("<IBIB", 1000, 1, 1001, 0)
+                 + struct.pack("<IBIBIB", 1000, 2, 1001, 1, 1000, 9))
+    responder(0x102B, cuerpo_sk, n)
+    chequear("0x102B Skill: se guardan el nuevo orden (casilla) y los atajos F1…F8 "
+             "(★ el revés: un atajo 9 no existe y no se toma)",
+             leer(n)["habilidades"] == [[1000, 1, 1, 1, 2], [1001, 1, 3, 0, 1]], leer(n)["habilidades"])
+    # ★ «Exit Game» desde el Inventory: 0x102F con el cuerpo entero del 0x102D
+    cuerpo = (b"\0" * 8 + struct.pack("<6H", *(list(stats_de(leer(n)))[:5] + [0]))
+              + struct.pack("<HHH", 1, 0, 0) + struct.pack("<IB", 9003, 31))
+    r = responder(0x102F, cuerpo, n)
+    chequear("0x102F de Exit Game (cuerpo del 0x102D) → guarda lo movido y contesta 0x1030 u16 1",
+             r == [(0x1030, b"\1\0", 0)] and {it[3]: it[2] for it in leer(n)["items"]}[9003] == 31, r)
+    # ★ UseItem: 0x1067 con el SERIAL de una poción de la bolsa → se descuenta (sin difundir nada)
+    c = leer(n)
+    c["items"] = [[26001, 3, 12, 9001, 1]]
+    guardar(c)
+    r = responder(0x1067, struct.pack("<I", 9001), n)
+    chequear("UseItem (0x1067 con el serial de una poción): baja de 3 a 2, sin respuesta",
+             r == [] and [x[1] for x in leer(n)["items"]] == [2], leer(n)["items"])
+    responder(0x1067, struct.pack("<I", 9001), n)
+    responder(0x1067, struct.pack("<I", 9001), n)
+    chequear("★ el revés: al usar la última, la pila desaparece", leer(n)["items"] == [])
     from servidor.objetos import pj_cuenta
     c = leer(n)
     nombre_en = lambda pj: pj[0x05:0x05 + 26].decode("utf-16-le").split("\0")[0]   # noqa: E731
@@ -1330,3 +1436,115 @@ def preparar(nombre, clase, nivel_pedido):
     c["lugares_habilidad"] = max(12, len(habs))
     guardar(c)
     return c
+
+
+def pruebas_messenger(chequear):
+    """★ el MESSENGER por chat (servidor/messenger.py): dos conectados, rui = 301 y kai = 302."""
+    from servidor.juego import tick
+
+    def chat_(texto):
+        t = texto.encode("utf-16-le")
+        return struct.pack("<BIII", 1, 0xFFFFFFFF, 0, len(t)) + t
+
+    def textos(r, destino):
+        return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino]
+    from servidor import messenger
+    responder(0x1017, b"", 301)
+    responder(0x1017, b"", 302)
+    nom_a, nom_b = ASIGNADAS[301], ASIGNADAS[302]
+    r = responder(0x100D, chat_("/amigos"), 301)
+    chequear("messenger: /amigos sin amigos → un aviso sólo al que pregunta",
+             textos(r, 301) and not textos(r, 302))
+    r = responder(0x100D, chat_("/amigo %s" % nom_b), 301)
+    chequear("/amigo %s → guardado, y al otro le llega el aviso" % nom_b,
+             leer(301).get("amigos") == [nom_b] and any("te agregó como amigo" in t for t in textos(r, 302)))
+    chequear("★ el revés: /amigo de alguien que no existe no agrega",
+             responder(0x100D, chat_("/amigo nadie_xyz"), 301) and leer(301)["amigos"] == [nom_b])
+    r = responder(0x100D, chat_("/amigos"), 301)
+    chequear("/amigos → conectado, en el lobby", any("conectado, en el lobby" in t for t in textos(r, 301)),
+             textos(r, 301))
+    r = responder(0x100D, chat_("/m %s hola amigo" % nom_b), 301)
+    chequear("/m → el mensaje sólo al otro (y el eco al que lo manda)",
+             textos(r, 302) == ["hola amigo"] and textos(r, 301) == ["hola amigo"])
+    r = responder(0x100D, chat_("/messenger"), 301)
+    chequear("botón Messenger (/messenger) → los amigos y la ayuda", len(textos(r, 301)) == 2)
+    r = responder(0x100D, chat_("/clan"), 301)
+    chequear("botón Clan (/clan) → un aviso", any(t.startswith("Clan:") for t in textos(r, 301)))
+    r = responder(0x100D, chat_("/opciones"), 301)
+    chequear("botón Options (/opciones) → un aviso, sólo al que lo pulsó",
+             any("Opciones" in t for t in textos(r, 301)) and not textos(r, 302))
+    r = responder(0x100D, chat_("/oro 5"), 301)
+    chequear("★ el revés: los comandos GM siguen andando (/oro no es del messenger)",
+             any("Oro actualizado" in t for t in textos([x + (301,) if len(x) == 3 else x for x in r], 301)))
+    r = responder(0x1017, b"", 302)
+    chequear("el amigo entra al lobby → «se conectó»", any("se conectó" in t for t in textos(r, 301)))
+    cerrada(302)
+    t = tick([301])
+    chequear("el amigo se va → con el tick, «se desconectó»", any("se desconectó" in x for x in textos(t, 301)))
+    r = responder(0x100D, chat_("/m %s sigues?" % nom_b), 301)
+    chequear("★ el revés: /m a un desconectado → aviso (lo leerá al volver), sin mensaje al chat",
+             len(textos(r, 301)) == 1 and textos(r, 301)[0].startswith("%s no está conectado: lo leerá" % nom_b)
+             and not textos(r, 302), textos(r, 301))
+    chats = [json.loads(x) for x in open(messenger.ruta_chat(), encoding="utf-8")]
+    chequear("la conversación queda en messenger_chat.jsonl (también la de un desconectado)",
+             [(m["de"], m["a"], m["texto"]) for m in chats] == [(nom_a, nom_b, "hola amigo"),
+                                                               (nom_a, nom_b, "sigues?")], chats)
+    # ★ el PANEL (EDA-Messenger.py): estado y pedidos por archivo; el otro vuelve a conectarse
+    from servidor import messenger
+    responder(0x1017, b"", 302)
+    responder(0x100D, chat_("/quitar %s" % nom_b), 301)
+    with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"de": nom_a, "accion": "amigo", "nick": nom_b}) + "\n")
+        f.write(json.dumps({"de": nom_a, "accion": "mensaje", "nick": nom_b, "texto": "hola desde el panel"}) + "\n")
+        f.write("esto no es json\n")
+    t = tick([301, 302])
+    chequear("panel: el pedido «amigo» agrega y avisa al otro",
+             leer(301).get("amigos") == [nom_b] and any("te agregó" in x for x in textos(t, 302)))
+    chequear("panel: el pedido «mensaje» le llega al otro", "hola desde el panel" in textos(t, 302))
+    chequear("panel: los pedidos se consumen", not os.path.exists(messenger.ruta_pedidos()))
+    est = json.load(open(messenger.ruta_estado(), encoding="utf-8"))["cuentas"]
+    chequear("panel: el estado dice quién es amigo de quién, conectado y en el lobby",
+             est[nom_a]["amigos"] == [nom_b] and est[nom_b]["conectado"] and est[nom_b]["donde"] == "en el lobby",
+             est.get(nom_b))
+    chequear("★ el revés: sin cambios, el estado no se reescribe", messenger.escribir_estado() is False)
+    with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"de": nom_a, "accion": "quitar", "nick": nom_b}) + "\n")
+    tick([301, 302])
+    chequear("panel: el pedido «quitar» lo saca", leer(301).get("amigos") == [])
+    # ★ VENTA / ELIMINACIÓN EN GRUPO por pedido, y el archivo del inventario de cada conectado
+    from servidor.datos import precios_venta
+    from servidor.objetos import inventario
+    c = leer(301)
+    c["items"] = [[1, 1, 10, 1, 1], [11, 1, 20, 2, 1], [12, 1, 21, 3, 1], [26001, 5, 22, 4, 1]]
+    c["plata"] = 1000
+    guardar(c)
+    precios = precios_venta()
+    messenger.escribir_inventarios()
+    inv_p = json.load(open(messenger.ruta_inventario(nom_a), encoding="utf-8"))
+    chequear("inventario: el archivo del panel con oro y 4 ítems (serial, tipo, cant, casillero, precio)",
+             inv_p["plata"] == 1000 and [x["serial"] for x in inv_p["items"]] == [1, 2, 3, 4], inv_p)
+    if precios.get(11) and precios.get(12):
+        with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"de": nom_a, "accion": "vender", "seriales": [1, 2, 3]}) + "\n")
+        t = tick([301, 302])
+        d = leer(301)
+        chequear("vender 3 (uno PUESTO): se venden los 2 de la bolsa, el puesto queda",
+                 [x[3] for x in inventario(d)] == [1, 4] and d["plata"] == 1000 + precios[11] + precios[12],
+                 [x[3] for x in inventario(d)])
+        chequear("un 0x1042 por ítem vendido, con el oro que va quedando",
+                 [struct.unpack_from("<HIIB", x[1])[:3] for x in t if x[0] == 0x1042 and x[3] == 301]
+                 == [(1, 2, 1000 + precios[11]), (1, 3, 1000 + precios[11] + precios[12])])
+    with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"de": nom_a, "accion": "eliminar", "seriales": [4, 99]}) + "\n")
+    plata = leer(301)["plata"]
+    t = tick([301, 302])
+    chequear("eliminar: sale de la bolsa sin oro (y un serial que no existe no hace nada)",
+             4 not in [x[3] for x in inventario(leer(301))] and leer(301)["plata"] == plata
+             and any(x.startswith("Eliminados 1") for x in textos(t, 301)))
+    messenger.escribir_inventarios()
+    chequear("el archivo del panel se actualiza", 4 not in [x["serial"] for x in json.load(
+        open(messenger.ruta_inventario(nom_a), encoding="utf-8"))["items"]])
+    with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"de": nom_a, "accion": "aviso", "texto": "Clan: reservado (F12)."}) + "\n")
+    t = tick([301, 302])
+    chequear("pedido «aviso» (F12) → una línea en el chat", textos(t, 301) == ["Clan: reservado (F12)."])
