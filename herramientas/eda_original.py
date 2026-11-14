@@ -193,6 +193,70 @@ def destino(texto):
     return [int(x) for x in ip.split(".")], int(puerto or LOCAL[1])
 
 
+# ★ LOS BOTONES CLAN / MESSENGER / OPTIONS DEL LOBBY (13-nov). Medido en el exe: el lobby une sus
+#   botones con `0x4DF900(evento 3, control, delegado)`; la barra de arriba sólo trae 1 Shop,
+#   2 Inventory, 6 Select Character y 7 Exit: 3 Clan, 4 Messenger y 5 Options NO tienen función
+#   (se iluminan y no hacen nada). Acá, cuando el lobby une el control 1 (`0x4F6061`), se unen
+#   también el 3, el 4 y el 5 con el MISMO delegado (gestor 0x899624, función en +8, pantalla en
+#   +0x10) pero con una función nuestra: manda al server un chat con un comando (/clan, /amigos,
+#   /opciones), armado con las funciones del propio cliente (`0x7425D0` paquete, `0x7426F0`
+#   comando, `0x7434F0` bytes, `0x7449F0` la red, `0x744790` mandar, `0x743390` liberar). El
+#   server contesta en el chat (y con /opciones abre la ventana de opciones en esta PC).
+BOTONES_JS = r"""
+(function () {
+    const B = Process.enumerateModules()[0].base;
+    const VA = function (v) { return B.add(v - 0x400000); };
+    const unir = new NativeFunction(VA(0x4df900), 'void', ['pointer', 'int', 'int', 'pointer'], 'thiscall');
+    const pInit = new NativeFunction(VA(0x7425d0), 'pointer', ['pointer'], 'thiscall');
+    const pCmd = new NativeFunction(VA(0x7426f0), 'void', ['pointer', 'uint32'], 'thiscall');
+    const pBytes = new NativeFunction(VA(0x7434f0), 'uint8', ['pointer', 'pointer', 'uint32'], 'thiscall');
+    const red = new NativeFunction(VA(0x7449f0), 'pointer', []);
+    const mandar = new NativeFunction(VA(0x744790), 'void', ['pointer', 'pointer'], 'thiscall');
+    const pFin = new NativeFunction(VA(0x743390), 'void', ['pointer'], 'thiscall');
+    function chat(texto) {
+        const largo = texto.length * 2;
+        const cuerpo = Memory.alloc(13 + largo);
+        cuerpo.writeU8(1);
+        cuerpo.add(1).writeU32(0xffffffff);
+        cuerpo.add(5).writeU32(0);
+        cuerpo.add(9).writeU32(largo);
+        for (let i = 0; i < texto.length; i++) cuerpo.add(13 + 2 * i).writeU16(texto.charCodeAt(i));
+        const p = Memory.alloc(0x1100);
+        pInit(p);
+        pCmd(p, 0x100d);
+        pBytes(p, cuerpo, 13 + largo);
+        mandar(red(), p);
+        pFin(p);
+    }
+    const acciones = {3: '/clan', 4: '/messenger', 5: '/opciones'};
+    const funciones = {};
+    for (const k in acciones) {
+        funciones[k] = new NativeCallback(function (pantalla, evento) {
+            try { chat(acciones[k]); send({t: 'boton', boton: acciones[k]}); }
+            catch (e) { send({t: 'boton', boton: acciones[k] + ' ERROR ' + e}); }
+        }, 'void', ['pointer', 'pointer'], 'thiscall');
+    }
+    globalThis.__eda_botones = funciones;
+    const sitio = VA(0x4f6061 + 5);
+    Interceptor.attach(VA(0x4df900), {
+        onEnter(args) {
+            if (!this.returnAddress.equals(sitio)) return;
+            this.lobby = this.context.ecx;
+            this.delegado = Memory.dup(args[2], 0x18);
+        },
+        onLeave() {
+            if (this.lobby === undefined) return;
+            for (const k in funciones) {
+                const d = Memory.dup(this.delegado, 0x18);
+                d.add(8).writePointer(funciones[k]);
+                unir(this.lobby, 3, parseInt(k), d);
+            }
+            send({t: 'boton', boton: 'lobby: Clan, Messenger y Options unidos'});
+        }
+    });
+})();
+"""
+
 def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe", server=None):
     """Abre `_trabajo/juego/EDA.exe` con todo puesto. Devuelve el pid. Con `esperar`, se queda
     hasta que el juego se cierra (guardando los XML que vayan saliendo). `server` = ([IP], puerto)
@@ -215,6 +279,8 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe", server=None):
     #   pasa EDA_SERVER (que manda sobre el ini) con el MISMO destino, así los dos dicen lo mismo
     dest = server or LOCAL
     env = {"EDA_SERVER": "%s:%d" % (".".join(map(str, dest[0])), dest[1])}
+    if nombre != "EDA.exe" and os.environ.get("EDA_SIN_BOTONES") != "1":
+        js += BOTONES_JS
     pid = frida.spawn([exe], cwd=JUEGO, stdio="pipe", env=env)
     ses = frida.attach(pid)
     sc = ses.create_script(js)
@@ -224,6 +290,9 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe", server=None):
         p = m.get("payload", m)
         if not isinstance(p, dict):
             avisar("  %s" % p)
+            return
+        if p.get("t") == "boton":
+            avisar("  · botón %s" % p.get("boton"))
             return
         if p.get("t") == "xml" and d:
             ruta = os.path.join(DATOS, XMLS[p["raiz"]] + ".xml")

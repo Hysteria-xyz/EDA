@@ -1435,6 +1435,13 @@ def pruebas_messenger(chequear):
     r = responder(0x100D, chat_("/m %s hola amigo" % nom_b), 301)
     chequear("/m → el mensaje sólo al otro (y el eco al que lo manda)",
              textos(r, 302) == ["hola amigo"] and textos(r, 301) == ["hola amigo"])
+    r = responder(0x100D, chat_("/messenger"), 301)
+    chequear("botón Messenger (/messenger) → los amigos y la ayuda", len(textos(r, 301)) == 2)
+    r = responder(0x100D, chat_("/clan"), 301)
+    chequear("botón Clan (/clan) → un aviso", any(t.startswith("Clan:") for t in textos(r, 301)))
+    r = responder(0x100D, chat_("/opciones"), 301)
+    chequear("botón Options (/opciones) → un aviso, sólo al que lo pulsó",
+             any("Opciones" in t for t in textos(r, 301)) and not textos(r, 302))
     r = responder(0x100D, chat_("/oro 5"), 301)
     chequear("★ el revés: los comandos GM siguen andando (/oro no es del messenger)",
              any("Oro actualizado" in t for t in textos([x + (301,) if len(x) == 3 else x for x in r], 301)))

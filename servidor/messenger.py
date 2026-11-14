@@ -9,7 +9,8 @@ estaban. El chat SÍ anda (0x100D → 0x1005), así que el messenger va por coma
     /amigo <nick>        agregar (y al otro le llega el aviso, si está conectado)
     /quitar <nick>       quitar
     /m <nick> <mensaje>  mensaje privado (también /w, /mp, /susurro)
-    /messenger           la ayuda
+    /messenger           los amigos y la ayuda (el botón Messenger del lobby)
+    /clan, /opciones     los botones Clan y Options del lobby (ver herramientas/eda_original.py)
 
 Un aviso = 0x1005 con TIPO 3 (una línea en el chat, medido: en verde con «[Messenger]»); el tipo 4
 abre una ventana con Confirm (medido), mejor para los comandos GM que para cada conexión.
@@ -22,7 +23,8 @@ import struct
 from servidor.cuentas import NOMBRES, leer, guardar, nombre_visible, ruta_cuenta
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO
 
-COMANDOS = ("amigos", "amigo", "agregar", "quitar", "borrar", "m", "w", "mp", "susurro", "messenger")
+COMANDOS = ("amigos", "amigo", "agregar", "quitar", "borrar", "m", "w", "mp", "susurro", "messenger", "clan",
+            "opciones")
 
 
 def aviso(texto, destino, tipo=3):
@@ -126,7 +128,30 @@ def comando(texto, conexion, c):
             return (0x1005, struct.pack("<HBII", 0, 1, 0xFFFFFFFF, 0) + nom + struct.pack("<I", len(b)) + b,
                     0, destino)
         return [privado("[de %s]" % yo, n), privado("[a %s]" % partes[1], conexion)]
-    return [aviso("Messenger: /amigos · /amigo <nick> · /quitar <nick> · /m <nick> <mensaje>", conexion)]
+    ayuda = aviso("Messenger: /amigos · /amigo <nick> · /quitar <nick> · /m <nick> <mensaje>", conexion)
+    if sub == "clan":                                       # ★ el botón Clan del lobby
+        return [aviso("Clan: en la beta de 2009 no existía (el cliente no trae sus pantallas). "
+                      "Usa /amigos y /m para tu grupo.", conexion)]
+    if sub == "opciones":                                   # ★ el botón Options del lobby
+        return [aviso(abrir_opciones(), conexion)]
+    return comando("/amigos", conexion, c) + [ayuda]        # ★ el botón Messenger (/messenger)
+
+
+def abrir_opciones():
+    """★ El botón Options: con el server en ESTA PC (jugar.py), abre EDA-Opciones.py (si está al
+    lado de la carpeta del repo). En un VPS no hay qué abrir: sólo el aviso."""
+    import subprocess
+    import sys
+    from servidor import config
+    ruta = os.path.join(os.path.dirname(config.RAIZ), "EDA-Opciones.py")
+    if sys.platform != "win32" or not os.path.exists(ruta):
+        return "Opciones: abre EDA-Opciones en tu PC."
+    py = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    try:
+        subprocess.Popen([py if os.path.exists(py) else sys.executable, ruta], cwd=os.path.dirname(ruta))
+    except OSError as error:
+        return "Opciones: no se pudo abrir (%s)." % error
+    return "Opciones abiertas en otra ventana: se aplican la próxima vez que abras EDA."
 
 
 def al_salir(nombre):
