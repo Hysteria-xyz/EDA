@@ -48,6 +48,9 @@ def control():
     nivel_real, config.NIVEL_INICIAL = config.NIVEL_INICIAL, 0   # (las cuentas de prueba arrancan en 0 EXP)
     config.CUENTA = os.path.join(config.CUENTAS, "no_existe.json")
     shutil.rmtree(config.CUENTAS, ignore_errors=True)
+    from servidor import messenger              # (la conversación y los inventarios de la prueba: en su carpeta)
+    messenger.ruta_chat = lambda: os.path.join(config.CUENTAS, "msn_chat.jsonl")
+    messenger.ruta_inventario = lambda nombre: os.path.join(config.CUENTAS, "inv_%s.json" % nombre)
     PARTIDAS.clear()
     ASIGNADAS.clear()
     r = responder(0x1011, b"\1\0\0\0", 99)
@@ -1228,6 +1231,33 @@ def pruebas_inventario(chequear):
              pos[9003] == 30 and pos[9002] == 12, pos)
     pos = mover((9003, 200))
     chequear("★ el revés: un casillero que no existe (≥ 168) → no se mueve", pos[9003] == 30, pos)
+    # ★ HABILIDADES: el 0x102B de la pantalla Skill trae N2 (casilla) y N3 (atajo F1…F8)
+    c = leer(n)
+    c["habilidades"] = [[1000, 1, 1, 0, 1], [1001, 1, 3, 1, 2]]
+    guardar(c)
+    cuerpo_sk = (struct.pack("<IB", 0, 7) + struct.pack("<I6H", 0, *(list(stats_de(c))[:5] + [0]))
+                 + struct.pack("<3H", 0, 2, 3) + struct.pack("<IBIB", 1000, 1, 1001, 0)
+                 + struct.pack("<IBIBIB", 1000, 2, 1001, 1, 1000, 9))
+    responder(0x102B, cuerpo_sk, n)
+    chequear("0x102B Skill: se guardan el nuevo orden (casilla) y los atajos F1…F8 "
+             "(★ el revés: un atajo 9 no existe y no se toma)",
+             leer(n)["habilidades"] == [[1000, 1, 1, 1, 2], [1001, 1, 3, 0, 1]], leer(n)["habilidades"])
+    # ★ «Exit Game» desde el Inventory: 0x102F con el cuerpo entero del 0x102D
+    cuerpo = (b"\0" * 8 + struct.pack("<6H", *(list(stats_de(leer(n)))[:5] + [0]))
+              + struct.pack("<HHH", 1, 0, 0) + struct.pack("<IB", 9003, 31))
+    r = responder(0x102F, cuerpo, n)
+    chequear("0x102F de Exit Game (cuerpo del 0x102D) → guarda lo movido y contesta 0x1030 u16 1",
+             r == [(0x1030, b"\1\0", 0)] and {it[3]: it[2] for it in leer(n)["items"]}[9003] == 31, r)
+    # ★ UseItem: 0x1067 con el SERIAL de una poción de la bolsa → se descuenta (sin difundir nada)
+    c = leer(n)
+    c["items"] = [[26001, 3, 12, 9001, 1]]
+    guardar(c)
+    r = responder(0x1067, struct.pack("<I", 9001), n)
+    chequear("UseItem (0x1067 con el serial de una poción): baja de 3 a 2, sin respuesta",
+             r == [] and [x[1] for x in leer(n)["items"]] == [2], leer(n)["items"])
+    responder(0x1067, struct.pack("<I", 9001), n)
+    responder(0x1067, struct.pack("<I", 9001), n)
+    chequear("★ el revés: al usar la última, la pila desaparece", leer(n)["items"] == [])
     from servidor.objetos import pj_cuenta
     c = leer(n)
     nombre_en = lambda pj: pj[0x05:0x05 + 26].decode("utf-16-le").split("\0")[0]   # noqa: E731
@@ -1418,6 +1448,7 @@ def pruebas_messenger(chequear):
 
     def textos(r, destino):
         return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino]
+    from servidor import messenger
     responder(0x1017, b"", 301)
     responder(0x1017, b"", 302)
     nom_a, nom_b = ASIGNADAS[301], ASIGNADAS[302]
@@ -1451,8 +1482,13 @@ def pruebas_messenger(chequear):
     t = tick([301])
     chequear("el amigo se va → con el tick, «se desconectó»", any("se desconectó" in x for x in textos(t, 301)))
     r = responder(0x100D, chat_("/m %s sigues?" % nom_b), 301)
-    chequear("★ el revés: /m a un desconectado → aviso, sin mensaje",
-             textos(r, 301) == ["%s no está conectado." % nom_b])
+    chequear("★ el revés: /m a un desconectado → aviso (lo leerá al volver), sin mensaje al chat",
+             len(textos(r, 301)) == 1 and textos(r, 301)[0].startswith("%s no está conectado: lo leerá" % nom_b)
+             and not textos(r, 302), textos(r, 301))
+    chats = [json.loads(x) for x in open(messenger.ruta_chat(), encoding="utf-8")]
+    chequear("la conversación queda en messenger_chat.jsonl (también la de un desconectado)",
+             [(m["de"], m["a"], m["texto"]) for m in chats] == [(nom_a, nom_b, "hola amigo"),
+                                                               (nom_a, nom_b, "sigues?")], chats)
     # ★ el PANEL (EDA-Messenger.py): estado y pedidos por archivo; el otro vuelve a conectarse
     from servidor import messenger
     responder(0x1017, b"", 302)
@@ -1475,3 +1511,40 @@ def pruebas_messenger(chequear):
         f.write(json.dumps({"de": nom_a, "accion": "quitar", "nick": nom_b}) + "\n")
     tick([301, 302])
     chequear("panel: el pedido «quitar» lo saca", leer(301).get("amigos") == [])
+    # ★ VENTA / ELIMINACIÓN EN GRUPO por pedido, y el archivo del inventario de cada conectado
+    from servidor.datos import precios_venta
+    from servidor.objetos import inventario
+    c = leer(301)
+    c["items"] = [[1, 1, 10, 1, 1], [11, 1, 20, 2, 1], [12, 1, 21, 3, 1], [26001, 5, 22, 4, 1]]
+    c["plata"] = 1000
+    guardar(c)
+    precios = precios_venta()
+    messenger.escribir_inventarios()
+    inv_p = json.load(open(messenger.ruta_inventario(nom_a), encoding="utf-8"))
+    chequear("inventario: el archivo del panel con oro y 4 ítems (serial, tipo, cant, casillero, precio)",
+             inv_p["plata"] == 1000 and [x["serial"] for x in inv_p["items"]] == [1, 2, 3, 4], inv_p)
+    if precios.get(11) and precios.get(12):
+        with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"de": nom_a, "accion": "vender", "seriales": [1, 2, 3]}) + "\n")
+        t = tick([301, 302])
+        d = leer(301)
+        chequear("vender 3 (uno PUESTO): se venden los 2 de la bolsa, el puesto queda",
+                 [x[3] for x in inventario(d)] == [1, 4] and d["plata"] == 1000 + precios[11] + precios[12],
+                 [x[3] for x in inventario(d)])
+        chequear("un 0x1042 por ítem vendido, con el oro que va quedando",
+                 [struct.unpack_from("<HIIB", x[1])[:3] for x in t if x[0] == 0x1042 and x[3] == 301]
+                 == [(1, 2, 1000 + precios[11]), (1, 3, 1000 + precios[11] + precios[12])])
+    with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"de": nom_a, "accion": "eliminar", "seriales": [4, 99]}) + "\n")
+    plata = leer(301)["plata"]
+    t = tick([301, 302])
+    chequear("eliminar: sale de la bolsa sin oro (y un serial que no existe no hace nada)",
+             4 not in [x[3] for x in inventario(leer(301))] and leer(301)["plata"] == plata
+             and any(x.startswith("Eliminados 1") for x in textos(t, 301)))
+    messenger.escribir_inventarios()
+    chequear("el archivo del panel se actualiza", 4 not in [x["serial"] for x in json.load(
+        open(messenger.ruta_inventario(nom_a), encoding="utf-8"))["items"]])
+    with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"de": nom_a, "accion": "aviso", "texto": "Clan: reservado (F12)."}) + "\n")
+    t = tick([301, 302])
+    chequear("pedido «aviso» (F12) → una línea en el chat", textos(t, 301) == ["Clan: reservado (F12)."])

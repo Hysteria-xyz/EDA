@@ -192,6 +192,20 @@ def interactuar_objeto(cmd, cuerpo, conexion, c, p):
     if len(cuerpo) < 4:
         return []
     obj_id = struct.unpack_from("<I", cuerpo, 0)[0]
+    # ★ (medido 14-nov) también es USAR UN ÍTEM de la barra en la stage: `0x50d670` → `0x546280`
+    #   («UseItem:%d») manda el SERIAL de la poción. El cliente aplica el efecto solo (el script de
+    #   la poción, `0x57ed30`) y baja la pila en pantalla; acá se descuenta de la bolsa. Antes la
+    #   pila volvía entera al reconectar (66 usos sin descontar en una partida).
+    inv = inventario(c)
+    it = next((x for x in inv if x[3] == obj_id), None)
+    if it is not None:
+        if it[1] > 0:
+            it[1] -= 1
+            if it[1] <= 0:
+                inv.remove(it)
+            c["items"] = inv
+            guardar(c)
+        return []
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"]:
         return []

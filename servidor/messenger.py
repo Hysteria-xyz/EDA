@@ -19,6 +19,7 @@ Los amigos se guardan en el personaje activo (`amigos`: nombres de CUENTA).
 import json
 import os
 import struct
+import time
 
 from servidor import config
 from servidor.cuentas import NOMBRES, leer, guardar, nivel, nombre_visible, ruta_cuenta
@@ -119,8 +120,13 @@ def comando(texto, conexion, c):
     if sub in ("m", "w", "mp", "susurro"):
         if len(partes) < 3:
             return [aviso("Uso: /m <nick> <mensaje>", conexion)]
-        n = buscar(partes[1])[1]
+        otro, n = buscar(partes[1])
+        if otro and otro != c["nombre"]:
+            registrar_mensaje(c["nombre"], otro, partes[2])  # ★ la conversación del Messenger (F11)
         if not n:
+            if otro and otro != c["nombre"]:
+                return [aviso("%s no está conectado: lo leerá en su Messenger (F11) al volver." % partes[1],
+                              conexion)]
             return [aviso("%s no está conectado." % partes[1], conexion)]
         b = partes[2].encode("utf-16-le")
 
@@ -135,8 +141,11 @@ def comando(texto, conexion, c):
                       "Usa /amigos y /m para tu grupo.", conexion)]
     if sub == "opciones":                                   # ★ el botón Options del lobby
         return [aviso(abrir_opciones(), conexion)]
-    if abrir_panel(c["nombre"]):                             # ★ el botón Messenger: el PANEL (EDA-Messenger.py)
-        return [aviso("Messenger abierto en otra ventana (al lado del juego).", conexion)]
+    hecho = abrir_panel(c["nombre"])                        # ★ el botón Messenger: el PANEL (EDA-Messenger.py)
+    if hecho == "cerrado":
+        return [aviso("Messenger cerrado.", conexion)]
+    if hecho:
+        return [aviso("Messenger abierto (al lado del juego). F11 lo abre y lo cierra.", conexion)]
     return comando("/amigos", conexion, c) + [ayuda]        # (sin panel: los amigos y la ayuda)
 
 
@@ -154,7 +163,7 @@ def abrir_opciones():
         subprocess.Popen([py if os.path.exists(py) else sys.executable, ruta], cwd=os.path.dirname(ruta))
     except OSError as error:
         return "Opciones: no se pudo abrir (%s)." % error
-    return "Opciones abiertas en otra ventana: se aplican la próxima vez que abras EDA."
+    return "Opciones abiertas en otra ventana: se aplican al instante."
 
 
 # ★ EL PANEL DEL MESSENGER (EDA-Messenger.py, una ventana aparte al estilo del juego: el cliente de 2009
@@ -168,6 +177,114 @@ def ruta_estado():
 
 def ruta_pedidos():
     return os.path.join(config.ESTADO, "messenger_pedidos.jsonl")
+
+
+def ruta_chat():
+    return os.path.join(config.ESTADO, "messenger_chat.jsonl")
+
+
+def ruta_inventario(nombre):
+    return os.path.join(config.ESTADO, "inventario_%s.json" % nombre)
+
+
+def registrar_mensaje(de, a, texto):
+    """★ Cada mensaje privado queda en messenger_chat.jsonl: la ventana de conversación del
+    Messenger lo muestra (también a un desconectado, cuando vuelve)."""
+    os.makedirs(config.ESTADO, exist_ok=True)
+    with open(ruta_chat(), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"de": de, "a": a, "texto": texto, "hora": time.strftime("%H:%M")},
+                           ensure_ascii=False) + "\n")
+
+
+def estado_inventario(c):
+    """El oro y cada ítem (serial, tipo, cantidad, casillero, precio de venta) de una cuenta."""
+    from servidor.datos import precios_venta
+    from servidor.objetos import inventario
+    precios = precios_venta()
+    return {"plata": c["plata"], "items": [
+        {"serial": it[3], "tipo": it[0], "cant": it[1], "cas": it[2], "precio": precios.get(it[0])}
+        for it in inventario(c)]}
+
+
+def escribir_inventarios():
+    """inventario_<cuenta>.json de cada conectado, sólo si cambió."""
+    ult = VIVO.__dict__.setdefault("INV_ULTIMO", {})
+    for n, nombre in list(ASIGNADAS.items()):
+        texto = json.dumps(estado_inventario(leer(n)), sort_keys=True)
+        if ult.get(nombre) != texto:
+            ult[nombre] = texto
+            os.makedirs(config.ESTADO, exist_ok=True)
+            with open(ruta_inventario(nombre) + ".tmp", "w", encoding="utf-8") as f:
+                f.write(texto)
+            os.replace(ruta_inventario(nombre) + ".tmp", ruta_inventario(nombre))
+
+
+def vender_varios(n, seriales, vender=True):
+    """★ VENTA / ELIMINACIÓN EN GRUPO: cada ítem como el 0x1041 (lo PUESTO, casilleros < 12, no se
+    toca) y al cliente un 0x1042 por ítem — el mismo que contesta a «Sell», sin que él lo pida."""
+    from servidor.datos import precios_venta
+    from servidor.objetos import inventario
+    c = leer(n)
+    inv = inventario(c)
+    precios = precios_venta()
+    r, cuantos, oro = [], 0, 0
+    for serial in seriales:
+        it = next((x for x in inv if x[3] == serial), None)
+        if it is None or it[2] < 12:
+            continue
+        precio = precios.get(it[0]) if vender else 0
+        if vender and precio is None:
+            continue
+        inv.remove(it)
+        c["plata"] += precio
+        oro += precio
+        cuantos += 1
+        r.append((0x1042, struct.pack("<HIIB", 1, serial, c["plata"], 1 if it[0] <= 19999 else 0), 0, n))
+    if cuantos:
+        c["items"] = inv
+        guardar(c)
+    texto = ("Vendidos %d ítems: +%d de oro." % (cuantos, oro)) if vender else ("Eliminados %d ítems." % cuantos)
+    return r + [aviso(texto if cuantos else "Nada que %s." % ("vender" if vender else "eliminar"), n)]
+
+
+def proceso_vivo(archivo_pid):
+    """¿Sigue corriendo el proceso cuyo pid está en `archivo_pid`? (Windows)"""
+    try:
+        pid = int(open(archivo_pid).read().strip())
+    except (OSError, ValueError):
+        return False
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, pid)
+        if not h:
+            return False
+        codigo = ctypes.c_ulong(0)
+        k32.GetExitCodeProcess(h, ctypes.byref(codigo))
+        k32.CloseHandle(h)
+        return codigo.value == 259                          # STILL_ACTIVE
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
+def abrir_atajos():
+    """EDA-Atajos.py (F10 Options, F11 Messenger, F12 Clan; al lado de la carpeta del repo) si no está
+    corriendo, o si cambió desde que se abrió."""
+    import subprocess
+    import sys
+    ruta = os.path.join(os.path.dirname(config.RAIZ), "EDA-Atajos.py")
+    pid = os.path.join(config.ESTADO, "atajos.pid")
+    if sys.platform != "win32" or not os.path.exists(ruta):
+        return False
+    if proceso_vivo(pid) and os.path.getmtime(ruta) <= os.path.getmtime(pid):
+        return False
+    py = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    try:
+        subprocess.Popen([py if os.path.exists(py) else sys.executable, ruta], cwd=os.path.dirname(ruta),
+                         close_fds=True)
+    except OSError:
+        return False
+    return True
 
 
 def _cuenta_por_nombre(nombre):
@@ -235,6 +352,17 @@ def atender_pedidos():
         n = conexion_de(nombre)
         if n is None:                                       # (el panel es del que está jugando)
             continue
+        accion = ped.get("accion")
+        if accion in ("vender", "eliminar"):
+            seriales = [int(x) for x in ped.get("seriales", []) if str(x).isdigit()]
+            r += vender_varios(n, seriales, accion == "vender")
+            continue
+        if accion == "salir":                               # (destrabar un cliente que pidió salir)
+            r.append((0x1030, struct.pack("<H", 1), 0, n))
+            continue
+        if accion == "aviso":                               # (F12 de EDA-Atajos: el aviso del Clan)
+            r.append(aviso(str(ped.get("texto", ""))[:200], n))
+            continue
         nick = str(ped.get("nick", "")).strip()
         texto = {"amigo": "/amigo %s" % nick, "quitar": "/quitar %s" % nick,
                  "mensaje": "/m %s %s" % (nick, str(ped.get("texto", "")).strip())}.get(ped.get("accion"))
@@ -251,6 +379,18 @@ def abrir_panel(nombre):
     ruta = os.path.join(os.path.dirname(config.RAIZ), "EDA-Messenger.py")
     if sys.platform != "win32" or not os.path.exists(ruta):
         return False
+    pid = os.path.join(config.ESTADO, "messenger_panel.pid")
+    if proceso_vivo(pid):                                   # ★ 14-nov: el botón abre Y cierra
+        try:
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            h = k32.OpenProcess(0x0001, False, int(open(pid).read().strip()))
+            if h:
+                k32.TerminateProcess(h, 0)
+                k32.CloseHandle(h)
+                return "cerrado"
+        except (OSError, ValueError):
+            pass
     escribir_estado(forzar=True)
     py = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
     try:
@@ -272,4 +412,8 @@ def tick():
         r += avisar_amigos(nombre, "%s se desconectó." % _nick_guardado(nombre))
     r += atender_pedidos()                                  # lo que pidió el panel
     escribir_estado()                                       # y lo que el panel muestra
+    escribir_inventarios()
+    if ASIGNADAS and time.time() - VIVO.__dict__.get("ATAJOS_VISTO", 0) > 10:
+        VIVO.ATAJOS_VISTO = time.time()
+        abrir_atajos()                                      # (F10 / F11 / F12, si está al lado)
     return r
