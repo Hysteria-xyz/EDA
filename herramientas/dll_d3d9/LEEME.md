@@ -8,7 +8,9 @@ lado del juego. Es del jugador: el launcher no lo pisa. Lo que pasa queda en **`
 ## El `.ini` por BLOQUES (12-nov)
 
 `eda_d3d9.ini` está partido en bloques separados por `#####`, y cada bloque se prende o se apaga solo.
-**Por defecto: LO MÍNIMO (tope de cuadros + server) y la caja negra.** El resto, apagado.
+**Por defecto:** lo mínimo (tope de cuadros + server), la caja negra, el P2P y `[mazino]`; `[rui]` y
+`[hysteria]` apagados (la columna «por defecto» de la tabla). Una mejora NUEVA viene prendida: ver
+«Para la próxima PR».
 
 | bloque | qué | clave | por defecto | riesgo | medido |
 |---|---|---|---|---|---|
@@ -66,8 +68,11 @@ arrastra lo que tenía prendido. Medido: un `.ini` viejo con todo prendido carga
 ★ Por qué todo va en la dll y no en el exe, y cómo se revisa un PR: `documentacion/POR_QUE_LA_DLL.md`.
 
 - **Una mejora nueva va en el BLOQUE de su autor** (`[rui]`, `[hysteria]`, `[mazino]`, o uno nuevo con el
-  nombre de quien la trae), con su clave, y el bloque arranca APAGADO hasta que esté medida en más de
-  una PC. Que `mejoras=0` también la apague.
+  nombre de quien la trae), con su clave. **Viene PRENDIDA por defecto en el código** (el `.ini` es del
+  jugador y el launcher no lo pisa: apagada no le llegaría a nadie); la clave sirve para apagarla, y
+  `mejoras=0` también. **Antes de publicarla a los jugadores (una release del cliente), se mide en dos
+  PCs, una que no sea la del autor.** Lo que hoy figura apagado en la tabla sigue como está. (Decidido
+  el 14-nov; antes era «apagado hasta medirlo en más de una PC».)
 - **Si cambia lo que hace una clave que ya existe, se cambia el NOMBRE de la clave.** El `.ini` de cada
   jugador queda con el valor viejo, y el launcher no lo pisa.
 - Que anote en `eda_d3d9.log` qué hizo (o por qué no), y que no haga nada pesado en `DllMain`.
