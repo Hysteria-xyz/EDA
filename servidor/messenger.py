@@ -20,7 +20,8 @@ import json
 import os
 import struct
 
-from servidor.cuentas import NOMBRES, leer, guardar, nombre_visible, ruta_cuenta
+from servidor import config
+from servidor.cuentas import NOMBRES, leer, guardar, nivel, nombre_visible, ruta_cuenta
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO
 
 COMANDOS = ("amigos", "amigo", "agregar", "quitar", "borrar", "m", "w", "mp", "susurro", "messenger", "clan",
@@ -134,7 +135,9 @@ def comando(texto, conexion, c):
                       "Usa /amigos y /m para tu grupo.", conexion)]
     if sub == "opciones":                                   # ★ el botón Options del lobby
         return [aviso(abrir_opciones(), conexion)]
-    return comando("/amigos", conexion, c) + [ayuda]        # ★ el botón Messenger (/messenger)
+    if abrir_panel(c["nombre"]):                             # ★ el botón Messenger: el PANEL (EDA-Messenger.py)
+        return [aviso("Messenger abierto en otra ventana (al lado del juego).", conexion)]
+    return comando("/amigos", conexion, c) + [ayuda]        # (sin panel: los amigos y la ayuda)
 
 
 def abrir_opciones():
@@ -154,6 +157,110 @@ def abrir_opciones():
     return "Opciones abiertas en otra ventana: se aplican la próxima vez que abras EDA."
 
 
+# ★ EL PANEL DEL MESSENGER (EDA-Messenger.py, una ventana aparte al estilo del juego: el cliente de 2009
+#   no trae pantalla de messenger). Server y panel corren en esta PC y hablan por dos archivos: el
+#   server escribe el ESTADO (cada cuenta: nick, nivel, clase, conectado, dónde, amigos) y el panel
+#   deja PEDIDOS (agregar, quitar, mensaje) que el server atiende en el tick. Probado en el juego el
+#   13-nov: ADD, SEND (a un desconectado: el aviso) y DELETE.
+def ruta_estado():
+    return os.path.join(config.ESTADO, "messenger_estado.json")
+
+
+def ruta_pedidos():
+    return os.path.join(config.ESTADO, "messenger_pedidos.jsonl")
+
+
+def _cuenta_por_nombre(nombre):
+    """La cuenta `nombre` (conectada o no), como `leer`; None si no existe."""
+    n = conexion_de(nombre)
+    if n is not None:
+        return leer(n)
+    if not os.path.exists(ruta_cuenta(nombre)):
+        return None
+    try:
+        crudo = json.load(open(ruta_cuenta(nombre), encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    pjs = crudo.get("pjs") or [crudo]
+    pj = pjs[min(crudo.get("activo", 0), len(pjs) - 1)] if pjs else {}
+    return dict(pj, nombre=nombre, amigos=pj.get("amigos", crudo.get("amigos", [])))
+
+
+def estado():
+    cuentas = {}
+    for nombre in NOMBRES:
+        c = _cuenta_por_nombre(nombre)
+        if c is None:
+            continue
+        n = conexion_de(nombre)
+        cuentas[nombre] = {"nick": c.get("nick") or nombre, "nivel": nivel(c.get("exp", 0)) if c.get("exp") is not None
+                           else 0, "clase": c.get("clase", 1), "conectado": n is not None,
+                           "donde": donde_esta(n) if n is not None else "", "amigos": list(c.get("amigos", []))}
+    return {"cuentas": cuentas}
+
+
+def escribir_estado(forzar=False):
+    """Escribe el estado del panel sólo si cambió (o con `forzar`). True si lo escribió."""
+    texto = json.dumps(estado(), ensure_ascii=False, sort_keys=True)
+    if not forzar and getattr(VIVO, "MSN_ULTIMO", None) == texto:
+        return False
+    VIVO.MSN_ULTIMO = texto
+    os.makedirs(os.path.dirname(ruta_estado()), exist_ok=True)
+    temporal = ruta_estado() + ".tmp"
+    with open(temporal, "w", encoding="utf-8") as f:
+        f.write(texto)
+    os.replace(temporal, ruta_estado())
+    return True
+
+
+def atender_pedidos():
+    """Los pedidos del panel: {"de": cuenta, "accion": "amigo"|"quitar"|"mensaje", "nick", "texto"}."""
+    ruta = ruta_pedidos()
+    if not os.path.exists(ruta):
+        return []
+    tomado = ruta + ".tomado"
+    try:
+        os.replace(ruta, tomado)
+        lineas = open(tomado, encoding="utf-8").read().splitlines()
+    finally:
+        if os.path.exists(tomado):
+            os.remove(tomado)
+    r = []
+    for linea in lineas:
+        try:
+            ped = json.loads(linea)
+        except ValueError:
+            continue
+        nombre = str(ped.get("de", ""))
+        n = conexion_de(nombre)
+        if n is None:                                       # (el panel es del que está jugando)
+            continue
+        nick = str(ped.get("nick", "")).strip()
+        texto = {"amigo": "/amigo %s" % nick, "quitar": "/quitar %s" % nick,
+                 "mensaje": "/m %s %s" % (nick, str(ped.get("texto", "")).strip())}.get(ped.get("accion"))
+        if texto:
+            r += comando(texto, n, leer(n)) or []
+    return r
+
+
+def abrir_panel(nombre):
+    """Abre EDA-Messenger.py (al lado de la carpeta del repo) para la cuenta `nombre`. Un panel viejo
+    lo cierra el nuevo (messenger_panel.pid)."""
+    import subprocess
+    import sys
+    ruta = os.path.join(os.path.dirname(config.RAIZ), "EDA-Messenger.py")
+    if sys.platform != "win32" or not os.path.exists(ruta):
+        return False
+    escribir_estado(forzar=True)
+    py = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    try:
+        subprocess.Popen([py if os.path.exists(py) else sys.executable, ruta, "--cuenta", nombre],
+                         cwd=os.path.dirname(ruta), close_fds=True)
+    except OSError:
+        return False
+    return True
+
+
 def al_salir(nombre):
     """Lo llama `cerrada`: el aviso sale con el próximo tick (cerrada no puede contestar)."""
     VIVO.__dict__.setdefault("SALIDAS", []).append(nombre)
@@ -163,4 +270,6 @@ def tick():
     r = []
     for nombre in VIVO.__dict__.pop("SALIDAS", []):
         r += avisar_amigos(nombre, "%s se desconectó." % _nick_guardado(nombre))
+    r += atender_pedidos()                                  # lo que pidió el panel
+    escribir_estado()                                       # y lo que el panel muestra
     return r

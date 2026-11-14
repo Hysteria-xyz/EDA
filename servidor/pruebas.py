@@ -1453,3 +1453,25 @@ def pruebas_messenger(chequear):
     r = responder(0x100D, chat_("/m %s sigues?" % nom_b), 301)
     chequear("★ el revés: /m a un desconectado → aviso, sin mensaje",
              textos(r, 301) == ["%s no está conectado." % nom_b])
+    # ★ el PANEL (EDA-Messenger.py): estado y pedidos por archivo; el otro vuelve a conectarse
+    from servidor import messenger
+    responder(0x1017, b"", 302)
+    responder(0x100D, chat_("/quitar %s" % nom_b), 301)
+    with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"de": nom_a, "accion": "amigo", "nick": nom_b}) + "\n")
+        f.write(json.dumps({"de": nom_a, "accion": "mensaje", "nick": nom_b, "texto": "hola desde el panel"}) + "\n")
+        f.write("esto no es json\n")
+    t = tick([301, 302])
+    chequear("panel: el pedido «amigo» agrega y avisa al otro",
+             leer(301).get("amigos") == [nom_b] and any("te agregó" in x for x in textos(t, 302)))
+    chequear("panel: el pedido «mensaje» le llega al otro", "hola desde el panel" in textos(t, 302))
+    chequear("panel: los pedidos se consumen", not os.path.exists(messenger.ruta_pedidos()))
+    est = json.load(open(messenger.ruta_estado(), encoding="utf-8"))["cuentas"]
+    chequear("panel: el estado dice quién es amigo de quién, conectado y en el lobby",
+             est[nom_a]["amigos"] == [nom_b] and est[nom_b]["conectado"] and est[nom_b]["donde"] == "en el lobby",
+             est.get(nom_b))
+    chequear("★ el revés: sin cambios, el estado no se reescribe", messenger.escribir_estado() is False)
+    with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
+        f.write(json.dumps({"de": nom_a, "accion": "quitar", "nick": nom_b}) + "\n")
+    tick([301, 302])
+    chequear("panel: el pedido «quitar» lo saca", leer(301).get("amigos") == [])
