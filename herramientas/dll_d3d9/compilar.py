@@ -21,6 +21,10 @@ SALIDA = os.path.join(RAIZ, "_trabajo", "dll")
 JUEGO = os.path.join(RAIZ, "_trabajo", "juego")
 ZIG = os.environ.get("ZIG") or os.path.join(os.path.expanduser("~"), "Desktop", "Proyecto qq", "_taller", "_zig",
                                              "zig-x86_64-windows-0.16.0", "zig.exe")
+# (o el que baja herramientas/dll_d3d9/bajar_zig.py a _trabajo/zig/, para quien no tiene el de R2Beat)
+_ZIG_AQUI = os.path.join(RAIZ, "_trabajo", "zig", "zig-x86_64-windows-0.16.0", "zig.exe")
+if not os.environ.get("ZIG") and not os.path.isfile(ZIG) and os.path.isfile(_ZIG_AQUI):
+    ZIG = _ZIG_AQUI
 INI = """; eda_d3d9.ini — los ajustes del d3d9.dll de EDA (herramientas/dll_d3d9, ver su LEEME.md)
 ; Cada BLOQUE se prende o se apaga solo. Por defecto: LO MÍNIMO (tope de cuadros + server) y la caja negra.
 ; (Las líneas que empiezan con «;» son comentarios.)
@@ -100,9 +104,16 @@ letras_32=0
 # PARCHES DE MAZINO (PR #1, #5, #9)
 #####################################################################
 [mazino]
-; (todavía ninguno en la dll: su arreglo de la REGIÓN —el juego moría en los Windows en español— ya está
-;  ADENTRO de EDA_limpio.exe, MEDICIONES §37; los demás son del server)
-activo=0
+; ★ (14-nov) lo que antes hacía Frida (herramientas/eda_original.py), ahora en la dll: llega a todos con el
+;   launcher. Prendido por defecto; cada uno se apaga solo (0). MEDICIONES §57
+activo=1
+; 1 = los botones Clan / Messenger / Options de arriba (el cliente de 2009 no los une a nada): en el lobby y en
+;     Shop / Inventory / Refinery / Skill mandan /clan, /messenger, /opciones al server
+botones=1
+; 1 = Ctrl+clic en la bolsa marca VARIAS casillas (con la selección del propio juego); «Sell» vende todas
+seleccion_multiple=1
+; 1 = EDA no se pausa al cambiar de ventana, y no centra ni encierra el mouse si no está al frente
+foco=1
 """
 
 

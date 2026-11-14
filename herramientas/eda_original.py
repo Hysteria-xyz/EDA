@@ -681,10 +681,14 @@ def lanzar(esperar=True, avisar=_avisar, nombre="EDA.exe", server=None):
     dest = server or LOCAL
     env = {"EDA_SERVER": "%s:%d" % (".".join(map(str, dest[0])), dest[1])}
     if nombre != "EDA.exe" and os.environ.get("EDA_SIN_BOTONES") != "1":
-        js += BOTONES_JS
-        js += INVENTARIO_JS
-        js += TECLAS_JS
-        js += FOCO_JS
+        # ★ (14-nov) los botones, la selección múltiple y el foco los hace la d3d9.dll ([mazino], MEDICIONES §57):
+        #   llegan a todos con el launcher. Acá quedan sólo para medir sin la dll (EDA_FRIDA_MEJORAS=1); con
+        #   las dos a la vez se duplicarían (dos ventas por ítem marcado)
+        if os.environ.get("EDA_FRIDA_MEJORAS") == "1":
+            js += BOTONES_JS
+            js += INVENTARIO_JS
+            js += FOCO_JS
+        js += TECLAS_JS                                # (teclas / Options en vivo de los paneles de Python)
         bandera = os.path.join(RAIZ, "_trabajo", "servidor", "volcar_guiones")
         if os.path.exists(bandera):                    # (una sola apertura: la bandera se borra)
             os.remove(bandera)

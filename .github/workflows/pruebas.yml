@@ -52,6 +52,31 @@ jobs:
           sleep 3
           python -m servidor.red prueba 127.0.0.1:25900 || (cat "$RUNNER_TEMP/red.log"; exit 1)
 
+  dll:
+    # ★ la d3d9.dll (la parte del cliente que llega a los jugadores) se compila DESDE EL CÓDIGO, con la misma
+    #   receta que herramientas/dll_d3d9/compilar.py (Zig 0.16.0). Así un PR que la cambia se puede revisar
+    #   leyendo el .c, y nadie necesita el compilador en su PC para saber si compila. El md5 de la compilada y
+    #   el de exe/d3d9.dll quedan en el resumen; la compilada, como artefacto.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Zig 0.16.0
+        run: |
+          curl -sSfL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ
+          echo "$PWD/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - name: compila la d3d9.dll
+        run: |
+          cd herramientas/dll_d3d9
+          zig cc -target x86-windows-gnu -shared -O2 -s -o d3d9.dll eda_d3d9.c d3d9.def \
+            -lkernel32 -luser32 -lwinmm -lws2_32 -liphlpapi
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          md5sum d3d9.dll ../../exe/d3d9.dll | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: d3d9.dll
+          path: herramientas/dll_d3d9/d3d9.dll
+
   docker:
     runs-on: ubuntu-latest
     steps:

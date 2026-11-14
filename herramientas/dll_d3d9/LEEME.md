@@ -28,7 +28,10 @@ lado del juego. Es del jugador: el launcher no lo pisa. Lo que pasa queda en **`
 | | anillo de vértices: los dibujos sin frenar la placa (dos juegos en una PC: sin él, 14 cuadros/s) | `[rui] anillo_vertices` | 0 | **alto**: toca CADA dibujo | §42–43 |
 | **PARCHES DE HYSTERIA** (PR #6) | | `[hysteria] activo` | **0** | | |
 | | letras completas: si se ven cortadas a la mitad, sus texturas empiezan en 32×32 (`0x770A64`, sólo si están los bytes originales) | `[hysteria] letras_32` | 1 | bajo: 5 bytes verificados | §49 |
-| **PARCHES DE MAZINO** (PR #1, #5, #9) | (ninguno en la dll todavía: su arreglo de la región ya está ADENTRO de `EDA_limpio.exe`, §37; lo demás es del server) | `[mazino] activo` | 0 | — | §37 |
+| **PARCHES DE MAZINO** (PR #1, #5, #9, #38) | (su arreglo de la región ya está ADENTRO de `EDA_limpio.exe`, §37) | `[mazino] activo` | **1** | | §37, §57 |
+| | botones Clan / Messenger / Options (lobby: `0x4F6061` → `0x4DF900`; Shop / Inventory / Refinery / Skill: el clic en la barra) → `/clan`, `/messenger`, `/opciones` al server | `[mazino] botones` | 1 | bajo: una llamada verificada + leer clics | §57 |
+| | selección MÚLTIPLE en la bolsa (Ctrl+clic, la selección nativa: byte +0x248 de cada casilla) y «Sell» vende todas (`0x51A12B` → `0x54A990`) | `[mazino] seleccion_multiple` | 1 | bajo: una llamada verificada | §57 |
+| | foco: EDA no se pausa al cambiar de ventana (WndProc `0x4026C0`) y no centra ni encierra el mouse si no está al frente | `[mazino] foco` | 1 | bajo | §57 |
 
 ⚠ **Las claves viejas** (`[video] tope_estricto`, `red_inmediata`, `anillo_vertices` / `buferes_rapidos`,
 `[compat] letras_32`) **ya no se leen**: el `.ini` es del jugador (el launcher no lo pisa) y así nadie
