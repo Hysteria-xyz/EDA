@@ -114,8 +114,12 @@ coinciden, no se toca y se anota en el log.
 
 ### Las reglas de la dll (de `herramientas/dll_d3d9/LEEME.md` § «Para la próxima PR»)
 
-1. **Cada mejora en el bloque de su autor**, con su clave, y el bloque **APAGADO** hasta que esté
-   medida en más de una PC. `[general] mejoras=0` también la apaga.
+1. **Cada mejora en el bloque de su autor**, con su clave. **Una mejora nueva viene PRENDIDA por
+   defecto en el código** (el `.ini` es del jugador y el launcher no lo pisa: apagada no le llegaría a
+   nadie); la clave sirve para apagarla, y `[general] mejoras=0` también. **Antes de publicarla a los
+   jugadores (una release del cliente), se mide en dos PCs, una que no sea la del autor.** Lo que hoy
+   figura apagado en la tabla del LEEME de la dll sigue como está. (Decidido el 14-nov; antes la regla
+   era «apagado hasta medirlo en más de una PC». Ver `documentacion/ENTORNOS.md` §2.7.)
 2. **Si cambia lo que hace una clave que ya existe, se cambia su NOMBRE.** El `.ini` es del jugador
    (el launcher no lo pisa): con el mismo nombre arrastraría el valor viejo.
 3. **Que anote en `eda_d3d9.log`** qué hizo, o por qué no lo hizo.
@@ -138,7 +142,10 @@ dos juegos se congelaron (§42).
 
 ### Cómo revisar un PR que toca la dll
 
-- [ ] ¿Está en el bloque de su autor, con clave propia y apagada por defecto (salvo lo mínimo)?
+- [ ] ¿Está en el bloque de su autor, con una clave propia que la apaga (prendida por defecto en el
+      código)?
+- [ ] Antes de la release: ¿se midió en dos PCs, una que no sea la del autor? (y en qué entorno:
+      `documentacion/ENTORNOS.md` §4)
 - [ ] ¿`mejoras=0` la apaga?
 - [ ] ¿Escribe en el log qué hizo? ¿Verifica los bytes antes de un parche en memoria?
 - [ ] ¿Se midió en el juego, con **A/B** (prendida / apagada) y su número? (§49: un negativo con teclas
