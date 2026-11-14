@@ -55,7 +55,7 @@ la más simple a la más fina (hay que medir cuál anda):
 
 - Hacen falta **dos PCs en casas distintas** (una puede estar con los datos del celular). Con dos juegos
   en la misma PC, o en la misma casa, no se ve este problema.
-- Contra el **server de prueba** (puerto 35900, sin login; la dirección la pasa el dueño del proyecto):
+- Contra el **server de prueba** (puerto 35900, sin login; la dirección la pasa Rui):
   `py jugar.py --server DIRECCION:35900`, o el juego del launcher con `[red] server=` en `eda_d3d9.ini`.
 - Qué mirar:
   · el ping de la sala (y el revés: con `EDA_P2P=relay` tiene que andar siempre, más lento);

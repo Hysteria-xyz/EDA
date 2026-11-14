@@ -27,13 +27,15 @@ programás, también sirve un issue con una foto y lo que dice la consola.
 
 | para fusionar en | hace falta |
 |---|---|
-| `develop` | las pruebas en verde (`privado`, `server`, `docker`) + **1 aprobación** de un colaborador (Hysteria-xyz, Urek-Mazinoo, el dueño) que no sea el autor |
-| `main` (prod) | lo mismo + **2 aprobaciones** (o el dueño) |
+| `develop` | las pruebas en verde (`privado`, `server`, `docker`) + **1 aprobación** de un colaborador (Hysteria-xyz, Urek-Mazinoo, Rui) que no sea el autor |
+| `main` (prod) | lo mismo + **2 aprobaciones** (o Rui) |
 
 - El trabajo **`privado`** de las pruebas falla si el PR trae algo con forma de dato privado: una IP
   pública desconocida (la de tu VPS o tu casa), una IP de tu red (`192.168.N.x`), una MAC de verdad,
   una ruta de tu carpeta de usuario o un correo. En las pruebas usá IPs de documentación
   (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`), `192.168.x.x` en los textos y MACs `02:00:00:00:00:0N`.
+- **Los finales de línea** los ordena git solo (`.gitattributes`: todo en LF). No hay que configurar nada.
+  Cómo trabaja cada agente y qué cambia de un entorno a otro: `documentacion/ENTORNOS.md`.
 
 ## Paso a paso (con un fork)
 
