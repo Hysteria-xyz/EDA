@@ -8,6 +8,9 @@ r"""jugar.py -- EDA (Espada del Alma, Softnyx 2009) contra nuestro server, en tu
                                                      #   levanta el server local (puerto 25900)
     py jugar.py --sin-dll                            # sin nuestra d3d9.dll (tope de cuadros,
                                                      #   red inmediata): el juego como en 2009
+    py jugar.py --como-launcher                      # ★ EL MISMO CLIENTE QUE BAJA EL LAUNCHER:
+                                                     #   exe\EDA_limpio.exe + la d3d9.dll, SIN Frida
+                                                     #   (lo que se prueba es lo que reciben todos)
 
 Qué hace (ver EMPEZAR.md):
   · `--preparar` copia tu cliente de 2009 a `_trabajo\juego\` (el original no se toca), verifica
@@ -90,7 +93,13 @@ def poner_dll(sacar=False):
             os.remove(destino)
             print("· d3d9.dll de EDA: sacada (el juego usa el d3d9 de Windows)")
         return
-    for carpeta in (os.path.join(RAIZ, "exe"), os.path.join(RAIZ, "_trabajo", "dll")):
+    # ★ la recién compilada (_trabajo/dll, compilar.py) si es más nueva que la del repo (exe/): así se prueba
+    #   la dll de un PR antes de subirla
+    carpetas = [os.path.join(RAIZ, "exe"), os.path.join(RAIZ, "_trabajo", "dll")]
+    hechas = [os.path.join(c, "d3d9.dll") for c in carpetas]
+    if all(os.path.exists(x) for x in hechas) and os.path.getmtime(hechas[1]) > os.path.getmtime(hechas[0]):
+        carpetas.reverse()
+    for carpeta in carpetas:
         dll = os.path.join(carpeta, "d3d9.dll")
         if os.path.exists(dll):
             shutil.copy2(dll, destino)
@@ -99,6 +108,23 @@ def poner_dll(sacar=False):
                 shutil.copy2(ini, JUEGO)
             print("· d3d9.dll de EDA: puesta (tope de cuadros, red inmediata; ajustes en eda_d3d9.ini)")
             return
+
+
+def como_launcher(server_txt):
+    """★ (14-nov) Abre el juego COMO LO ABRE EL LAUNCHER: el `EDA_limpio.exe` del repo (el que se reparte; si
+    el de _trabajo/juego es otro, se reemplaza) con la `d3d9.dll` al lado y SIN Python adentro del juego: todo
+    lo que el cliente hace distinto de 2009 lo hace la dll (herramientas/dll_d3d9, MEDICIONES §57). El server
+    va por EDA_SERVER (lo mismo que el 3er argumento del launcher)."""
+    repo = os.path.join(RAIZ, "exe", "EDA_limpio.exe")
+    exe = os.path.join(JUEGO, "EDA_limpio.exe")
+    if os.path.exists(repo) and (not os.path.exists(exe) or md5(exe) != md5(repo)):
+        shutil.copy2(repo, exe)
+        print("· EDA_limpio.exe: el del repo (md5 %s), el mismo que baja el launcher" % md5(repo))
+    if not os.path.exists(os.path.join(JUEGO, "d3d9.dll")):
+        raise SystemExit("⛔ falta la d3d9.dll al lado del juego (py herramientas\\dll_d3d9\\compilar.py --poner)")
+    print("· como el launcher: %s (server %s, sin Frida)" % (exe, server_txt))
+    p = subprocess.Popen([exe], cwd=JUEGO, env=dict(os.environ, EDA_SERVER=server_txt))
+    p.wait()
 
 
 def server_andando():
@@ -148,7 +174,10 @@ def main():
         except OSError as e:
             raise SystemExit("⛔ el server %s:%d no contesta (%s). ¿Está andando? ¿El firewall?"
                              % (".".join(map(str, remoto[0])), remoto[1], e))
-        eda_original.lanzar(esperar=True, nombre=nombre, server=remoto)
+        if "--como-launcher" in a:
+            como_launcher("%s:%d" % (".".join(map(str, remoto[0])), remoto[1]))
+        else:
+            eda_original.lanzar(esperar=True, nombre=nombre, server=remoto)
         print("· el juego se cerró")
         return 0
     if not os.path.exists(REGLAS):                     # las respuestas del Broker (anuncio, lista)
@@ -166,7 +195,10 @@ def main():
             time.sleep(0.25)
         print("· server andando (127.0.0.1:25900) — su registro: _trabajo\\broker\\espia.log")
     try:
-        eda_original.lanzar(esperar=True, nombre=nombre)
+        if "--como-launcher" in a:
+            como_launcher("127.0.0.1:25900")
+        else:
+            eda_original.lanzar(esperar=True, nombre=nombre)
         print("· el juego se cerró")
     except KeyboardInterrupt:
         pass

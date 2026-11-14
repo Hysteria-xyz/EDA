@@ -792,6 +792,365 @@ static void parche_ping_verde(void)
             puestos == 3 ? "" : " (⚠ los demás no tenían los bytes de EDA_limpio.exe: no se tocaron)");
 }
 
+/* ── ★ [mazino] LO QUE ANTES HACÍA FRIDA, AHORA EN LA DLL (14-nov) ──────────────────────────────────────────
+ * Medido y probado en el juego con herramientas/eda_original.py (Frida) y pasado a C, para que llegue a los
+ * jugadores con el launcher (sin Python). Las direcciones son las de EDA_limpio.exe (el del launcher): cada
+ * sitio se VERIFICA antes de tocarlo y, si no coincide, no se toca y se anota.
+ *  · botones=1 — los botones Clan / Messenger / Options de la barra de arriba no hacen nada en el cliente de
+ *    2009. En el lobby se unen (0x4DF900, evento 3, controles 3·4·5) con el mismo delegado que el control 1
+ *    (la llamada de 0x4F6061) pero con una función nuestra que manda un chat al server (/clan, /messenger,
+ *    /opciones); en Shop / Inventory / Refinery / Skill (pantalla del costado 4–7) se leen del clic
+ *    (y 8–58; x 465–539 / 547–621 / 629–703 en la pantalla de 800×600).
+ *  · seleccion_multiple=1 — Ctrl+clic en la bolsa marca VARIAS casillas con la selección NATIVA del juego:
+ *    cada casilla es un botón de un grupo de radio (grilla+0x3D8; +8 = la elegida = grilla+0x3E0) y se
+ *    dibuja «elegida» (+0x128, el marco celeste) con su byte +0x248 = 1. «Sell» → Confirm (la llamada a
+ *    0x54A990 de 0x51A12B, que manda el 0x1041 del ítem elegido) vende también las demás marcadas. Un clic
+ *    sin Ctrl en otra casilla las suelta.
+ *  · foco=1 — al cambiar de ventana EDA se PAUSABA (y parecía congelado): su WndProc (0x4026C0) para todo al
+ *    desactivarse. Se le dice que sigue activo (salvo minimizado), y el mouse no se centra ni se encierra
+ *    (SetPhysicalCursorPos / ClipCursor) mientras EDA no está al frente. */
+static int g_mz_botones, g_mz_seleccion, g_mz_foco;
+
+/* las funciones del juego que se usan para armar y mandar un paquete (las mismas que usa él) */
+typedef void *(__attribute__((thiscall)) *J_PINIT)(void *);
+typedef void (__attribute__((thiscall)) *J_PCMD)(void *, DWORD);
+typedef BYTE (__attribute__((thiscall)) *J_PBYTES)(void *, const void *, DWORD);
+typedef void *(__cdecl *J_RED)(void);
+typedef void (__attribute__((thiscall)) *J_MANDAR)(void *, void *);
+typedef void (__attribute__((thiscall)) *J_PFIN)(void *);
+typedef void *(__cdecl *J_CUENTA)(void);
+typedef void *(__attribute__((thiscall)) *J_HIJO)(void *, DWORD);                /* ventana / control */
+typedef void (__attribute__((thiscall)) *J_UNIR)(void *, int, int, void *);      /* 0x4DF900 */
+typedef void (__attribute__((thiscall)) *J_VENDER)(void *, DWORD);               /* 0x54A990 */
+#define JUEGO(t, a) ((t)(ULONG_PTR)(a))
+static int g_mz_paquetes_ok;
+
+static int firma(DWORD a, const char *hex)
+{
+    BYTE *p = (BYTE *)(ULONG_PTR)a;
+    int n = lstrlenA(hex) / 3 + 1;
+    if (!legible(p, n)) return 0;
+    for (int i = 0; i < n; i++) {
+        unsigned v = 0;
+        for (int k = 0; k < 2; k++) {
+            char c = hex[3 * i + k];
+            v = v * 16 + (c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10);
+        }
+        if (p[i] != v) return 0;
+    }
+    return 1;
+}
+
+static void mandar_paquete(DWORD cmd, const void *cuerpo, DWORD largo)
+{
+    static BYTE p[0x1100];                      /* el paquete del juego (+0x1000 = su largo) */
+    if (!g_mz_paquetes_ok) return;
+    JUEGO(J_PINIT, 0x7425D0)(p);
+    JUEGO(J_PCMD, 0x7426F0)(p, cmd);
+    JUEGO(J_PBYTES, 0x7434F0)(p, cuerpo, largo);
+    JUEGO(J_MANDAR, 0x744790)(JUEGO(J_RED, 0x7449F0)(), p);
+    JUEGO(J_PFIN, 0x743390)(p);
+}
+
+/* un mensaje de chat al server (0x100D: u8 1 · u32 -1 · u32 0 · u32 largo · UTF-16) */
+static void chat(const char *texto)
+{
+    BYTE c[13 + 2 * 64];
+    int n = lstrlenA(texto);
+    if (n > 64) n = 64;
+    c[0] = 1;
+    *(DWORD *)(c + 1) = 0xFFFFFFFF;
+    *(DWORD *)(c + 5) = 0;
+    *(DWORD *)(c + 9) = (DWORD)(2 * n);
+    for (int i = 0; i < n; i++) *(WORD *)(c + 13 + 2 * i) = (BYTE)texto[i];
+    mandar_paquete(0x100D, c, 13 + 2 * n);
+    apuntar("  [mazino] botón → «%s»", texto);
+}
+
+/* ── botones del lobby ── */
+static void __attribute__((thiscall)) boton_clan(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/clan"); }
+static void __attribute__((thiscall)) boton_msn(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/messenger"); }
+static void __attribute__((thiscall)) boton_opc(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/opciones"); }
+static BYTE g_delegados[3][0x18];
+
+static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int control, void *delegado)
+{
+    JUEGO(J_UNIR, 0x4DF900)(lobby, evento, control, delegado);
+    if (!delegado || !legible(delegado, 0x18)) return;
+    void *funciones[3] = {(void *)boton_clan, (void *)boton_msn, (void *)boton_opc};
+    for (int i = 0; i < 3; i++) {
+        memcpy(g_delegados[i], delegado, 0x18);
+        *(void **)(g_delegados[i] + 8) = funciones[i];
+        JUEGO(J_UNIR, 0x4DF900)(lobby, 3, 3 + i, g_delegados[i]);
+    }
+    apuntar("  [mazino] lobby: Clan, Messenger y Options unidos");
+}
+
+/* cambiar el destino de un `call rel32` del exe (sólo si apunta adonde se espera) */
+static int desviar_llamada(DWORD sitio, DWORD esperado, void *nuevo, const char *que)
+{
+    BYTE *p = (BYTE *)(ULONG_PTR)sitio;
+    LONG rel = (LONG)(esperado - (sitio + 5));
+    DWORD prot;
+    if (!legible(p, 5) || p[0] != 0xE8 || memcmp(p + 1, &rel, 4)) {
+        apuntar("  [mazino] %s: ⚠ en 0x%lX no está la llamada de EDA_limpio.exe: no se toca", que, (unsigned long)sitio);
+        return 0;
+    }
+    LONG n = (LONG)((ULONG_PTR)nuevo - (sitio + 5));
+    if (!VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &prot)) return 0;
+    memcpy(p + 1, &n, 4);
+    VirtualProtect(p, 5, prot, &prot);
+    FlushInstructionCache(GetCurrentProcess(), p, 5);
+    return 1;
+}
+
+/* ── la selección múltiple ── */
+typedef struct { DWORD serial; BYTE *celda; } MARCA;
+static MARCA g_marcas[64];
+static int g_nmarcas, g_pagina = -1;
+static BYTE *g_cache_escena, *g_cache_ui, *g_cache_pest, *g_cache_g[5];
+static DWORD g_pendiente, g_simple;
+static BYTE *g_antes;
+
+static BYTE *leer_ptr(const void *p) { return legible(p, 4) ? *(BYTE *const *)p : NULL; }
+
+/* la pantalla del costado: 4 / 5 / 6 = Shop / Inventory / Refinery (con la bolsa), 7 = Skill */
+static int pantalla_costado(BYTE *esc) { return esc && legible(esc + 0xDC, 4) ? *(int *)(esc + 0xDC) : -1; }
+
+static BYTE *grilla(int *k_out)
+{
+    BYTE *esc = leer_ptr((void *)0x934554);
+    int pc = pantalla_costado(esc);
+    if (pc < 4 || pc > 6) { g_cache_escena = NULL; return NULL; }
+    if (g_cache_escena != esc) {
+        g_cache_escena = esc;
+        g_cache_ui = leer_ptr(esc + 0x14);
+        memset(g_cache_g, 0, sizeof(g_cache_g));
+        BYTE *v = g_cache_ui ? JUEGO(J_HIJO, 0x7510F0)(g_cache_ui, 0x258) : NULL;
+        g_cache_pest = v ? JUEGO(J_HIJO, 0x755200)(v, 0x2EE0) : NULL;
+    }
+    if (!g_cache_pest || !legible(g_cache_pest + 0x118, 4)) return NULL;
+    int k = (int)*(DWORD *)(g_cache_pest + 0x118) - 0x2EE1;
+    if (k < 0 || k > 4) return NULL;
+    if (!g_cache_g[k]) {
+        BYTE *v = JUEGO(J_HIJO, 0x7510F0)(g_cache_ui, 0x262 + 10 * k);
+        g_cache_g[k] = v ? JUEGO(J_HIJO, 0x755200)(v, 0x2F44 + 100 * k) : NULL;
+    }
+    if (!g_cache_g[k] || !legible(g_cache_g[k] + 0x3D8, 0x10)) return NULL;
+    *k_out = k;
+    return g_cache_g[k];
+}
+
+static BYTE *elegida(void) { int k; BYTE *g = grilla(&k); return g ? leer_ptr(g + 0x3E0) : NULL; }
+
+static BYTE *item_de(BYTE *celda) { return celda && legible(celda + 0x250, 4) ? leer_ptr(celda + 0x250) : NULL; }
+
+static void pintar(BYTE *c, int si)
+{
+    if (!c || !legible(c, 0x250)) return;
+    c[0x248] = si ? 1 : 0;
+    *(BYTE **)(c + 0x244) = si ? c + 0x128 : c + (c[0x34] ? 0x1E0 : 0x184);
+}
+
+static void soltar(void)
+{
+    BYTE *sel = elegida();
+    for (int i = 0; i < g_nmarcas; i++)
+        if (g_marcas[i].celda != sel) pintar(g_marcas[i].celda, 0);
+    g_nmarcas = 0;
+}
+
+static void repintar(void)
+{
+    BYTE *sel = elegida();
+    for (int i = 0; i < g_nmarcas;) {
+        BYTE *c = g_marcas[i].celda, *it = item_de(c);
+        if (!it || !legible(it + 4, 4) || *(DWORD *)(it + 4) != g_marcas[i].serial) {
+            /* la casilla ya no tiene ese ítem (se movió o se vendió): la marca se cae */
+            if (c != sel) pintar(c, 0);
+            g_marcas[i] = g_marcas[--g_nmarcas];
+            continue;
+        }
+        if (c[0x248] != 1) pintar(c, 1);
+        i++;
+    }
+}
+
+static int marcada(DWORD serial)
+{
+    for (int i = 0; i < g_nmarcas; i++)
+        if (g_marcas[i].serial == serial) return i;
+    return -1;
+}
+
+static void marcar(DWORD serial, BYTE *celda)
+{
+    if (marcada(serial) < 0 && g_nmarcas < 64) {
+        g_marcas[g_nmarcas].serial = serial;
+        g_marcas[g_nmarcas].celda = celda;
+        g_nmarcas++;
+    }
+}
+
+static void revisar_inventario(void)
+{
+    int k = -1;
+    BYTE *g = grilla(&k);
+    if (!g || k != g_pagina) {
+        if (g_nmarcas) { if (g) soltar(); g_nmarcas = 0; }
+        g_pagina = g ? k : -1;
+    }
+    if (!g) return;
+    DWORD ahora = GetTickCount();
+    /* un clic SIN Ctrl que elige otra casilla = selección nueva: se sueltan las marcas (como en Windows).
+     *   Un clic en «Sell» u otro botón no cambia la elegida: quedan. */
+    if (g_simple && (LONG)(ahora - g_simple) >= 0) {
+        g_simple = 0;
+        BYTE *sel = leer_ptr(g + 0x3E0);
+        if (g_nmarcas && g_antes && sel != g_antes) soltar();
+    }
+    if (!g_pendiente || (LONG)(ahora - g_pendiente) < 0) { repintar(); return; }
+    g_pendiente = 0;
+    BYTE *celda = leer_ptr(g + 0x3E0), *it = item_de(celda);
+    if (!it || !legible(it + 4, 4)) { repintar(); return; }
+    DWORD serial = *(DWORD *)(it + 4);
+    /* la primera marca con Ctrl incluye la casilla que ya estaba elegida (como en Windows) */
+    if (!g_nmarcas && g_antes && g_antes != celda) {
+        BYTE *it2 = item_de(g_antes);
+        if (it2 && legible(it2 + 4, 4)) marcar(*(DWORD *)(it2 + 4), g_antes);
+    }
+    int i = marcada(serial);
+    if (i >= 0) { g_marcas[i] = g_marcas[--g_nmarcas]; pintar(celda, 0); }
+    else marcar(serial, celda);
+    repintar();
+    apuntar("  [mazino] marcas: %d", g_nmarcas);
+}
+
+/* «Sell» → Confirm: el juego manda el 0x1041 de la elegida; nosotros, el de cada una de las demás */
+static void __attribute__((thiscall)) mi_vender(void *escena, DWORD serial)
+{
+    JUEGO(J_VENDER, 0x54A990)(escena, serial);
+    if (!g_mz_seleccion || !g_nmarcas) return;
+    BYTE *cuenta = JUEGO(J_CUENTA, 0x623E60)();
+    int otros = 0;
+    if (cuenta && legible(cuenta + 0x2B8, 4)) {
+        for (int i = 0; i < g_nmarcas; i++) {
+            if (g_marcas[i].serial == serial) continue;
+            DWORD cuerpo[2] = {*(DWORD *)(cuenta + 0x2B8), g_marcas[i].serial};
+            mandar_paquete(0x1041, cuerpo, 8);
+            otros++;
+        }
+    }
+    soltar();
+    if (otros) apuntar("  [mazino] venta múltiple: %d ítems", otros + 1);
+}
+
+/* los botones Clan / Options / Messenger en las pantallas del costado (el juego no los une a nada) */
+static void barra(HWND h, LPARAM l)
+{
+    int pc = pantalla_costado(leer_ptr((void *)0x934554));
+    if (pc < 4 || pc > 7) return;
+    RECT r;
+    int x = (short)LOWORD(l), y = (short)HIWORD(l);
+    if (GetClientRect(h, &r) && r.right > 0 && r.bottom > 0) {        /* (en la pantalla de 800×600) */
+        x = x * 800 / r.right;
+        y = y * 600 / r.bottom;
+    }
+    if (y < 8 || y > 58) return;
+    if (x >= 465 && x <= 539) chat("/clan");
+    else if (x >= 547 && x <= 621) chat("/opciones");
+    else if (x >= 629 && x <= 703) chat("/messenger");
+}
+
+/* ── el foco ── */
+static HWND g_ventana_juego;
+static WNDPROC g_wndproc_viejo;
+
+static LRESULT CALLBACK mi_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
+{
+    if (!IsIconic(h)) {
+        if (m == WM_ACTIVATE && LOWORD(w) == WA_INACTIVE) w |= 1;   /* «sigue activo» (salvo minimizado) */
+        else if ((m == WM_ACTIVATEAPP || m == WM_NCACTIVATE) && w == 0) w = 1;
+    }
+    return CallWindowProcA(g_wndproc_viejo, h, m, w, l);
+}
+
+static void vigilar_wndproc(HWND h)
+{
+    WNDPROC actual = (WNDPROC)(LONG_PTR)GetWindowLongA(h, GWL_WNDPROC);
+    if (!actual || actual == mi_wndproc) return;
+    g_wndproc_viejo = actual;
+    SetWindowLongA(h, GWL_WNDPROC, (LONG)(ULONG_PTR)mi_wndproc);
+    apuntar("  [mazino] foco: WndProc 0x%08lX → EDA no se pausa al cambiar de ventana", (unsigned long)(ULONG_PTR)actual);
+}
+
+static int juego_al_frente(void) { return !g_ventana_juego || GetForegroundWindow() == g_ventana_juego; }
+
+typedef BOOL (WINAPI *M_SETCUR)(int, int);
+typedef BOOL (WINAPI *M_CLIP)(const RECT *);
+static M_SETCUR g_setcur_real;
+static M_CLIP g_clip_real;
+static BOOL WINAPI mi_setcur(int x, int y) { return juego_al_frente() ? g_setcur_real(x, y) : TRUE; }
+static BOOL WINAPI mi_clip(const RECT *r) { return g_clip_real(juego_al_frente() ? r : NULL); }
+
+/* ── el bombeo de mensajes del juego (PeekMessageA, su hilo principal) ── */
+typedef BOOL (WINAPI *M_PEEK)(LPMSG, HWND, UINT, UINT, UINT);
+static M_PEEK g_peek_real;
+static DWORD g_hilo_juego;
+static long g_vueltas;
+
+static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
+{
+    BOOL hay = g_peek_real(m, h, a, b, r);
+    DWORD yo = GetCurrentThreadId();
+    if (!g_hilo_juego) g_hilo_juego = yo;
+    if (yo != g_hilo_juego) return hay;
+    if (hay && m && m->hwnd) {
+        if (!g_ventana_juego) g_ventana_juego = GetAncestor(m->hwnd, GA_ROOT);
+        if (g_mz_seleccion && m->message == WM_LBUTTONDOWN) g_antes = elegida();   /* la elegida ANTES del clic */
+        if (m->message == WM_LBUTTONUP) {
+            if (g_mz_seleccion && (m->wParam & MK_CONTROL)) g_pendiente = GetTickCount() + 120;
+            else {
+                if (g_mz_seleccion) g_simple = GetTickCount() + 120;
+                if (g_mz_botones) barra(m->hwnd, m->lParam);
+            }
+        }
+    }
+    ++g_vueltas;
+    if (g_mz_foco && g_ventana_juego && (g_vueltas & 255) == 1) vigilar_wndproc(g_ventana_juego);
+    if (g_mz_seleccion && (g_pendiente || g_simple || (g_vueltas & 3) == 0)) revisar_inventario();
+    return hay;
+}
+
+static void poner_mazino(void)
+{
+    /* las funciones del juego para mandar un paquete: verificadas antes de usarlas */
+    g_mz_paquetes_ok = firma(0x7425D0, "8b c1 33 c9") && firma(0x7426F0, "66 8b 54 24") && firma(0x7434F0, "53 55 8b 6c")
+        && firma(0x7449F0, "64 a1 00 00") && firma(0x744790, "6a ff 68 46") && firma(0x743390, "57 8b b9 00")
+        && firma(0x623E60, "64 a1 00 00") && firma(0x7510F0, "8b 01 85 c0") && firma(0x755200, "53 8b 99 dc")
+        && firma(0x4DF900, "6a ff 68 80") && firma(0x54A990, "6a ff 64 a1");
+    if (!g_mz_paquetes_ok) {
+        apuntar("  [mazino] ⚠ las funciones del juego no están donde en EDA_limpio.exe: botones y selección apagados");
+        g_mz_botones = g_mz_seleccion = 0;
+    }
+    if (g_mz_botones && desviar_llamada(0x4F6061, 0x4DF900, (void *)mi_unir_lobby, "botones"))
+        apuntar("  [mazino] botones: enganchado el lobby (0x4F6061) y las pantallas del costado");
+    if (g_mz_seleccion && desviar_llamada(0x51A12B, 0x54A990, (void *)mi_vender, "seleccion_multiple"))
+        apuntar("  [mazino] seleccion_multiple: Ctrl+clic en la bolsa; «Sell» vende todas (0x51A12B)");
+    if (g_mz_foco) {
+        g_setcur_real = (M_SETCUR)parchear_iat("user32.dll", "SetPhysicalCursorPos", (void *)mi_setcur);
+        g_clip_real = (M_CLIP)parchear_iat("user32.dll", "ClipCursor", (void *)mi_clip);
+        if (!g_setcur_real || !g_clip_real) apuntar("  [mazino] foco: ⚠ no encontré SetPhysicalCursorPos / ClipCursor en el exe");
+    }
+    if (g_mz_botones || g_mz_seleccion || g_mz_foco) {
+        g_peek_real = (M_PEEK)parchear_iat("user32.dll", "PeekMessageA", (void *)mi_peek);
+        if (!g_peek_real) {
+            apuntar("  [mazino] ⚠ no encontré PeekMessageA en el exe: sin selección múltiple, sin foco, sin botones del costado");
+            g_mz_seleccion = 0;
+        }
+    }
+}
+
 /* ★ las TRAMPAS del desempacado (sin Frida): una llamada que no se pudo resolver salta a
  *   0xD0000000 + sitio − 0x400000 y el juego se cae. Queda anotado QUÉ sitio en eda_d3d9.log, para
  *   que un jugador lo pueda mandar (documentacion/APIS_A_MANO.md). No cambia nada: sigue la caída. */
@@ -1138,8 +1497,13 @@ static void leer_ajustes(HMODULE self)
     g_hysteria = GetPrivateProfileIntA("hysteria", "activo", 1, ini);
     g_letras32 = g_hysteria ? GetPrivateProfileIntA("hysteria", "letras_32", 0, ini) : 0;
     g_ping_verde = g_hysteria ? GetPrivateProfileIntA("hysteria", "ping_verde", 0, ini) : 0;   /* ⛔ medido: no cambia el color */
-    /* PARCHES DE MAZINO (su arreglo de región, GetCPInfo en 0x7EE13C, ya está ADENTRO del exe: §37) */
-    g_mazino = GetPrivateProfileIntA("mazino", "activo", 0, ini);
+    /* PARCHES DE MAZINO (su arreglo de región, GetCPInfo en 0x7EE13C, ya está ADENTRO del exe: §37) y, ★ desde
+     *   el 14-nov, lo que antes hacía Frida (MEDICIONES §57): PRENDIDO por defecto, porque el .ini de cada jugador
+     *   no lo pisa el launcher (uno viejo no tiene estas claves) y así llega con la dll nueva. Cada uno se apaga solo. */
+    g_mazino = GetPrivateProfileIntA("mazino", "activo", 1, ini);
+    g_mz_botones = g_mazino ? GetPrivateProfileIntA("mazino", "botones", 1, ini) : 0;
+    g_mz_seleccion = g_mazino ? GetPrivateProfileIntA("mazino", "seleccion_multiple", 1, ini) : 0;
+    g_mz_foco = g_mazino ? GetPrivateProfileIntA("mazino", "foco", 1, ini) : 0;
     /* ★ P2P: que los juegos se encuentren (MEDICIONES §52). Prendido por defecto: sólo arregla lo que
      *   el juego manda roto, y un .ini viejo (el launcher no lo pisa) sin este bloque lo tiene igual */
     g_p2p = GetPrivateProfileIntA("p2p", "activo", 1, ini);
@@ -1199,6 +1563,8 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
     }
     if (g_mejoras && g_letras32) parche_letras();
     if (g_mejoras && g_ping_verde) parche_ping_verde();
+    apuntar("  MAZINO %d (botones %d, selección múltiple %d, foco %d)", g_mazino, g_mz_botones, g_mz_seleccion, g_mz_foco);
+    if (g_mejoras && g_mazino) poner_mazino();
     preparar_linea();                                /* ★ el login del launcher (y puede traer el server) */
     apuntar("  P2P %d (mac %d, ip privada %d)", g_p2p, g_p2p_mac, g_p2p_ip);
     if (g_p2p_mac) parche_mac();
