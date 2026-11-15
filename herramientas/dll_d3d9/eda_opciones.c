@@ -265,7 +265,7 @@ static int opc_lineas(const OPC *o, char l[][64], int en_vivo)
 {
     int n = 0;
     if (!en_vivo) {
-        wsprintfA(l[n++], "\"windowed\" \"%d\"", o->completa ? 0 : 1);
+        lstrcpyA(l[n++], "\"windowed\" \"1\"");           /* ★ siempre: la pantalla completa es sin bordes (la dll) */
         lstrcpyA(l[n++], "\"screenwidth\" \"800\"");
         lstrcpyA(l[n++], "\"screenheight\" \"600\"");
     }
@@ -368,17 +368,59 @@ static void opc_aplicar_vivo(const OPC *o)
     g_sens_aplicada = o->sens;
 }
 
-/* ★ el MODO DE PANTALLA sin cerrar EDA: las variables y «RestartRender», el comando del motor (0x423C40) que
- *   rehace el video con ellas y vuelve a cargar texturas e interfaz él mismo (no un Reset nuestro a ciegas) */
+/* ★ (15-nov) PANTALLA COMPLETA = SIN BORDES. Medido: con «windowed 0» (y RestartRender) el juego pasa a la
+ *   pantalla completa EXCLUSIVA de Direct3D: ahí ninguna ventana (Options, Messenger) puede quedar encima (salía
+ *   una «mini pantalla» en otro lado y nada respondía) y al volver el juego se cerró (21:58). Ahora el juego queda
+ *   SIEMPRE en modo ventana (800×600) y la dll hace que su ventana tape el monitor entero, sin bordes: Present
+ *   estira la imagen solo. Cambiar de modo es mover la ventana: al instante, sin Reset, y con todo lo demás encima. */
+static volatile LONG g_pantalla_pedida = -1;    /* 1 sin bordes · 0 ventana · -1 nada */
+static int g_pantalla_monitor = 1, g_sin_bordes;
+static LONG g_estilo_viejo;
+static RECT g_rect_viejo;
+static int opc_monitores(RECT *salida);
+static void opc_poner_sin_bordes(int si)
+{
+    HWND v = g_ventana_juego;
+    if (!v) return;
+    LONG estilo = GetWindowLongA(v, GWL_STYLE);
+    if (si) {
+        RECT mon[8], r;
+        int n = opc_monitores(mon), k = g_pantalla_monitor >= 1 && g_pantalla_monitor <= n ? g_pantalla_monitor : 1;
+        MONITORINFO mi = {sizeof(mi)};
+        if (k == 1 || !GetMonitorInfoW(MonitorFromRect(&mon[k - 1], MONITOR_DEFAULTTONEAREST), &mi))
+            GetMonitorInfoW(MonitorFromWindow(v, MONITOR_DEFAULTTOPRIMARY), &mi);
+        if (k > 1) GetMonitorInfoW(MonitorFromRect(&mon[k - 1], MONITOR_DEFAULTTONEAREST), &mi);
+        r = mi.rcMonitor;                                         /* (el monitor entero, con la barra de tareas) */
+        if (!g_sin_bordes) { g_estilo_viejo = estilo; GetWindowRect(v, &g_rect_viejo); }
+        SetWindowLongA(v, GWL_STYLE, (estilo & ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX))
+                                     | WS_POPUP | WS_VISIBLE);
+        SetWindowPos(v, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        if (!g_sin_bordes) apuntar("  [mazino] opciones: pantalla completa SIN BORDES (%ld×%ld, monitor %d)",
+                                   r.right - r.left, r.bottom - r.top, k);
+        g_sin_bordes = 1;
+    } else if (g_sin_bordes) {
+        g_sin_bordes = 0;
+        SetWindowLongA(v, GWL_STYLE, g_estilo_viejo);
+        SetWindowPos(v, NULL, g_rect_viejo.left, g_rect_viejo.top, g_rect_viejo.right - g_rect_viejo.left,
+                     g_rect_viejo.bottom - g_rect_viejo.top, SWP_FRAMECHANGED | SWP_NOZORDER | SWP_SHOWWINDOW);
+        apuntar("  [mazino] opciones: de vuelta a modo ventana");
+    }
+}
+/* (en el hilo del juego) lo pedido; y si el juego le devolvió los bordes a su ventana, se los saca otra vez */
+static void opc_pantalla_tick(void)
+{
+    if (!g_ventana_juego) return;
+    LONG p = InterlockedExchange(&g_pantalla_pedida, -1);
+    if (p >= 0) opc_poner_sin_bordes((int)p);
+    else if (g_sin_bordes && (GetWindowLongA(g_ventana_juego, GWL_STYLE) & WS_CAPTION)) {
+        g_sin_bordes = 0;
+        opc_poner_sin_bordes(1);
+    }
+}
 static void opc_cambiar_modo(const OPC *o)
 {
-    char t[64];
-    wsprintfA(t, "\"windowed\" \"%d\"", o->completa ? 0 : 1);
-    opc_encolar(t);
-    opc_encolar("\"screenwidth\" \"800\"");
-    opc_encolar("\"screenheight\" \"600\"");
-    opc_encolar("RestartRender");
-    apuntar("  [mazino] opciones: modo de pantalla → %s (RestartRender)", o->completa ? "pantalla completa" : "ventana");
+    g_pantalla_monitor = o->monitor;
+    InterlockedExchange(&g_pantalla_pedida, o->completa ? 1 : 0);
 }
 
 /* GUARDAR: el ini, el json (si está) y la consola */
@@ -477,15 +519,11 @@ static void opc_al_arrancar(void)
     }
     OPC o;
     const char *origen = opc_leer(&o);
-    if (!lstrcmpA(origen, "EDA-opciones.json")) {              /* (lo aplicó EDA-Opciones.py --aplicar) */
-        apuntar("  [mazino] opciones: manda EDA-opciones.json (más nuevo): el autoexec.cfg queda como lo dejó Python");
-        if (!o.completa && o.monitor > 1) g_ubicar = o.monitor;
-        return;
-    }
-    int ok = opc_al_cfg(&o);
-    apuntar("  [mazino] opciones: [opciones] → autoexec.cfg %s (%s, monitor %d)", ok ? "puesto" : "⚠ no se pudo escribir",
-            o.completa ? "pantalla completa" : "ventana", o.monitor);
-    if (!o.completa && o.monitor > 1) g_ubicar = o.monitor;
+    int ok = opc_al_cfg(&o);                 /* (también con EDA-opciones.json: así «windowed» queda en 1) */
+    apuntar("  [mazino] opciones: %s → autoexec.cfg %s (%s, monitor %d)", origen, ok ? "puesto" : "⚠ no se pudo escribir",
+            o.completa ? "pantalla completa sin bordes" : "ventana", o.monitor);
+    if (o.completa) { g_pantalla_monitor = o.monitor; g_pantalla_pedida = 1; }
+    else if (o.monitor > 1) g_ubicar = o.monitor;
 }
 
 /* ════════════════════════════════ LA VENTANA (el look de eda_ui.py) ════════════════════════════════ */
@@ -659,7 +697,7 @@ static void opc_poner_real(OPC *o)
     int n = 0;
     for (int i = 0; i < 7; i++)
         if (g_valor_hay[i]) { *campos[i] = i < 2 ? (int)(g_valor_real[i] * 100 + 0.5f) : g_valor_real[i] > 0.5f; n++; }
-    if (g_valor_hay[7]) o->completa = g_valor_real[7] < 0.5f;            /* windowed */
+    o->completa = g_sin_bordes;                                           /* (la pantalla completa es la nuestra) */
     if (g_valor_hay[8]) o->gamma = (int)(g_valor_real[8] * 100 + 0.5f);
     if (g_sens_aplicada) o->sens = g_sens_aplicada;
     opc_limitar(o);
@@ -763,8 +801,9 @@ static void dibujar_seccion(HDC d, int x, int y, int derecha)
         y += 5;
         deslizador(d, fila_etiqueta(d, x, y + 4, L"Brillo", TEXTO, F_NORMAL), y, 3, g_op.gamma, 50, 150);
         y += 22 + 5 + 4;
-        y += parrafo(d, x, y, 400, L"Modo y monitor: al GUARDAR, sin cerrar EDA (el juego rehace su video un "
-                                   L"momento). Brillo, sonido, mouse y gráficos: al moverlos.", ORO, F_CHICA) + 4;
+        y += parrafo(d, x, y, 400, L"Modo y monitor: al GUARDAR, sin cerrar EDA. Pantalla completa = sin bordes "
+                                   L"(Options y Messenger quedan encima). Brillo, sonido, mouse y gráficos: al moverlos.",
+                     ORO, F_CHICA) + 4;
         parrafo(d, x, y, 400, L"La interfaz de 2009 sólo funciona en 800×600 (en pantalla completa se estira): "
                               L"por eso no hay otras resoluciones. El monitor vale en modo ventana.", GRIS, F_CHICA);
         break;
@@ -989,7 +1028,8 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
                 int modo = g_op.completa != g_abierto.completa, mon = g_op.monitor != g_abierto.monitor;
                 if (modo) opc_cambiar_modo(&g_op);
                 else if (mon && !g_op.completa) opc_mover_monitor(g_op.monitor);
-                lstrcpyW(g_estado, modo ? L"Guardado. Cambiando el modo de pantalla…" : L"Guardado y aplicado.");
+                else if (mon) opc_cambiar_modo(&g_op);             /* (sin bordes, a otro monitor) */
+                lstrcpyW(g_estado, L"Guardado y aplicado.");
                 g_estado_color = VERDE;
                 g_abierto = g_op;
             } else {

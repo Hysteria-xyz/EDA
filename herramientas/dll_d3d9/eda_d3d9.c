@@ -281,8 +281,50 @@ static void subir_todo(SOMBRA *s)
     s->anillo = s->tam;              /* lo próximo, con DISCARD */
 }
 
+/* ★ (15-nov, PRUEBA A/B EN VIVO) Ctrl+F8 apaga el anillo en plena partida: cada búfer con copia se sube ENTERO a
+ *   la placa (lo que el juego espera ver) y se suelta la copia; desde ahí Lock y dibujos pasan derecho. Si la barra
+ *   de habilidades / ítems / ESC aparece al apretarlo, era el anillo. Ctrl+F8 otra vez lo vuelve a prender. */
+static void anillo_en_vivo(int prender)
+{
+    if (!prender) {
+        int n = 0;
+        for (int i = 0; i < 32; i++) {
+            SOMBRA *s = &g_sombras[i];
+            if (s->vb && s->copia && !s->abierto) {
+                subir_todo(s);
+                HeapFree(GetProcessHeap(), 0, s->copia);
+                s->copia = NULL;
+                s->vb = NULL;
+                n++;
+            }
+        }
+        g_buferes = 0;
+        apuntar("  ★ anillo APAGADO en vivo (Ctrl+F8): %d búferes devueltos enteros a la placa", n);
+    } else if (g_lock_real) {
+        g_buferes = 1;
+        apuntar("  ★ anillo PRENDIDO en vivo (Ctrl+F8)");
+    }
+}
+
+/* (15-nov, MEDIR) en la stage dejaron de salir las líneas de cuadros/s: ¿dibuja sin pasar por nuestro Present?
+ *   Se cuentan los dibujos y, si pasan 5 s sin Present, se anota UNA vez (con cuántos dibujos y el dispositivo). */
+static volatile DWORD g_ultimo_present;
+static long g_dibujos_sin_present;
+static int g_avisado_sin_present;
+static void contar_dibujo(void *dev)
+{
+    g_dibujos_sin_present++;
+    if (g_ultimo_present && !g_avisado_sin_present && (g_dibujos_sin_present & 1023) == 0
+        && GetTickCount() - g_ultimo_present > 5000) {
+        g_avisado_sin_present = 1;
+        apuntar("  ⚠ (medir) %ld dibujos sin Present en 5 s · dispositivo 0x%08lX · anillo %d", g_dibujos_sin_present,
+                (unsigned long)(ULONG_PTR)dev, g_buferes);
+    }
+}
+
 static long WINAPI mi_dp(void *dev, DWORD tipo, UINT inicio, UINT prims)
 {
+    contar_dibujo(dev);
     SOMBRA *s = sombra_puesta(dev);
     if (s) {
         UINT n = vertices_de(tipo, prims);
@@ -296,6 +338,7 @@ static long WINAPI mi_dp(void *dev, DWORD tipo, UINT inicio, UINT prims)
 
 static long WINAPI mi_dip(void *dev, DWORD tipo, INT base, UINT minimo, UINT n, UINT desde_idx, UINT prims)
 {
+    contar_dibujo(dev);
     SOMBRA *s = sombra_puesta(dev);
     if (s) {
         INT primero = base + (INT)minimo;
@@ -1188,7 +1231,8 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
         /* ★ F10 Options · F11 Messenger · F12 Clan (antes EDA-Atajos.py, sólo en la PC con Python); F10 llega
          *   como tecla de sistema. Sin repetición (bit 30 = ya estaba apretada). */
         if (g_mz_atajos && (m->message == WM_KEYDOWN || m->message == WM_SYSKEYDOWN) && !(m->lParam & (1L << 30))) {
-            if (m->wParam == VK_F10) { apuntar("  [mazino] F10"); opciones_o_chat(); }
+            if (m->wParam == VK_F8 && GetKeyState(VK_CONTROL) < 0) anillo_en_vivo(!g_buferes);
+            else if (m->wParam == VK_F10) { apuntar("  [mazino] F10"); opciones_o_chat(); }
             else if (m->wParam == VK_F11) chat("/messenger");
             else if (m->wParam == VK_F12) chat("/clan");
         }
@@ -1205,6 +1249,7 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
     if (g_mz_seleccion && (g_pendiente || g_simple || (g_vueltas & 3) == 0)) revisar_inventario();
     if (g_opc_n) opc_correr_cola();
     if (g_ubicar && (g_vueltas & 127) == 0) opc_ubicar_tick();
+    if ((g_pantalla_pedida >= 0 || g_sin_bordes) && (g_vueltas & 63) == 0) opc_pantalla_tick();
     return hay;
 }
 
@@ -1464,6 +1509,9 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
     LARGE_INTEGER ahora;
     QueryPerformanceCounter(&ahora);
     g_cuadros++;
+    if (g_avisado_sin_present) { apuntar("  (medir) vuelve el Present (dispositivo 0x%08lX)", (unsigned long)(ULONG_PTR)dev); g_avisado_sin_present = 0; }
+    g_ultimo_present = GetTickCount();
+    g_dibujos_sin_present = 0;
     /* (sólo para PROBAR la caja negra: EDA_PROBAR_CAJA=1 hace caer a NUESTRA dll en el cuadro 60) */
     static int probar = -1, cuadro;
     if (probar < 0) {
