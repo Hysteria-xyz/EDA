@@ -334,6 +334,7 @@ static volatile LONG c_present, c_dibujos, c_peek, c_peek_otro;
 static volatile DWORD g_ultimo_peek;
 static volatile LONG g_anillo_deseado = -1;          /* -1 = sin pedido; 0/1 = lo que el vigía quiere */
 static int g_anillo_modo = 1;                        /* 1 = sólo lobby/sala · 2 = siempre */
+static int g_diagnostico;                            /* [general] diagnostico=1: el vigía anota todo */
 static const DWORD ESCENAS_ANILLO[] = {0x00899670, 0x00899740, 0x0089A268};   /* lobby, lobby, sala (medidas) */
 static int escena_con_anillo(DWORD vt)
 {
@@ -400,6 +401,7 @@ static long WINAPI mi_dip(void *dev, DWORD tipo, INT base, UINT minimo, UINT n, 
 }
 
 static void poner(void **vt, int i, void *nuevo, void **viejo);
+static void **g_vt_dev;                     /* la tabla del dispositivo (la re-afirma el vigía) */
 
 static long WINAPI mi_crear_vb(void *dev, UINT largo, DWORD uso, DWORD fvf, DWORD pool, void **vb, void *comp)
 {
@@ -1274,6 +1276,77 @@ static int juego_al_frente(void)
 
 typedef BOOL (WINAPI *M_SETCUR)(int, int);
 typedef BOOL (WINAPI *M_CLIP)(const RECT *);
+/* ★★ (15-nov) LA ENTRADA DEL JUEGO, EN UN SOLO LUGAR. Medido en el exe: el juego lee el mouse y el teclado por
+ *   DirectInput8 (GetDeviceState / GetDeviceData) y GetAsyncKeyState / GetKeyState, que leen el aparato FÍSICO sin
+ *   importar qué ventana está al frente. Con el «foco» (el juego se cree siempre activo) eso hacía que un clic en
+ *   otra ventana LE LLEGARA AL JUEGO: «Cerrar» del Messenger abría la Shop de atrás, los clics en Options movían el
+ *   juego. Ahora todo pasa por entrada_ok(): el juego sólo recibe teclado y mouse si su ventana está al frente y no
+ *   hay un panel nuestro abierto. El juego sigue corriendo (foco), pero sin la entrada que no es suya. */
+static int g_mz_entrada = 1;
+static int entrada_ok(void)
+{
+    if (!g_mz_entrada) return 1;
+    if (g_panel_abierto) return 0;
+    return !g_ventana_juego || GetForegroundWindow() == g_ventana_juego;
+}
+typedef SHORT (WINAPI *M_TECLA)(int);
+static M_TECLA g_async_real, g_tecla_real;
+static SHORT WINAPI mi_async(int vk) { SHORT v = g_async_real(vk); return entrada_ok() ? v : 0; }
+static SHORT WINAPI mi_tecla(int vk) { SHORT v = g_tecla_real(vk); return entrada_ok() ? v : (SHORT)(v & 1); }
+typedef HWND (WINAPI *M_CAPTURA)(HWND);
+static M_CAPTURA g_captura_real;
+static HWND WINAPI mi_captura(HWND h) { return entrada_ok() ? g_captura_real(h) : NULL; }
+/* DirectInput8: el objeto que crea el juego → sus dispositivos (teclado, mouse) → lo que leen */
+typedef long (WINAPI *M_DI8)(HINSTANCE, DWORD, const void *, void **, void *);
+typedef long (WINAPI *M_DICREAR)(void *, const void *, void **, void *);
+typedef long (WINAPI *M_DIESTADO)(void *, DWORD, void *);
+typedef long (WINAPI *M_DIDATOS)(void *, DWORD, void *, DWORD *, DWORD);
+static M_DI8 g_di8_real;
+static M_DICREAR g_dicrear_real;
+static M_DIESTADO g_diestado_real;
+static M_DIDATOS g_didatos_real;
+static long g_entrada_tapada;
+static long WINAPI mi_diestado(void *d, DWORD largo, void *datos)
+{
+    long hr = g_diestado_real(d, largo, datos);
+    if (hr == 0 && datos && !entrada_ok()) { memset(datos, 0, largo); g_entrada_tapada++; }
+    return hr;
+}
+static long WINAPI mi_didatos(void *d, DWORD tam, void *datos, DWORD *n, DWORD flags)
+{
+    long hr = g_didatos_real(d, tam, datos, n, flags);
+    if (hr == 0 && n && *n && !entrada_ok()) { *n = 0; g_entrada_tapada++; }    /* (los eventos se tiran) */
+    return hr;
+}
+static void poner(void **vt, int i, void *nuevo, void **viejo);
+static long WINAPI mi_dicrear(void *di, const void *guid, void **dev, void *unk)
+{
+    long hr = g_dicrear_real(di, guid, dev, unk);
+    if (hr == 0 && dev && *dev) {
+        poner(VT(*dev), 9, (void *)mi_diestado, (void **)&g_diestado_real);     /* GetDeviceState */
+        poner(VT(*dev), 10, (void *)mi_didatos, (void **)&g_didatos_real);      /* GetDeviceData */
+    }
+    return hr;
+}
+static long WINAPI mi_di8(HINSTANCE i, DWORD ver, const void *iid, void **sal, void *unk)
+{
+    long hr = g_di8_real(i, ver, iid, sal, unk);
+    if (hr == 0 && sal && *sal) {
+        poner(VT(*sal), 3, (void *)mi_dicrear, (void **)&g_dicrear_real);       /* IDirectInput8::CreateDevice */
+        apuntar("  [mazino] entrada: DirectInput8 del juego enganchado (teclado y mouse sólo con EDA al frente)");
+    }
+    return hr;
+}
+static void poner_entrada(void)
+{
+    g_di8_real = (M_DI8)parchear_iat("dinput8.dll", "DirectInput8Create", (void *)mi_di8);
+    g_async_real = (M_TECLA)parchear_iat("user32.dll", "GetAsyncKeyState", (void *)mi_async);
+    g_tecla_real = (M_TECLA)parchear_iat("user32.dll", "GetKeyState", (void *)mi_tecla);
+    g_captura_real = (M_CAPTURA)parchear_iat("user32.dll", "SetCapture", (void *)mi_captura);
+    apuntar("  [mazino] entrada: DirectInput8 %s · GetAsyncKeyState %s · GetKeyState %s · SetCapture %s",
+            g_di8_real ? "sí" : "⚠ no", g_async_real ? "sí" : "⚠ no", g_tecla_real ? "sí" : "⚠ no", g_captura_real ? "sí" : "⚠ no");
+}
+
 static M_SETCUR g_setcur_real;
 static M_CLIP g_clip_real;
 static BOOL WINAPI mi_setcur(int x, int y) { return juego_al_frente() ? g_setcur_real(x, y) : TRUE; }
@@ -1648,6 +1721,7 @@ static long WINAPI mi_crear_dispositivo(void *d3d, UINT adaptador, DWORD tipo, H
             (unsigned long)((DWORD *)pp)[13], (unsigned long)hr);
     if (hr == 0 && dev && *dev) {
         void **vt = VT(*dev);
+        g_vt_dev = vt;
         poner(vt, I_PRESENT, (void *)mi_present, (void **)&g_present_real);
         poner(vt, I_RESET, (void *)mi_reset, (void **)&g_reset_real);
         if (g_buferes) {
@@ -1699,6 +1773,7 @@ static void leer_ajustes(HMODULE self)
      *   NO SE LEEN: el .ini es del jugador y así nadie arrastra lo que tenía prendido. Las de [video] que
      *   escribe el launcher (tope_fps, mostrar_fps) siguen donde estaban. ═══ */
     g_mejoras = GetPrivateProfileIntA("general", "mejoras", 1, ini);
+    g_diagnostico = GetPrivateProfileIntA("general", "diagnostico", 0, ini);
     /* LO MÍNIMO */
     g_tope = GetPrivateProfileIntA("video", "tope_fps", 120, ini);
     g_mostrar = GetPrivateProfileIntA("video", "mostrar_fps", 0, ini);
@@ -1729,6 +1804,7 @@ static void leer_ajustes(HMODULE self)
     g_mz_foco = g_mazino ? GetPrivateProfileIntA("mazino", "foco", 1, ini) : 0;
     g_mz_opciones = g_mazino ? GetPrivateProfileIntA("mazino", "opciones", 1, ini) : 0;
     g_mz_atajos = g_mazino ? GetPrivateProfileIntA("mazino", "atajos", 1, ini) : 0;
+    g_mz_entrada = g_mazino ? GetPrivateProfileIntA("mazino", "entrada", 1, ini) : 0;
     /* ★ P2P: que los juegos se encuentren (MEDICIONES §52). Prendido por defecto: sólo arregla lo que
      *   el juego manda roto, y un .ini viejo (el launcher no lo pisa) sin este bloque lo tiene igual */
     g_p2p = GetPrivateProfileIntA("p2p", "activo", 1, ini);
@@ -1762,39 +1838,65 @@ static void leer_ajustes(HMODULE self)
     if (n && n < sizeof(env)) lstrcpyA(g_server, env);
 }
 
+/* ★ (15-nov) MEDIDO 22:46:01: en plena partida el juego dejó de pasar por nuestros Present/dibujos (0 por 10 s) y
+ *   no volvió, sin Reset ni dispositivo nuevo: otro programa (un overlay: Discord, NVIDIA…) escribió SU gancho en la
+ *   misma tabla. Se sumaba a lo de antes: el registro mudo a mitad de partida. El vigía mira la tabla cada segundo y,
+ *   si cambió, se encadena: lo que encontró pasa a ser «el real» (así el overlay sigue andando) y el nuestro vuelve. */
+static int reafirmar(void **vt, int i, void *nuestro, void **real, const char *que)
+{
+    void *ahora = vt[i];
+    if (!ahora || ahora == nuestro || !*real) return 0;
+    DWORD prot;
+    if (!VirtualProtect(&vt[i], sizeof(void *), PAGE_EXECUTE_READWRITE, &prot)) return 0;
+    *real = ahora;
+    vt[i] = nuestro;
+    VirtualProtect(&vt[i], sizeof(void *), prot, &prot);
+    apuntar("  ⚠ otro programa pisó el gancho de %s (0x%08lX): encadenado, el nuestro vuelve", que, (unsigned long)(ULONG_PTR)ahora);
+    return 1;
+}
+static void reafirmar_ganchos(void)
+{
+    void **vt = g_vt_dev;
+    if (!vt) return;
+    reafirmar(vt, I_PRESENT, (void *)mi_present, (void **)&g_present_real, "Present");
+    reafirmar(vt, I_RESET, (void *)mi_reset, (void **)&g_reset_real, "Reset");
+    if (g_cvb_real) {
+        reafirmar(vt, 26, (void *)mi_crear_vb, (void **)&g_cvb_real, "CreateVertexBuffer");
+        reafirmar(vt, 100, (void *)mi_sss, (void **)&g_sss_real, "SetStreamSource");
+        reafirmar(vt, 81, (void *)mi_dp, (void **)&g_dp_real, "DrawPrimitive");
+        reafirmar(vt, 82, (void *)mi_dip, (void **)&g_dip_real, "DrawIndexedPrimitive");
+    }
+}
+
 static DWORD WINAPI vigia(LPVOID nada)
 {
     (void)nada;
     DWORD vt_antes = 0, vistas[16] = {0};
-    int n_vistas = 0, vuelta = 0, forzado = -1;
+    int n_vistas = 0, vuelta = 0, forzado = -1;   /* (forzado: queda para una prueba a mano futura) */
     for (;;) {
         Sleep(250);
-        /* Ctrl+F8: prender / apagar el anillo a mano (y desde ahí manda la mano hasta reiniciar) */
-        if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_F8) & 1)) {
-            forzado = !(g_buferes != 0);
-            InterlockedExchange(&g_anillo_deseado, forzado);
-            apuntar("  ★ Ctrl+F8 → anillo %s (a mano)", forzado ? "PRENDIDO" : "APAGADO");
-        }
+        if (vuelta % 4 == 0) reafirmar_ganchos();                      /* (cada 1 s) */
         BYTE *esc = leer_ptr((void *)0x934554);
         DWORD vt = esc ? (DWORD)(ULONG_PTR)leer_ptr(esc) : 0;
         if (vt != vt_antes) {
             int nueva = 1;
             for (int i = 0; i < n_vistas; i++) if (vistas[i] == vt) nueva = 0;
             if (nueva && n_vistas < 16) vistas[n_vistas++] = vt;
-            apuntar("  (vigía) escena → vtable 0x%08lX%s", (unsigned long)vt, nueva ? " (nueva)" : "");
+            if (g_diagnostico || nueva) apuntar("  (vigía) escena → vtable 0x%08lX%s", (unsigned long)vt, nueva ? " (nueva)" : "");
             vt_antes = vt;
         }
-        if (g_anillo_modo == 1 && forzado < 0 && g_lock_real) {        /* ★ el anillo sólo en lobby y sala */
+        if (vuelta % 4 == 1 && g_anillo_modo == 1 && forzado < 0 && g_lock_real) {        /* ★ el anillo sólo en lobby y sala */
             int quiero = escena_con_anillo(vt);
             if (quiero != (g_buferes != 0) && g_anillo_deseado != quiero) {
                 InterlockedExchange(&g_anillo_deseado, quiero);
-                apuntar("  (vigía) escena 0x%08lX → anillo %s", (unsigned long)vt, quiero ? "prendido" : "apagado");
+                if (g_diagnostico) apuntar("  (vigía) escena 0x%08lX → anillo %s", (unsigned long)vt, quiero ? "prendido" : "apagado");
             }
         }
-        if (++vuelta % 40 == 0) {                                     /* cada 10 s */
-            apuntar("  (vigía) 10 s: Present %ld · dibujos %ld · mensajes %ld (otro hilo %ld) · copia %ld · anillo %d · escena 0x%08lX",
+        if (++vuelta % 40 == 0 && g_diagnostico) {                    /* cada 10 s, sólo con [general] diagnostico=1 */
+            apuntar("  (vigía) 10 s: Present %ld · dibujos %ld · mensajes %ld (otro hilo %ld) · copia %ld · anillo %d · escena 0x%08lX · entrada tapada %ld",
                     InterlockedExchange(&c_present, 0), InterlockedExchange(&c_dibujos, 0), InterlockedExchange(&c_peek, 0),
-                    InterlockedExchange(&c_peek_otro, 0), InterlockedExchange(&c_lock_copia, 0), g_buferes, (unsigned long)vt);
+                    InterlockedExchange(&c_peek_otro, 0), InterlockedExchange(&c_lock_copia, 0), g_buferes, (unsigned long)vt,
+                    g_entrada_tapada);
         }
     }
     return 0;
@@ -1835,6 +1937,7 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
             g_mz_botones, g_mz_seleccion, g_mz_foco, g_mz_opciones, g_mz_atajos, g_buferes);
     if (g_mejoras && g_mazino && g_mz_opciones) opc_al_arrancar();   /* antes de que el juego lea autoexec.cfg */
     if (g_mejoras && g_mazino) poner_mazino();
+    if (g_mejoras && g_mazino && g_mz_entrada) poner_entrada();
     preparar_linea();                                /* ★ el login del launcher (y puede traer el server) */
     apuntar("  P2P %d (mac %d, ip privada %d)", g_p2p, g_p2p_mac, g_p2p_ip);
     if (g_p2p_mac) parche_mac();
