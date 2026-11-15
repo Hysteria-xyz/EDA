@@ -1225,12 +1225,12 @@ static void __attribute__((thiscall)) mi_vender(void *escena, DWORD serial)
 
 /* los botones Clan / Options / Messenger en las pantallas del costado (el juego no los une a nada) */
 static volatile LONG g_panel_abierto;                /* (Options abierta: más abajo, con el foco) */
-static void barra_xy(HWND h, int x, int y, const char *por)
+static void barra_xy(HWND h, int x, int y, const char *por, int ya800)
 {
     BYTE *esc = leer_ptr((void *)0x934554);
     int pc = pantalla_costado(esc);
     RECT r;
-    if (GetClientRect(h, &r) && r.right > 0 && r.bottom > 0) {        /* (en la pantalla de 800×600) */
+    if (!ya800 && GetClientRect(h, &r) && r.right > 0 && r.bottom > 0) {        /* (en la pantalla de 800×600) */
         x = x * 800 / r.right;
         y = y * 600 / r.bottom;
     }
@@ -1243,7 +1243,7 @@ static void barra_xy(HWND h, int x, int y, const char *por)
      *   a propósito). Nada se le pasa al juego: es nuestro interruptor, el mismo de F10. Clan/Messenger, quietos. */
     if (g_panel_abierto) {
         int lugar = vt == 0x00899670 || vt == 0x00899740 || vt == 0x0089A268 || (pc >= 4 && pc <= 7);
-        if (lugar && y >= 8 && y <= 58 && x >= 547 && x <= 621) { g_opc_por = "botón Options (para cerrar)"; opciones_o_chat(); }
+        if (lugar && y >= 8 && y <= 64 && x >= 544 && x <= 621) { g_opc_por = "botón Options (para cerrar)"; opciones_o_chat(); }
         return;
     }
     if ((pc < 4 || pc > 7) && vt == 0x0089A268 && y >= 8 && y <= 58) {   /* ★ la SALA (medida): la misma barra */
@@ -1260,7 +1260,7 @@ static void barra_xy(HWND h, int x, int y, const char *por)
                     (unsigned long)(ULONG_PTR)esc, (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL));
         return;
     }
-    if (y < 8 || y > 58) return;
+    if (y < 8 || y > 64) return;                     /* (la placa llega a y 61: medido en la captura de 23:42) */
     if (x >= 465 && x <= 539) chat("/clan");
     else if (x >= 547 && x <= 621) { g_opc_por = "barra de arriba"; opciones_o_chat(); }
     else if (x >= 629 && x <= 703) chat("/messenger");
@@ -1327,6 +1327,29 @@ static int entrada_ok(void)
  *   Ahora el clic sólo cuenta si el botón se APRETÓ en el juego (un soltar que viene de otra ventana no hace
  *   nada), y Options además tiene su propio anti-rebote. (El mouse por DirectInput NO se usa: el juego arma su
  *   propio formato de datos y el botón no está donde dice el estándar.) */
+/* el cursor que dibuja el juego, en su pantalla de 800×600 (0 = no se pudo leer: no se usa) */
+static int cursor_del_juego(int *x, int *y)
+{
+    BYTE *o = leer_ptr((void *)0x94952C);
+    if (!o || !legible(o + 8, 4) || !legible(o + 0x27DC, 8) || !legible(o + 0x330, 8)) return 0;
+    if (g_ventana_juego && *(HWND *)(o + 8) != g_ventana_juego) return 0;     /* (no es el objeto que se espera) */
+    int w = *(int *)(o + 0x330), hh = *(int *)(o + 0x334);
+    float fx = *(float *)(o + 0x27DC), fy = *(float *)(o + 0x27E0);
+    if (w < 320 || hh < 200 || w > 8192 || hh > 8192 || !(fx >= 0 && fx <= w) || !(fy >= 0 && fy <= hh)) return 0;
+    *x = (int)fx * 800 / w;
+    *y = (int)fy * 600 / hh;
+    return 1;
+}
+/* la pantalla del juego (+0x330 × +0x334): para hablarle en SUS coordenadas */
+static int pantalla_del_juego(int *w, int *hh)
+{
+    BYTE *o = leer_ptr((void *)0x94952C);
+    if (!o || !legible(o + 8, 4) || !legible(o + 0x330, 8)) return 0;
+    if (g_ventana_juego && *(HWND *)(o + 8) != g_ventana_juego) return 0;
+    *w = *(int *)(o + 0x330);
+    *hh = *(int *)(o + 0x334);
+    return *w >= 320 && *hh >= 200 && *w <= 8192 && *hh <= 8192;
+}
 static volatile LONG g_clic_armado;
 static DWORD g_clic_ultimo;
 static void clic_abajo(void) { InterlockedExchange(&g_clic_armado, 1); }
@@ -1336,7 +1359,16 @@ static void clic_arriba(HWND h, int x, int y, const char *por)
     DWORD ahora = GetTickCount();
     if (ahora - g_clic_ultimo < 250) return;
     g_clic_ultimo = ahora;
-    barra_xy(h, x, y, por);
+    /* ★ (16-nov) CON OPTIONS CERRADA, EL CLIC VA DONDE ESTÁ EL CURSOR DEL JUEGO. Medido en el exe: el juego
+     *   dibuja su cursor y lo lleva en SU objeto (0x94952C: +0x27DC/+0x27E0, en su pantalla de +0x330 × +0x334,
+     *   800×600), que es lo que usan sus botones. En pantalla completa sin bordes la ventana mide 1920×1080 y la
+     *   posición de Windows del mensaje NO es la que el jugador ve: por eso el botón Options del inventario no
+     *   respondía. Con Options abierta se ve la flecha de Windows, y entonces vale la posición del mensaje. */
+    int gx, gy;
+    if (!g_panel_abierto && cursor_del_juego(&gx, &gy)) {
+        if (g_diagnostico) apuntar("  (diag) clic: Windows (%d, %d) de la ventana · cursor del juego (%d, %d) de 800×600", x, y, gx, gy);
+        barra_xy(h, gx, gy, "cursor del juego", 1);
+    } else barra_xy(h, x, y, por, 0);
 }
 typedef SHORT (WINAPI *M_TECLA)(int);
 static M_TECLA g_async_real, g_tecla_real;
@@ -1469,7 +1501,16 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
     g_ultimo_peek = GetTickCount();
     if (hay && m && m->hwnd) {
         if (!g_ventana_juego) g_ventana_juego = GetAncestor(m->hwnd, GA_ROOT);
-        if (g_mz_seleccion && m->message == WM_LBUTTONDOWN) g_antes = elegida();   /* la elegida ANTES del clic */
+        /* ★★ (16-nov) EL CIERRE «INESPERADO» ERA «EXIT GAME». Medido 03:42:05: con Options abierta, un clic en Clan
+         *   y el cliente mandó 0x100E (salir: sólo lo manda el control 7 del lobby, 0x4EB0A0) y cerró la conexión;
+         *   la caja negra no vio ninguna excepción. La compuerta de entrada tapaba DirectInput pero NO los mensajes
+         *   de mouse y teclado de la ventana del juego: el juego los procesaba con SU cursor, que en pantalla
+         *   completa queda pegado al borde derecho (x 799), justo sobre Exit Game. Ahora, con Options abierta, a la
+         *   ventana del juego no le llega ningún mensaje de mouse ni de teclado (se ven acá, para F10 y para cerrar
+         *   con su botón Options, y se anulan). Un solo lugar para toda la entrada del juego. */
+        int tapar = g_panel_abierto && ((m->message >= WM_MOUSEFIRST && m->message <= WM_MOUSELAST)
+                                         || (m->message >= WM_KEYFIRST && m->message <= WM_KEYLAST));
+        if (g_mz_seleccion && !g_panel_abierto && m->message == WM_LBUTTONDOWN) g_antes = elegida();   /* la elegida ANTES del clic */
         if (g_mz_botones && m->message == WM_LBUTTONDOWN) clic_abajo();             /* (apretado EN el juego) */
         /* ★ F10 Options · F11 Messenger · F12 Clan (antes EDA-Atajos.py, sólo en la PC con Python); F10 llega
          *   como tecla de sistema. Sin repetición (bit 30 = ya estaba apretada). */
@@ -1479,12 +1520,13 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
             else if (m->wParam == VK_F12) atajo(2, "mensaje");
         }
         if (m->message == WM_LBUTTONUP) {
-            if (g_mz_seleccion && (m->wParam & MK_CONTROL)) g_pendiente = GetTickCount() + 120;
+            if (g_mz_seleccion && !tapar && (m->wParam & MK_CONTROL)) g_pendiente = GetTickCount() + 120;
             else {
-                if (g_mz_seleccion) g_simple = GetTickCount() + 120;
+                if (g_mz_seleccion && !tapar) g_simple = GetTickCount() + 120;
                 if (g_mz_botones) clic_arriba(m->hwnd, (short)LOWORD(m->lParam), (short)HIWORD(m->lParam), "mensaje");
             }
         }
+        if (tapar) { m->message = WM_NULL; g_entrada_tapada++; }       /* (el juego no ve nada mientras Options está) */
     }
     ++g_vueltas;
     if (g_mz_foco && g_ventana_juego && (g_vueltas & 255) == 1) vigilar_wndproc(g_ventana_juego);

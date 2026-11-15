@@ -1016,8 +1016,15 @@ static void opc_avisar_posicion(void)
         if (g_diagnostico) apuntar("  (diag) Options cerrada: el mouse está fuera del juego (%ld, %ld): no se toca", p.x, p.y);
         return;
     }
-    PostMessageA(g_ventana_juego, WM_MOUSEMOVE, 0, MAKELPARAM(p.x, p.y));
-    if (g_diagnostico) apuntar("  (diag) Options cerrada: cursor del juego puesto en (%ld, %ld) de %ldx%ld", p.x, p.y, r.right, r.bottom);
+    /* ★ (16-nov) EN LAS COORDENADAS DEL JUEGO. Medido 03:38–03:44: en pantalla completa se mandaba (960, 540) de
+     *   1920×1080 y el juego lo toma en SU pantalla de 800×600 (lo recorta a 799): el cursor aparecía en el borde
+     *   derecho. En ventana coincidían (800×600), por eso ahí andaba. */
+    int w = 800, hh = 600;
+    pantalla_del_juego(&w, &hh);
+    int gx = p.x * w / r.right, gy = p.y * hh / r.bottom;
+    PostMessageA(g_ventana_juego, WM_MOUSEMOVE, 0, MAKELPARAM(gx, gy));
+    if (g_diagnostico) apuntar("  (diag) Options cerrada: mouse en (%ld, %ld) de %ldx%ld → cursor del juego en (%d, %d) de %dx%d",
+                               p.x, p.y, r.right, r.bottom, gx, gy, w, hh);
 }
 
 static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
