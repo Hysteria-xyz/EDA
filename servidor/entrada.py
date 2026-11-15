@@ -74,11 +74,12 @@ def quien_soy(cmd, cuerpo, conexion, c, p):
         if not (re.fullmatch(r"[0-9]{1,20}", usuario) and porteria.ticket_valido(usuario, ticket)):
             ASIGNADAS.pop(conexion, None)
             return [(0x1010, struct.pack("<HIIH", LOGIN_RECHAZADO, 0, 0, 0), 0)]
-        ASIGNADAS[conexion] = "r2b_" + usuario
-        # ★ el apodo de R2Beat (claim «nombre» del pase) al personaje que todavía se llama r2b_<uid>
+        cuenta = config.PREFIJO_CUENTA + usuario
+        ASIGNADAS[conexion] = cuenta
+        # ★ el apodo (claim «nombre» del pase) al personaje que todavía se llama como su cuenta
         from servidor.personajes import bautizar
-        if bautizar("r2b_" + usuario, porteria.nombre_de(usuario, ticket)):
-            print("#%s cuenta r2b_%s: su personaje toma el nombre del pase" % (conexion, usuario), flush=True)
+        if bautizar(cuenta, porteria.nombre_de(usuario, ticket)):
+            print("#%s cuenta %s: su personaje toma el nombre del pase" % (conexion, cuenta), flush=True)
     # ★ 0x1010 (`0x549742`, 12 B): u16 1 · u32 → cuenta+0x2B8 (🟡 id de la cuenta) · u32 IP y
     #   u16 puerto del SERVER UDP DE PUNCH (→ `0x6218F0`, «[Punch UDP IP, PORT]»): con
     #   0.0.0.1:0 nadie se encuentra. La IP va como entero (el cliente le hace htonl).

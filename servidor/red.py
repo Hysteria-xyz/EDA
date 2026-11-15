@@ -263,7 +263,7 @@ def http():
             except Exception:                                 # noqa: BLE001
                 log("⛔ /eda/pase falló:\n%s" % traceback.format_exc())
                 return self._json(500, {"error": "interno"})
-            log("http %s: ticket para la cuenta r2b_%s" % (self.client_address[0], r["usuario"]))
+            log("http %s: ticket para la cuenta %s%s" % (self.client_address[0], config.PREFIJO_CUENTA, r["usuario"]))
             self._json(200, r)
 
         def log_message(self, *a):                            # (lo importante ya se anota arriba)

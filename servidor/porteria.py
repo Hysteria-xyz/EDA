@@ -70,6 +70,16 @@ _CLAVES = {"de": None, "claves": {}, "cuando": 0.0}
 def claves(refrescar=False):
     """kid → la clave pública Ed25519 (32 bytes). De un archivo o de una URL https (se recuerda; con
     un kid desconocido se vuelve a pedir, como mucho una vez por minuto)."""
+    if config.CUENTAS_CLAVE_PUBLICA:                 # ★ la clave dada directo: vale para cualquier kid («*»)
+        fuente = "clave:" + config.CUENTAS_CLAVE_PUBLICA
+        if _CLAVES["de"] != fuente:
+            t, x = config.CUENTAS_CLAVE_PUBLICA, b""
+            try:
+                x = bytes.fromhex(t) if re.fullmatch(r"[0-9A-Fa-f]{64}", t) else _b64(t)
+            except ValueError:
+                x = b""
+            _CLAVES.update(de=fuente, claves={"*": x} if len(x) == 32 else {}, cuando=time.time())
+        return _CLAVES["claves"]
     fuente = config.PORTERO_CLAVES
     if not fuente:
         return {}
@@ -134,14 +144,15 @@ def verificar_pase(pase, ahora=None):
     kid = cab.get("kid")
     try:
         cl = claves()
-        if kid not in cl:
+        if kid not in cl and "*" not in cl:
             cl = claves(refrescar=True)
     except (OSError, ValueError):                    # el JWKS no se pudo leer (red, archivo, JSON)
         raise Rechazo("clave", 503)
-    if kid not in cl:
+    publica = cl.get(kid) or cl.get("*")             # «*» = la clave dada por configuración
+    if not publica:
         raise Rechazo("clave")
     try:
-        eddsa.new(eddsa.import_public_key(cl[kid]), "rfc8032").verify(firmado, firma)
+        eddsa.new(eddsa.import_public_key(publica), "rfc8032").verify(firmado, firma)
     except (ValueError, TypeError):
         raise Rechazo("firma")
     if datos.get("iss") != config.PORTERO_EMISOR:

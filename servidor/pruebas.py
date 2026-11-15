@@ -1305,6 +1305,8 @@ def pruebas_login(chequear):
             return e.codigo
 
     guardado = (config.LOGIN, config.PORTERO_CLAVES, config.PORTERIA)
+    guardado2 = (config.CUENTAS_CLAVE_PUBLICA, config.PREFIJO_CUENTA)
+    config.CUENTAS_CLAVE_PUBLICA, config.PREFIJO_CUENTA = "", "r2b_"
     clave, otra = ECC.generate(curve="Ed25519"), ECC.generate(curve="Ed25519")
     jwks = os.path.join(config.ESTADO, "control_jwks_%d.json" % os.getpid())
     json.dump({"keys": [{"kty": "OKP", "crv": "Ed25519", "kid": "k1",
@@ -1391,6 +1393,34 @@ def pruebas_login(chequear):
         responder(0x100F, cuerpo_100f("5151", otra_vez["ticket"]), 322)
         chequear("★ el revés: un personaje que ya tiene nombre no lo cambia por el del pase",
                  leer(322).get("nick") == "Espadachin")
+        # ★ (15-nov) la clave del servicio de cuentas dada DIRECTO por configuración, sin JWKS ni red
+        publica = clave.public_key().export_key(format="raw")
+        config.PORTERO_CLAVES, config.CUENTAS_CLAVE_PUBLICA = "", b64(publica)
+        chequear("clave por configuración (base64url): el pase entra sin JWKS, con cualquier kid",
+                 rechazo(firmar(clave, dict(datos, jti="j-20"), kid="el-que-sea"), ahora) is None)
+        chequear("★ el revés: firmado con OTRA clave → «firma»",
+                 rechazo(firmar(otra, dict(datos, jti="j-21")), ahora) == "firma")
+        config.CUENTAS_CLAVE_PUBLICA = publica.hex()
+        chequear("…y también en hex", rechazo(firmar(clave, dict(datos, jti="j-22")), ahora) is None)
+        config.CUENTAS_CLAVE_PUBLICA = "esto-no-es-una-clave"
+        chequear("★ el revés: una clave mal escrita no deja entrar a nadie → «clave»",
+                 rechazo(firmar(clave, dict(datos, jti="j-23")), ahora) == "clave")
+        config.CUENTAS_CLAVE_PUBLICA = b64(otra.public_key().export_key(format="raw"))
+        config.PORTERO_CLAVES = jwks
+        chequear("★ el revés: la clave por configuración MANDA sobre el JWKS (uno bueno al lado no la salva)",
+                 rechazo(firmar(clave, dict(datos, jti="j-24")), ahora) == "firma")
+        # ★ (15-nov) el prefijo de la cuenta: con Cuenta Eñeños el número es el Eñeños ID
+        config.CUENTAS_CLAVE_PUBLICA, config.PREFIJO_CUENTA = b64(publica), "en_"
+        t = porteria.canjear(firmar(clave, dict(datos, sub="10000570", jti="j-25")), ahora)
+        config.LOGIN = "pase"
+        rr = responder(0x100F, cuerpo_100f("10000570", t["ticket"]), 330)
+        chequear("prefijo «en_»: la cuenta es en_10000570 y su personaje sin bautizar se llama así (11 letras)",
+                 rr[0][1][:2] == b"\1\0" and ASIGNADAS.get(330) == "en_10000570")
+        rr = responder(0x1011, b"\1\0\0\0", 330)
+        chequear("…y su SELECT CHARACTER es el de esa cuenta", rr and rr[0][0] == 0x1012 and leer(330)["nombre"] == "en_10000570")
+        chequear("★ el revés: con el prefijo de siempre esa misma persona sería OTRA cuenta (r2b_…)",
+                 ASIGNADAS.get(330) != "r2b_10000570")
+        config.CUENTAS_CLAVE_PUBLICA, config.PREFIJO_CUENTA, config.PORTERO_CLAVES = "", "r2b_", jwks
         config.LOGIN = "abierto"
         ASIGNADAS.clear()
         rr = responder(0x100F, cuerpo_100f(), 310)
@@ -1398,6 +1428,7 @@ def pruebas_login(chequear):
                  rr[0][1][:2] == b"\1\0" and cuenta_de(310) == "rui")
     finally:
         config.LOGIN, config.PORTERO_CLAVES, config.PORTERIA = guardado
+        config.CUENTAS_CLAVE_PUBLICA, config.PREFIJO_CUENTA = guardado2
         ASIGNADAS.clear()
         for x in (jwks, os.path.join(config.ESTADO, "control_porteria.db")):
             if os.path.exists(x):
