@@ -112,9 +112,27 @@ static SOMBRA *sombra_de(void *vb, UINT tam, int crear)
     return libre;
 }
 
+/* ★ (15-nov) EL ANILLO, SÓLO PARA EL BÚFER MEDIDO. §42 midió UN culpable del «lag»: el búfer de vértices de
+ *   96.000 B, FVF 0x142 (XYZ · color · 1 textura), POOL_DEFAULT, bloqueado entero ~290 veces por cuadro. Pero el
+ *   anillo se aplicaba a TODOS los búferes POOL_DEFAULT del juego (los de la stage nunca se midieron), y en la
+ *   stage dejó de dibujarse la interfaz (habilidades, ítems, ESC). Ahora sólo esos búferes se crean DYNAMIC y
+ *   pasan por el anillo; los demás quedan como en 2009. Los demás búferes se anotan una vez (para medir). */
+static void *g_candidatos[16];
+static int g_es_candidato(void *vb)
+{
+    for (int i = 0; i < 16; i++) if (g_candidatos[i] == vb) return 1;
+    return 0;
+}
+static void anotar_candidato(void *vb, int si)
+{
+    for (int i = 0; i < 16; i++) if (g_candidatos[i] == vb) g_candidatos[i] = NULL;
+    if (!si) return;
+    for (int i = 0; i < 16; i++) if (!g_candidatos[i]) { g_candidatos[i] = vb; return; }
+}
+
 static long WINAPI mi_lock(void *vb, UINT desde, UINT cuanto, void **datos, DWORD flags)
 {
-    if (g_buferes) {
+    if (g_buferes && g_es_candidato(vb)) {
         DWORD d[6] = {0};                                        /* D3DVERTEXBUFFER_DESC */
         if (((M_DESC)VT(vb)[13])(vb, d) == 0 && (d[2] & 0x200 /* DYNAMIC */)) {
             if (flags == 0 && desde == 0 && cuanto == 0) {
@@ -356,8 +374,18 @@ static void poner(void **vt, int i, void *nuevo, void **viejo);
 
 static long WINAPI mi_crear_vb(void *dev, UINT largo, DWORD uso, DWORD fvf, DWORD pool, void **vb, void *comp)
 {
-    if (g_buferes && pool == 0 /* DEFAULT */ && !(uso & 0x200)) uso |= 0x200;   /* + DYNAMIC */
+    int candidato = g_buferes && pool == 0 /* DEFAULT */ && fvf == 0x142 && largo == 96000;
+    if (candidato && !(uso & 0x200)) uso |= 0x200;                             /* + DYNAMIC, sólo éste */
     long hr = g_cvb_real(dev, largo, uso, fvf, pool, vb, comp);
+    if (hr == 0 && vb && *vb) {
+        anotar_candidato(*vb, candidato);
+        static int anotados;
+        if (pool == 0 && anotados < 24) {
+            anotados++;
+            apuntar("  (medir) búfer de vértices POOL_DEFAULT: %u B · FVF 0x%lX · uso 0x%lX → %s", largo,
+                    (unsigned long)fvf, (unsigned long)uso, candidato ? "ANILLO" : "como en 2009");
+        }
+    }
     if (hr == 0 && vb && *vb)                                  /* un búfer nuevo no hereda una copia vieja */
         for (int i = 0; i < 32; i++)
             if (g_sombras[i].vb == *vb && !g_sombras[i].abierto) {
