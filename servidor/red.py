@@ -271,7 +271,7 @@ def http():
 
     srv = ThreadingHTTPServer((HTTP_ESCUCHAR, HTTP_PUERTO), Atender)
     log("login por HTTP en %s:%d (modo «%s»; claves del portero: %s)" % (
-        HTTP_ESCUCHAR, HTTP_PUERTO, config.LOGIN, config.PORTERO_CLAVES or "⚠ ninguna"))
+        HTTP_ESCUCHAR, HTTP_PUERTO, config.LOGIN, ("por configuración (EDA_CUENTAS_CLAVE_PUBLICA)" if config.CUENTAS_CLAVE_PUBLICA else config.PORTERO_CLAVES) or "⚠ ninguna"))
     srv.serve_forever()
 
 
