@@ -28,6 +28,8 @@
 #include <windows.h>
 #include <iphlpapi.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define VT(o) (*(void ***)(o))             /* la vtable de un objeto COM */
 static void apuntar(const char *fmt, ...);
@@ -810,6 +812,10 @@ static void parche_ping_verde(void)
  *    desactivarse. Se le dice que sigue activo (salvo minimizado), y el mouse no se centra ni se encierra
  *    (SetPhysicalCursorPos / ClipCursor) mientras EDA no está al frente. */
 static int g_mz_botones, g_mz_seleccion, g_mz_foco;
+/* ★ opciones=1 (15-nov): el botón Options abre una ventana DE LA DLL, en la PC del jugador (antes mandaba
+ *   «/opciones» y el server abría EDA-Opciones.py: sólo andaba con el server en la misma PC). Ver más abajo. */
+static int g_mz_opciones;
+static void alternar_opciones(void);
 
 /* las funciones del juego que se usan para armar y mandar un paquete (las mismas que usa él) */
 typedef void *(__attribute__((thiscall)) *J_PINIT)(void *);
@@ -870,7 +876,8 @@ static void chat(const char *texto)
 /* ── botones del lobby ── */
 static void __attribute__((thiscall)) boton_clan(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/clan"); }
 static void __attribute__((thiscall)) boton_msn(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/messenger"); }
-static void __attribute__((thiscall)) boton_opc(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/opciones"); }
+static void opciones_o_chat(void) { if (g_mz_opciones) alternar_opciones(); else chat("/opciones"); }
+static void __attribute__((thiscall)) boton_opc(void *pantalla, void *ev) { (void)pantalla; (void)ev; opciones_o_chat(); }
 static BYTE g_delegados[3][0x18];
 
 static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int control, void *delegado)
@@ -1058,7 +1065,7 @@ static void barra(HWND h, LPARAM l)
     }
     if (y < 8 || y > 58) return;
     if (x >= 465 && x <= 539) chat("/clan");
-    else if (x >= 547 && x <= 621) chat("/opciones");
+    else if (x >= 547 && x <= 621) opciones_o_chat();
     else if (x >= 629 && x <= 703) chat("/messenger");
 }
 
@@ -1093,6 +1100,10 @@ static M_CLIP g_clip_real;
 static BOOL WINAPI mi_setcur(int x, int y) { return juego_al_frente() ? g_setcur_real(x, y) : TRUE; }
 static BOOL WINAPI mi_clip(const RECT *r) { return g_clip_real(juego_al_frente() ? r : NULL); }
 
+
+/* ── ★ LAS OPTIONS, EN LA DLL: el panel de paneles/EDA-Opciones.py, con su mismo diseño (eda_opciones.c) ── */
+#include "eda_opciones.c"
+
 /* ── el bombeo de mensajes del juego (PeekMessageA, su hilo principal) ── */
 typedef BOOL (WINAPI *M_PEEK)(LPMSG, HWND, UINT, UINT, UINT);
 static M_PEEK g_peek_real;
@@ -1119,6 +1130,8 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
     ++g_vueltas;
     if (g_mz_foco && g_ventana_juego && (g_vueltas & 255) == 1) vigilar_wndproc(g_ventana_juego);
     if (g_mz_seleccion && (g_pendiente || g_simple || (g_vueltas & 3) == 0)) revisar_inventario();
+    if (g_opc_n) opc_correr_cola();
+    if (g_ubicar && (g_vueltas & 127) == 0) opc_ubicar_tick();
     return hay;
 }
 
@@ -1142,7 +1155,10 @@ static void poner_mazino(void)
         g_clip_real = (M_CLIP)parchear_iat("user32.dll", "ClipCursor", (void *)mi_clip);
         if (!g_setcur_real || !g_clip_real) apuntar("  [mazino] foco: ⚠ no encontré SetPhysicalCursorPos / ClipCursor en el exe");
     }
-    if (g_mz_botones || g_mz_seleccion || g_mz_foco) {
+    if (g_mz_opciones && !g_opc_cs_lista) { InitializeCriticalSection(&g_opc_cs); g_opc_cs_lista = 1; }
+    if (g_mz_opciones && !consola_del_juego())
+        apuntar("  [mazino] opciones: (la consola del juego todavía no existe: se busca al usarla)");
+    if (g_mz_botones || g_mz_seleccion || g_mz_foco || g_mz_opciones) {
         g_peek_real = (M_PEEK)parchear_iat("user32.dll", "PeekMessageA", (void *)mi_peek);
         if (!g_peek_real) {
             apuntar("  [mazino] ⚠ no encontré PeekMessageA en el exe: sin selección múltiple, sin foco, sin botones del costado");
@@ -1464,6 +1480,7 @@ static void leer_ajustes(HMODULE self)
     barra[1] = 0;
     lstrcpyA(ini, ruta);
     lstrcatA(ini, "eda_d3d9.ini");
+    lstrcpyA(g_ini, ini);
     lstrcpyA(g_log, ruta);
     lstrcatA(g_log, "eda_d3d9.log");
     /* el registro se va sumando (no se pisa al reabrir: la caja negra de la vez anterior queda); pasado
@@ -1491,6 +1508,11 @@ static void leer_ajustes(HMODULE self)
     g_estricto = g_rui ? GetPrivateProfileIntA("rui", "tope_estricto", 1, ini) : 1;
     g_red = g_rui ? GetPrivateProfileIntA("rui", "red_inmediata", 1, ini) : 0;
     g_buferes = g_rui ? GetPrivateProfileIntA("rui", "anillo_vertices", 0, ini) : 0;
+    /* ★ (15-nov) EL ANILLO, PRENDIDO POR DEFECTO con su clave propia [video] anillo (§42–43: el «lag» de la
+     *   sala y el lobby es el Lock del búfer de vértices; con el anillo, 120 cuadros/s y la puerta entera).
+     *   Estaba apagado desde el 12-nov por ser lo más invasivo (§48), sin una caída medida que fuera suya.
+     *   [video] anillo=0 lo apaga; la caja negra dice si una caída es de NUESTRA-d3d9. */
+    if (GetPrivateProfileIntA("video", "anillo", 1, ini)) g_buferes = 1;
     g_usar_bombeo = g_rui ? GetPrivateProfileIntA("rui", "bombeo_red", 0, ini) : 0;
     g_rapido = g_rui ? GetPrivateProfileIntA("rui", "backbuffer_rapido", 0, ini) : 0;
     /* PARCHES DE HYSTERIA (PR #6) */
@@ -1504,6 +1526,7 @@ static void leer_ajustes(HMODULE self)
     g_mz_botones = g_mazino ? GetPrivateProfileIntA("mazino", "botones", 1, ini) : 0;
     g_mz_seleccion = g_mazino ? GetPrivateProfileIntA("mazino", "seleccion_multiple", 1, ini) : 0;
     g_mz_foco = g_mazino ? GetPrivateProfileIntA("mazino", "foco", 1, ini) : 0;
+    g_mz_opciones = g_mazino ? GetPrivateProfileIntA("mazino", "opciones", 1, ini) : 0;
     /* ★ P2P: que los juegos se encuentren (MEDICIONES §52). Prendido por defecto: sólo arregla lo que
      *   el juego manda roto, y un .ini viejo (el launcher no lo pisa) sin este bloque lo tiene igual */
     g_p2p = GetPrivateProfileIntA("p2p", "activo", 1, ini);
@@ -1525,6 +1548,9 @@ static void leer_ajustes(HMODULE self)
     if (GetEnvironmentVariableA("EDA_BUFERES_RAPIDOS", v, sizeof(v))) g_buferes = atoi(v);
     if (GetEnvironmentVariableA("EDA_BACKBUFFER_RAPIDO", v, sizeof(v))) g_rapido = atoi(v);
     if (GetEnvironmentVariableA("EDA_LETRAS_32", v, sizeof(v))) g_letras32 = atoi(v);
+    /* EDA_OPCIONES=1: la ventana Options de la dll aunque el .ini diga opciones=0 (EDA-DLL-Probar.bat, para probarla
+     *   sin perder el panel de Python en el juego de todos los días) */
+    if (g_mazino && GetEnvironmentVariableA("EDA_OPCIONES", v, sizeof(v))) g_mz_opciones = atoi(v);
     if (g_tope < 0) g_tope = 0;
     GetPrivateProfileStringA("red", "server", "", g_server, sizeof(g_server), ini);
     char env[256];                                   /* ⚠ un dominio no entra en los 32 de `v` */
@@ -1563,7 +1589,9 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
     }
     if (g_mejoras && g_letras32) parche_letras();
     if (g_mejoras && g_ping_verde) parche_ping_verde();
-    apuntar("  MAZINO %d (botones %d, selección múltiple %d, foco %d)", g_mazino, g_mz_botones, g_mz_seleccion, g_mz_foco);
+    apuntar("  MAZINO %d (botones %d, selección múltiple %d, foco %d, opciones %d) · anillo %d", g_mazino, g_mz_botones,
+            g_mz_seleccion, g_mz_foco, g_mz_opciones, g_buferes);
+    if (g_mejoras && g_mazino && g_mz_opciones) opc_al_arrancar();   /* antes de que el juego lea autoexec.cfg */
     if (g_mejoras && g_mazino) poner_mazino();
     preparar_linea();                                /* ★ el login del launcher (y puede traer el server) */
     apuntar("  P2P %d (mac %d, ip privada %d)", g_p2p, g_p2p_mac, g_p2p_ip);

@@ -44,6 +44,8 @@ server=
 tope_fps=120
 ; 1 = «FPS 120» arriba a la izquierda
 mostrar_fps=0
+; 1 = el ANILLO de vértices: el arreglo del «lag» del lobby y la sala (MEDICIONES §42-43). 0 = apagado
+anillo=1
 
 [general]
 ; 0 = ni siquiera lo de abajo ni el tope: el video y la red del juego como en 2009 (quedan el server,
@@ -114,6 +116,8 @@ botones=1
 seleccion_multiple=1
 ; 1 = EDA no se pausa al cambiar de ventana, y no centra ni encierra el mouse si no está al frente
 foco=1
+; 1 = el botón Options abre la ventana de opciones de la dll (anda igual en local y en multijugador)
+opciones=1
 """
 
 
@@ -125,7 +129,7 @@ def compilar():
     if not os.path.isfile(ZIG):
         raise SystemExit("⛔ no encuentro Zig 0.16.0: %s (se puede indicar con la variable ZIG)" % ZIG)
     os.makedirs(SALIDA, exist_ok=True)
-    for f in ("eda_d3d9.c", "d3d9.def"):
+    for f in ("eda_d3d9.c", "eda_opciones.c", "d3d9.def"):
         shutil.copy(os.path.join(AQUI, f), SALIDA)
     dll = os.path.join(SALIDA, "d3d9.dll")
     if os.path.exists(dll):
