@@ -1115,7 +1115,7 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
     }
     HWND v = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, L"EDA_Opciones", L"Options", WS_POPUP,
                              x, y, OPC_ANCHO, OPC_ALTO, NULL, NULL, yo, NULL);
-    if (!v) { InterlockedExchange(&g_opc_abriendo, 0); return 0; }
+    if (!v) { InterlockedExchange(&g_opc_abriendo, 0); apuntar("  [mazino] opciones: ⚠ no se pudo crear la ventana (%lu)", GetLastError()); return 0; }
     g_opc_ventana = v;
     InterlockedExchange(&g_opc_abriendo, 0);
     InterlockedExchange(&g_panel_abierto, 1);
@@ -1130,6 +1130,8 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
     SetFocus(v);
     if (hilo_juego && hilo_juego != yo_h) AttachThreadInput(yo_h, hilo_juego, FALSE);
     ShowCursor(TRUE);
+    if (GetForegroundWindow() != v)                          /* (abierta pero sin el foco: se dice) */
+        apuntar("  [mazino] opciones: ⚠ abierta pero SIN FOCO (al frente: 0x%08lX)", (unsigned long)(ULONG_PTR)GetForegroundWindow());
     apuntar("  [mazino] opciones: ventana abierta (lo guardado salió de %s)", origen);
     MSG m;
     while (GetMessageW(&m, NULL, 0, 0) > 0) {
@@ -1145,9 +1147,10 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
 /* el botón Options (y F10 más adelante): abre la ventana, o la cierra si ya estaba */
 static void alternar_opciones(void)
 {
-    if (g_opc_ventana) { PostMessageW(g_opc_ventana, WM_CLOSE, 0, 0); return; }
-    if (InterlockedExchange(&g_opc_abriendo, 1)) return;
+    if (g_opc_ventana) { apuntar("  [mazino] opciones: ya estaba abierta → se cierra"); PostMessageW(g_opc_ventana, WM_CLOSE, 0, 0); return; }
+    if (InterlockedExchange(&g_opc_abriendo, 1)) { apuntar("  [mazino] opciones: ya se está abriendo (pedido ignorado)"); return; }
     opc_leer_real();                                         /* (acá estamos en el hilo del juego) */
     HANDLE h = CreateThread(NULL, 0, opc_hilo, NULL, 0, NULL);
-    if (h) CloseHandle(h); else InterlockedExchange(&g_opc_abriendo, 0);
+    if (h) CloseHandle(h);
+    else { InterlockedExchange(&g_opc_abriendo, 0); apuntar("  [mazino] opciones: ⚠ no se pudo crear su hilo (%lu)", GetLastError()); }
 }

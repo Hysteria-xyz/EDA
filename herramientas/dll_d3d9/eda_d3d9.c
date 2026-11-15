@@ -997,7 +997,11 @@ static void chat(const char *texto)
 /* ── botones del lobby ── */
 static void __attribute__((thiscall)) boton_clan(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/clan"); }
 static void __attribute__((thiscall)) boton_msn(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/messenger"); }
-static void opciones_o_chat(void) { if (g_mz_opciones) alternar_opciones(); else chat("/opciones"); }
+static void opciones_o_chat(void)
+{
+    if (g_mz_opciones) alternar_opciones();
+    else { apuntar("  [mazino] opciones: [mazino] opciones=0 → se pide al server (panel de Python)"); chat("/opciones"); }
+}
 static void __attribute__((thiscall)) boton_opc(void *pantalla, void *ev) { (void)pantalla; (void)ev; opciones_o_chat(); }
 static BYTE g_delegados[3][0x18];
 
@@ -1306,15 +1310,53 @@ static M_DICREAR g_dicrear_real;
 static M_DIESTADO g_diestado_real;
 static M_DIDATOS g_didatos_real;
 static long g_entrada_tapada;
+
+/* ★★ (15-nov) F10 / F11 / F12 EN UN SOLO LUGAR. Medido en TODOS los registros: el gancho de mensajes NUNCA vio F10
+ *   (ni una línea «F10»): el juego lee el teclado por DirectInput y esas teclas no le llegan como mensajes. Lo que a
+ *   veces abría Options era EDA-Atajos.py (teclas globales), de ahí lo intermitente. Ahora la tecla se ve donde el
+ *   juego la lee (su teclado de DirectInput, en su hilo) y, por si alguna escena sí manda mensajes, también ahí: las
+ *   dos entradas pasan por atajo(), que deja una sola pulsación cada 300 ms por tecla. */
+static void opciones_o_chat(void);
+static void chat(const char *texto);
+static DWORD g_atajo_ultimo[3];
+static void atajo(int cual, const char *por)                  /* 0 = F10 · 1 = F11 · 2 = F12 */
+{
+    static const char *const NOMBRE[3] = {"F10", "F11", "F12"};
+    DWORD ahora = GetTickCount();
+    if (ahora - g_atajo_ultimo[cual] < 300) return;           /* (la misma pulsación por las dos vías) */
+    g_atajo_ultimo[cual] = ahora;
+    apuntar("  [mazino] %s detectado (%s)", NOMBRE[cual], por);
+    if (cual == 0) opciones_o_chat();
+    else chat(cual == 1 ? "/messenger" : "/clan");
+}
+/* DIK_F10 = 0x44 · DIK_F11 = 0x57 · DIK_F12 = 0x58 */
+static const BYTE DIK_ATAJO[3] = {0x44, 0x57, 0x58};
+static BYTE g_dik_antes[3];
+static void dik_cambio(BYTE dik, int apretada, const char *por)
+{
+    for (int i = 0; i < 3; i++)
+        if (DIK_ATAJO[i] == dik) {
+            if (apretada && !g_dik_antes[i]) atajo(i, por);
+            g_dik_antes[i] = (BYTE)apretada;
+        }
+}
 static long WINAPI mi_diestado(void *d, DWORD largo, void *datos)
 {
     long hr = g_diestado_real(d, largo, datos);
+    if (hr == 0 && datos && largo == 256 && g_mz_atajos)          /* el teclado: 256 bytes, uno por tecla */
+        for (int i = 0; i < 3; i++) dik_cambio(DIK_ATAJO[i], ((BYTE *)datos)[DIK_ATAJO[i]] & 0x80, "teclado del juego");
     if (hr == 0 && datos && !entrada_ok()) { memset(datos, 0, largo); g_entrada_tapada++; }
     return hr;
 }
 static long WINAPI mi_didatos(void *d, DWORD tam, void *datos, DWORD *n, DWORD flags)
 {
     long hr = g_didatos_real(d, tam, datos, n, flags);
+    if (hr == 0 && datos && n && g_mz_atajos && !(flags & 1 /* DIGDD_PEEK */) && tam >= 8)
+        for (DWORD i = 0; i < *n; i++) {                           /* (eventos: dwOfs = tecla, dwData & 0x80 = abajo) */
+            BYTE *e = (BYTE *)datos + i * tam;
+            DWORD ofs = *(DWORD *)e;
+            if (ofs == 0x44 || ofs == 0x57 || ofs == 0x58) dik_cambio((BYTE)ofs, (*(DWORD *)(e + 4) & 0x80) != 0, "eventos del juego");
+        }
     if (hr == 0 && n && *n && !entrada_ok()) { *n = 0; g_entrada_tapada++; }    /* (los eventos se tiran) */
     return hr;
 }
@@ -1376,9 +1418,9 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
         /* ★ F10 Options · F11 Messenger · F12 Clan (antes EDA-Atajos.py, sólo en la PC con Python); F10 llega
          *   como tecla de sistema. Sin repetición (bit 30 = ya estaba apretada). */
         if (g_mz_atajos && (m->message == WM_KEYDOWN || m->message == WM_SYSKEYDOWN) && !(m->lParam & (1L << 30))) {
-            if (m->wParam == VK_F10) { apuntar("  [mazino] F10"); opciones_o_chat(); }
-            else if (m->wParam == VK_F11) chat("/messenger");
-            else if (m->wParam == VK_F12) chat("/clan");
+            if (m->wParam == VK_F10) atajo(0, "mensaje");
+            else if (m->wParam == VK_F11) atajo(1, "mensaje");
+            else if (m->wParam == VK_F12) atajo(2, "mensaje");
         }
         if (m->message == WM_LBUTTONUP) {
             if (g_mz_seleccion && (m->wParam & MK_CONTROL)) g_pendiente = GetTickCount() + 120;
