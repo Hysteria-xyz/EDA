@@ -1224,6 +1224,7 @@ static void __attribute__((thiscall)) mi_vender(void *escena, DWORD serial)
 }
 
 /* los botones Clan / Options / Messenger en las pantallas del costado (el juego no los une a nada) */
+static volatile LONG g_panel_abierto;                /* (Options abierta: más abajo, con el foco) */
 static void barra_xy(HWND h, int x, int y, const char *por)
 {
     BYTE *esc = leer_ptr((void *)0x934554);
@@ -1236,6 +1237,15 @@ static void barra_xy(HWND h, int x, int y, const char *por)
     DWORD vt = esc ? (DWORD)(ULONG_PTR)leer_ptr(esc) : 0;
     if (g_diagnostico && y >= 0 && y <= 70 && x >= 440 && x <= 720)
         apuntar("  (diag) clic arriba (%s): x %d · y %d · pantalla %d · vtable 0x%08lX", por, x, y, pc, (unsigned long)vt);
+    /* ★ (16-nov) con Options ABIERTA, la barra sólo sirve para cerrarla con su propio botón Options (lobby, sala,
+     *   Shop/Inventory/Refinery/Skill; no en la stage). Medido 03:28:09–11: tres clics en el botón del lobby con
+     *   Options abierta llegaban acá y no hacían nada (el juego no tiene la entrada mientras Options está abierta,
+     *   a propósito). Nada se le pasa al juego: es nuestro interruptor, el mismo de F10. Clan/Messenger, quietos. */
+    if (g_panel_abierto) {
+        int lugar = vt == 0x00899670 || vt == 0x00899740 || vt == 0x0089A268 || (pc >= 4 && pc <= 7);
+        if (lugar && y >= 8 && y <= 58 && x >= 547 && x <= 621) { g_opc_por = "botón Options (para cerrar)"; opciones_o_chat(); }
+        return;
+    }
     if ((pc < 4 || pc > 7) && vt == 0x0089A268 && y >= 8 && y <= 58) {   /* ★ la SALA (medida): la misma barra */
         if (x >= 465 && x <= 539) chat("/clan");
         else if (x >= 547 && x <= 621) { g_opc_por = "barra de arriba"; opciones_o_chat(); }
@@ -1260,8 +1270,17 @@ static void barra_xy(HWND h, int x, int y, const char *por)
 static HWND g_ventana_juego;
 static WNDPROC g_wndproc_viejo;
 
+static void opc_cursor_visible(void);
 static LRESULT CALLBACK mi_wndproc(HWND h, UINT m, WPARAM w, LPARAM l)
 {
+    /* ★ (16-nov) con Options abierta, sobre el juego se ve la flecha de Windows (el juego no tiene la entrada y su
+     *   cursor dibujado queda quieto): así se puede apuntar a su botón Options para cerrarla. Al cerrar, el juego
+     *   vuelve a esconderla él mismo (su WM_SETCURSOR, 0x776862). Sólo cuando Windows pregunta: sin bucles. */
+    if (m == WM_SETCURSOR && g_panel_abierto && LOWORD(l) == HTCLIENT) {
+        opc_cursor_visible();
+        SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_ARROW));
+        return TRUE;
+    }
     if (!IsIconic(h)) {
         if (m == WM_ACTIVATE && LOWORD(w) == WA_INACTIVE) w |= 1;   /* «sigue activo» (salvo minimizado) */
         else if ((m == WM_ACTIVATEAPP || m == WM_NCACTIVATE) && w == 0) w = 1;

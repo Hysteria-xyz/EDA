@@ -980,18 +980,44 @@ static void abrir_teclas(void)
  *   Arreglo por eventos, sin bucles ni hilos: cada vez que Windows le pregunta a Options qué cursor poner
  *   (WM_SETCURSOR, al moverse el mouse sobre ella) se sube el contador sólo lo justo para que se vea, y se anota
  *   cuánto; al cerrarla se devuelve exactamente eso, y el juego queda como lo tenía. */
-static int g_cursor_subidas;
+static volatile LONG g_cursor_subidas;                     /* (Options y el juego la tocan: Interlocked) */
+static volatile LONG g_cursor_nivel = -1000;               /* el nivel que tenía el juego al abrir (-1000 = no anotado) */
 static void opc_cursor_visible(void)
 {
     int n = ShowCursor(TRUE);
     if (n > 0) { ShowCursor(FALSE); return; }               /* (ya se veía: no se toca nada) */
-    g_cursor_subidas++;
-    while (n < 0 && g_cursor_subidas < 64) { n = ShowCursor(TRUE); g_cursor_subidas++; }
+    InterlockedCompareExchange(&g_cursor_nivel, n - 1, -1000);   /* (la primera vez: cómo lo tenía el juego) */
+    InterlockedIncrement(&g_cursor_subidas);
+    while (n < 0 && g_cursor_subidas < 256) { n = ShowCursor(TRUE); InterlockedIncrement(&g_cursor_subidas); }
 }
+/* (16-nov, medido 03:25: «subido» crecía 8 → 62 en una sesión: el juego baja el contador por su cuenta mientras
+ *   Options está abierta, y devolver «lo subido» lo dejaba cada vez más bajo. Ahora se deja EXACTO en el nivel que
+ *   tenía el juego al abrir: unas pocas llamadas, una sola vez, al cerrar.) */
 static void opc_cursor_devolver(void)
 {
-    if (g_diagnostico) apuntar("  (diag) Options: cursor de Windows devuelto al juego (%d)", g_cursor_subidas);
-    while (g_cursor_subidas > 0) { ShowCursor(FALSE); g_cursor_subidas--; }
+    LONG k = InterlockedExchange(&g_cursor_subidas, 0), nivel = InterlockedExchange(&g_cursor_nivel, -1000);
+    if (nivel == -1000) return;                              /* (nunca se tocó) */
+    int n = ShowCursor(FALSE), vueltas = 0;
+    while (n > nivel && vueltas++ < 300) n = ShowCursor(FALSE);
+    while (n < nivel && vueltas++ < 300) n = ShowCursor(TRUE);
+    if (g_diagnostico) apuntar("  (diag) Options: cursor de Windows devuelto al juego (nivel %ld, ahora %d; subido %ld)", nivel, n, k);
+}
+/* ★ (16-nov) EL CURSOR AL CERRAR. Medido en el exe: el cursor que dibuja el juego se mueve con los WM_MOUSEMOVE de
+ *   SU ventana (0x780DB0 → +0x27DC/+0x27E0 del objeto 0x94952C), no con la posición real. Con Options abierta el
+ *   mouse está sobre Options y el juego no recibe movimientos: su cursor queda donde estaba ANTES de abrir (p. ej.
+ *   sobre el botón Options, arriba a la derecha) y al cerrar aparecía ahí hasta mover el mouse. Al cerrar se le
+ *   manda al juego UN WM_MOUSEMOVE con la posición real del cursor: su cursor aparece donde está el mouse. */
+static void opc_avisar_posicion(void)
+{
+    POINT p;
+    RECT r;
+    if (!g_ventana_juego || !GetCursorPos(&p) || !ScreenToClient(g_ventana_juego, &p) || !GetClientRect(g_ventana_juego, &r)) return;
+    if (p.x < 0 || p.y < 0 || p.x >= r.right || p.y >= r.bottom) {             /* (el mouse está fuera del juego) */
+        if (g_diagnostico) apuntar("  (diag) Options cerrada: el mouse está fuera del juego (%ld, %ld): no se toca", p.x, p.y);
+        return;
+    }
+    PostMessageA(g_ventana_juego, WM_MOUSEMOVE, 0, MAKELPARAM(p.x, p.y));
+    if (g_diagnostico) apuntar("  (diag) Options cerrada: cursor del juego puesto en (%ld, %ld) de %ldx%ld", p.x, p.y, r.right, r.bottom);
 }
 
 static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
@@ -1112,6 +1138,7 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         break;
     case WM_CLOSE: DestroyWindow(v); return 0;
     case WM_DESTROY:
+        InterlockedExchange(&g_panel_abierto, 0);            /* (desde acá el juego ya no sube el cursor) */
         opc_cursor_devolver();                               /* (todavía con la entrada unida a la del juego) */
         g_opc_ventana = NULL;
         g_arrastre = -1;
@@ -1176,7 +1203,6 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
     SetActiveWindow(v);
     SetFocus(v);
     if (hilo_juego && hilo_juego != yo_h) AttachThreadInput(yo_h, hilo_juego, FALSE);
-    g_cursor_subidas = 0;
     opc_cursor_visible();                                    /* (el cursor ya queda sobre la ventana, abajo) */
     {   /* el cursor, sobre la ventana (en la stage el juego lo tenía centrado en otro lado o escondido) */
         RECT rv;
@@ -1192,8 +1218,8 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
         GetClipCursor(&cl);
         CURSORINFO ci = {sizeof(ci)};
         GetCursorInfo(&ci);
-        apuntar("  (diag) Options abierta: cursor de Windows %s (subido %d)", (ci.flags & CURSOR_SHOWING) ? "VISIBLE" : "ESCONDIDO",
-                g_cursor_subidas);
+        apuntar("  (diag) Options abierta: cursor de Windows %s (subido %ld)", (ci.flags & CURSOR_SHOWING) ? "VISIBLE" : "ESCONDIDO",
+                (long)g_cursor_subidas);
         apuntar("  (diag) Options abierta: al frente %s · cursor (%ld, %ld) · cursor encerrado en (%ld,%ld)-(%ld,%ld) · %s",
                 GetForegroundWindow() == v ? "OPTIONS" : GetForegroundWindow() == g_ventana_juego ? "EL JUEGO" : "otra ventana",
                 c.x, c.y, cl.left, cl.top, cl.right, cl.bottom, g_sin_bordes ? "pantalla completa sin bordes" : "ventana");
@@ -1211,6 +1237,7 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
                                GetForegroundWindow() == g_ventana_juego ? "EL JUEGO" : "otra ventana");
     UnregisterClassW(L"EDA_Opciones", yo);
     if (g_ventana_juego) SetForegroundWindow(g_ventana_juego);
+    opc_avisar_posicion();
     return 0;
 }
 
