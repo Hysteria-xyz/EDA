@@ -117,6 +117,7 @@ static SOMBRA *sombra_de(void *vb, UINT tam, int crear)
  *   anillo se aplicaba a TODOS los búferes POOL_DEFAULT del juego (los de la stage nunca se midieron), y en la
  *   stage dejó de dibujarse la interfaz (habilidades, ítems, ESC). Ahora sólo esos búferes se crean DYNAMIC y
  *   pasan por el anillo; los demás quedan como en 2009. Los demás búferes se anotan una vez (para medir). */
+static volatile LONG c_lock_copia;                 /* (lo cuenta el vigía, más abajo) */
 static void *g_candidatos[16];
 static int g_es_candidato(void *vb)
 {
@@ -133,6 +134,7 @@ static void anotar_candidato(void *vb, int si)
 static long WINAPI mi_lock(void *vb, UINT desde, UINT cuanto, void **datos, DWORD flags)
 {
     if (g_buferes && g_es_candidato(vb)) {
+        InterlockedIncrement(&c_lock_copia);
         DWORD d[6] = {0};                                        /* D3DVERTEXBUFFER_DESC */
         if (((M_DESC)VT(vb)[13])(vb, d) == 0 && (d[2] & 0x200 /* DYNAMIC */)) {
             if (flags == 0 && desde == 0 && cuanto == 0) {
@@ -317,11 +319,35 @@ static void anillo_en_vivo(int prender)
             }
         }
         g_buferes = 0;
-        apuntar("  ★ anillo APAGADO en vivo (Ctrl+F8): %d búferes devueltos enteros a la placa", n);
+        apuntar("  ★ anillo APAGADO: %d búferes devueltos enteros a la placa", n);
     } else if (g_lock_real) {
         g_buferes = 1;
-        apuntar("  ★ anillo PRENDIDO en vivo (Ctrl+F8)");
+        apuntar("  ★ anillo PRENDIDO");
     }
+}
+
+/* ★ (15-nov) EL VIGÍA y EL ANILLO POR ESCENA. En la stage no salía NADA en el registro (ni cuadros/s, ni Ctrl+F8):
+ *   un hilo aparte anota cada 10 s qué ganchos corren (Present, dibujos, mensajes, escena) y lee Ctrl+F8 él mismo.
+ *   El anillo queda prendido SÓLO en las escenas medidas (lobby, sala: ahí está el lag de §42 y la interfaz se ve
+ *   bien); en las demás (la stage) se apaga solo y el juego dibuja como en 2009. [video] anillo=2 = siempre. */
+static volatile LONG c_present, c_dibujos, c_peek, c_peek_otro;
+static volatile DWORD g_ultimo_peek;
+static volatile LONG g_anillo_deseado = -1;          /* -1 = sin pedido; 0/1 = lo que el vigía quiere */
+static int g_anillo_modo = 1;                        /* 1 = sólo lobby/sala · 2 = siempre */
+static const DWORD ESCENAS_ANILLO[] = {0x00899670, 0x00899740, 0x0089A268};   /* lobby, lobby, sala (medidas) */
+static int escena_con_anillo(DWORD vt)
+{
+    for (unsigned i = 0; i < sizeof(ESCENAS_ANILLO) / sizeof(ESCENAS_ANILLO[0]); i++)
+        if (ESCENAS_ANILLO[i] == vt) return 1;
+    return 0;
+}
+static void anillo_en_vivo(int prender);
+static void opc_correr_cola_desde_dibujo(void);
+/* (en el hilo que dibuja) lo que pidió el vigía */
+static void aplicar_pedido_anillo(void)
+{
+    LONG d = g_anillo_deseado;
+    if (d >= 0 && d != (g_buferes != 0)) { InterlockedExchange(&g_anillo_deseado, -1); anillo_en_vivo((int)d); }
 }
 
 /* (15-nov, MEDIR) en la stage dejaron de salir las líneas de cuadros/s: ¿dibuja sin pasar por nuestro Present?
@@ -331,6 +357,9 @@ static long g_dibujos_sin_present;
 static int g_avisado_sin_present;
 static void contar_dibujo(void *dev)
 {
+    InterlockedIncrement(&c_dibujos);
+    if (g_anillo_deseado >= 0) aplicar_pedido_anillo();
+    if (GetTickCount() - g_ultimo_peek > 1000) opc_correr_cola_desde_dibujo();   /* (si nadie bombea mensajes) */
     g_dibujos_sin_present++;
     if (g_ultimo_present && !g_avisado_sin_present && (g_dibujos_sin_present & 1023) == 0
         && GetTickCount() - g_ultimo_present > 5000) {
@@ -374,7 +403,7 @@ static void poner(void **vt, int i, void *nuevo, void **viejo);
 
 static long WINAPI mi_crear_vb(void *dev, UINT largo, DWORD uso, DWORD fvf, DWORD pool, void **vb, void *comp)
 {
-    int candidato = g_buferes && pool == 0 /* DEFAULT */ && fvf == 0x142 && largo == 96000;
+    int candidato = (g_buferes || g_anillo_modo) && pool == 0 /* DEFAULT */ && fvf == 0x142 && largo == 96000;
     if (candidato && !(uso & 0x200)) uso |= 0x200;                             /* + DYNAMIC, sólo éste */
     long hr = g_cvb_real(dev, largo, uso, fvf, pool, vb, comp);
     if (hr == 0 && vb && *vb) {
@@ -1192,6 +1221,13 @@ static void barra(HWND h, LPARAM l)
         x = x * 800 / r.right;
         y = y * 600 / r.bottom;
     }
+    DWORD vt = esc ? (DWORD)(ULONG_PTR)leer_ptr(esc) : 0;
+    if ((pc < 4 || pc > 7) && vt == 0x0089A268 && y >= 8 && y <= 58) {   /* ★ la SALA (medida): la misma barra */
+        if (x >= 465 && x <= 539) chat("/clan");
+        else if (x >= 547 && x <= 621) opciones_o_chat();
+        else if (x >= 629 && x <= 703) chat("/messenger");
+        return;
+    }
     if (pc < 4 || pc > 7) {
         /* (15-nov, MEDIR) un clic donde están Clan / Options / Messenger en OTRA pantalla (la sala de una stage
          *   creada): se anota la escena para reconocerla; todavía no se actúa (en la partida esa zona es juego) */
@@ -1258,15 +1294,16 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
     BOOL hay = g_peek_real(m, h, a, b, r);
     DWORD yo = GetCurrentThreadId();
     if (!g_hilo_juego) g_hilo_juego = yo;
-    if (yo != g_hilo_juego) return hay;
+    if (yo != g_hilo_juego) { InterlockedIncrement(&c_peek_otro); return hay; }
+    InterlockedIncrement(&c_peek);
+    g_ultimo_peek = GetTickCount();
     if (hay && m && m->hwnd) {
         if (!g_ventana_juego) g_ventana_juego = GetAncestor(m->hwnd, GA_ROOT);
         if (g_mz_seleccion && m->message == WM_LBUTTONDOWN) g_antes = elegida();   /* la elegida ANTES del clic */
         /* ★ F10 Options · F11 Messenger · F12 Clan (antes EDA-Atajos.py, sólo en la PC con Python); F10 llega
          *   como tecla de sistema. Sin repetición (bit 30 = ya estaba apretada). */
         if (g_mz_atajos && (m->message == WM_KEYDOWN || m->message == WM_SYSKEYDOWN) && !(m->lParam & (1L << 30))) {
-            if (m->wParam == VK_F8 && GetKeyState(VK_CONTROL) < 0) anillo_en_vivo(!g_buferes);
-            else if (m->wParam == VK_F10) { apuntar("  [mazino] F10"); opciones_o_chat(); }
+            if (m->wParam == VK_F10) { apuntar("  [mazino] F10"); opciones_o_chat(); }
             else if (m->wParam == VK_F11) chat("/messenger");
             else if (m->wParam == VK_F12) chat("/clan");
         }
@@ -1281,7 +1318,7 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
     ++g_vueltas;
     if (g_mz_foco && g_ventana_juego && (g_vueltas & 255) == 1) vigilar_wndproc(g_ventana_juego);
     if (g_mz_seleccion && (g_pendiente || g_simple || (g_vueltas & 3) == 0)) revisar_inventario();
-    if (g_opc_n) opc_correr_cola();
+    opc_correr_cola_desde_dibujo();                  /* (la cola de Options y el volumen pendiente) */
     if (g_ubicar && (g_vueltas & 127) == 0) opc_ubicar_tick();
     if ((g_pantalla_pedida >= 0 || g_sin_bordes) && (g_vueltas & 63) == 0) opc_pantalla_tick();
     return hay;
@@ -1542,6 +1579,8 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
 {
     LARGE_INTEGER ahora;
     QueryPerformanceCounter(&ahora);
+    InterlockedIncrement(&c_present);
+    if (g_anillo_deseado >= 0) aplicar_pedido_anillo();
     g_cuadros++;
     if (g_avisado_sin_present) { apuntar("  (medir) vuelve el Present (dispositivo 0x%08lX)", (unsigned long)(ULONG_PTR)dev); g_avisado_sin_present = 0; }
     g_ultimo_present = GetTickCount();
@@ -1673,7 +1712,8 @@ static void leer_ajustes(HMODULE self)
      *   sala y el lobby es el Lock del búfer de vértices; con el anillo, 120 cuadros/s y la puerta entera).
      *   Estaba apagado desde el 12-nov por ser lo más invasivo (§48), sin una caída medida que fuera suya.
      *   [video] anillo=0 lo apaga; la caja negra dice si una caída es de NUESTRA-d3d9. */
-    if (GetPrivateProfileIntA("video", "anillo", 1, ini)) g_buferes = 1;
+    g_anillo_modo = GetPrivateProfileIntA("video", "anillo", 1, ini);
+    if (g_anillo_modo) g_buferes = 1;
     g_usar_bombeo = g_rui ? GetPrivateProfileIntA("rui", "bombeo_red", 0, ini) : 0;
     g_rapido = g_rui ? GetPrivateProfileIntA("rui", "backbuffer_rapido", 0, ini) : 0;
     /* PARCHES DE HYSTERIA (PR #6) */
@@ -1720,6 +1760,44 @@ static void leer_ajustes(HMODULE self)
     char env[256];                                   /* ⚠ un dominio no entra en los 32 de `v` */
     DWORD n = GetEnvironmentVariableA("EDA_SERVER", env, sizeof(env));
     if (n && n < sizeof(env)) lstrcpyA(g_server, env);
+}
+
+static DWORD WINAPI vigia(LPVOID nada)
+{
+    (void)nada;
+    DWORD vt_antes = 0, vistas[16] = {0};
+    int n_vistas = 0, vuelta = 0, forzado = -1;
+    for (;;) {
+        Sleep(250);
+        /* Ctrl+F8: prender / apagar el anillo a mano (y desde ahí manda la mano hasta reiniciar) */
+        if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(VK_F8) & 1)) {
+            forzado = !(g_buferes != 0);
+            InterlockedExchange(&g_anillo_deseado, forzado);
+            apuntar("  ★ Ctrl+F8 → anillo %s (a mano)", forzado ? "PRENDIDO" : "APAGADO");
+        }
+        BYTE *esc = leer_ptr((void *)0x934554);
+        DWORD vt = esc ? (DWORD)(ULONG_PTR)leer_ptr(esc) : 0;
+        if (vt != vt_antes) {
+            int nueva = 1;
+            for (int i = 0; i < n_vistas; i++) if (vistas[i] == vt) nueva = 0;
+            if (nueva && n_vistas < 16) vistas[n_vistas++] = vt;
+            apuntar("  (vigía) escena → vtable 0x%08lX%s", (unsigned long)vt, nueva ? " (nueva)" : "");
+            vt_antes = vt;
+        }
+        if (g_anillo_modo == 1 && forzado < 0 && g_lock_real) {        /* ★ el anillo sólo en lobby y sala */
+            int quiero = escena_con_anillo(vt);
+            if (quiero != (g_buferes != 0) && g_anillo_deseado != quiero) {
+                InterlockedExchange(&g_anillo_deseado, quiero);
+                apuntar("  (vigía) escena 0x%08lX → anillo %s", (unsigned long)vt, quiero ? "prendido" : "apagado");
+            }
+        }
+        if (++vuelta % 40 == 0) {                                     /* cada 10 s */
+            apuntar("  (vigía) 10 s: Present %ld · dibujos %ld · mensajes %ld (otro hilo %ld) · copia %ld · anillo %d · escena 0x%08lX",
+                    InterlockedExchange(&c_present, 0), InterlockedExchange(&c_dibujos, 0), InterlockedExchange(&c_peek, 0),
+                    InterlockedExchange(&c_peek_otro, 0), InterlockedExchange(&c_lock_copia, 0), g_buferes, (unsigned long)vt);
+        }
+    }
+    return 0;
 }
 
 BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
@@ -1770,5 +1848,6 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
                 : "⛔ no encontré connect en el exe (¿el EDA.exe con ASProtect? ese va con jugar.py)");
     }
     AddVectoredExceptionHandler(1, mi_excepcion);    /* (1 = antes que los manejadores del juego) */
+    if (g_mejoras) { HANDLE h = CreateThread(NULL, 0, vigia, NULL, 0, NULL); if (h) CloseHandle(h); }
     return TRUE;
 }

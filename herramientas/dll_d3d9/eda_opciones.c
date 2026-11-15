@@ -86,6 +86,11 @@ static int variable_del_juego(const char *nombre, float *valor)
     return 1;
 }
 
+static void opc_correr_cola(void);
+static void opc_correr_cola_desde_dibujo(void)
+{
+    if (g_opc_cs_lista && (g_opc_n || g_vol_musica >= 0 || g_vol_efectos >= 0)) opc_correr_cola();
+}
 static void opc_correr_cola(void)
 {
     char lista[OPC_LINEAS][96];
@@ -1010,6 +1015,7 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         return 0;
     case WM_LBUTTONDOWN: {
         int x = (short)LOWORD(l), y = (short)HIWORD(l), k = ctl_en(x, y);
+        apuntar("  [mazino] opciones: clic (%d, %d) → %s", x, y, k < 0 ? "nada" : "control");
         if (k < 0) return 0;
         CTL c = g_ctl[k];
         switch (c.tipo) {
