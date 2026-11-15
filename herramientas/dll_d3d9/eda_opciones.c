@@ -972,9 +972,41 @@ static void abrir_teclas(void)
     g_estado_color = ORO;
 }
 
+/* ★ (16-nov) EL CURSOR SOBRE OPTIONS. Medido en el exe: el juego (LithTech) esconde el cursor de Windows con
+ *   «while (ShowCursor(FALSE) >= 0)» (0x4D2461 / 0x4D256E, también al activarse) y en su WM_SETCURSOR pone
+ *   SetCursor(NULL) (0x776862): dibuja el suyo con Direct3D. Desde que Options es ventana DEL juego (su dueño es
+ *   EDA, de otro hilo), Windows une la entrada de los dos hilos y el contador del cursor pasa a ser UNO solo:
+ *   el juego, al recibir la activación, lo vuelve a bajar y sobre Options el cursor no se ve.
+ *   Arreglo por eventos, sin bucles ni hilos: cada vez que Windows le pregunta a Options qué cursor poner
+ *   (WM_SETCURSOR, al moverse el mouse sobre ella) se sube el contador sólo lo justo para que se vea, y se anota
+ *   cuánto; al cerrarla se devuelve exactamente eso, y el juego queda como lo tenía. */
+static int g_cursor_subidas;
+static void opc_cursor_visible(void)
+{
+    int n = ShowCursor(TRUE);
+    if (n > 0) { ShowCursor(FALSE); return; }               /* (ya se veía: no se toca nada) */
+    g_cursor_subidas++;
+    while (n < 0 && g_cursor_subidas < 64) { n = ShowCursor(TRUE); g_cursor_subidas++; }
+}
+static void opc_cursor_devolver(void)
+{
+    if (g_diagnostico) apuntar("  (diag) Options: cursor de Windows devuelto al juego (%d)", g_cursor_subidas);
+    while (g_cursor_subidas > 0) { ShowCursor(FALSE); g_cursor_subidas--; }
+}
+
 static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
 {
     switch (m) {
+    case WM_SETCURSOR:
+        if (LOWORD(l) == HTCLIENT || LOWORD(l) == HTCAPTION) {
+            POINT p;
+            opc_cursor_visible();
+            GetCursorPos(&p);
+            ScreenToClient(v, &p);
+            SetCursor(LoadCursorW(NULL, (LPCWSTR)(LOWORD(l) == HTCLIENT && ctl_en(p.x, p.y) >= 0 ? IDC_HAND : IDC_ARROW)));
+            return TRUE;
+        }
+        break;
     case WM_NCHITTEST: {
         POINT p = {(short)LOWORD(l), (short)HIWORD(l)};
         ScreenToClient(v, &p);
@@ -1064,13 +1096,13 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         }
         return 0;
     }
-    /* ★ (16-nov) con Options al frente el teclado del juego (DirectInput, «sólo al frente») no ve nada: F10 y A
-     *   se leen acá y pasan por el MISMO interruptor que en el juego (atajo → alternar_opciones), sin repetición
+    /* ★ (16-nov) con Options al frente el teclado del juego (DirectInput, «sólo al frente») no ve nada: F10
+     *   se lee acá y pasan por el MISMO interruptor que en el juego (atajo → alternar_opciones), sin repetición
      *   (bit 30 = la tecla ya estaba apretada). F10 llega como tecla de sistema: se traga para que no abra el menú. */
     case WM_KEYDOWN: case WM_SYSKEYDOWN:
         if (w == VK_ESCAPE) { DestroyWindow(v); return 0; }
-        if (w == VK_F10 || w == 'A') {
-            if (!(l & (1L << 30))) atajo(0, w == VK_F10 ? "Options al frente" : "A, Options al frente");
+        if (w == VK_F10) {                                   /* (A es «MoveLeft» del juego: no es atajo) */
+            if (!(l & (1L << 30))) atajo(0, "Options al frente");
             return 0;
         }
         if (m == WM_KEYDOWN) return 0;
@@ -1080,6 +1112,7 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         break;
     case WM_CLOSE: DestroyWindow(v); return 0;
     case WM_DESTROY:
+        opc_cursor_devolver();                               /* (todavía con la entrada unida a la del juego) */
         g_opc_ventana = NULL;
         g_arrastre = -1;
         g_encima = -1;
@@ -1143,7 +1176,8 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
     SetActiveWindow(v);
     SetFocus(v);
     if (hilo_juego && hilo_juego != yo_h) AttachThreadInput(yo_h, hilo_juego, FALSE);
-    ShowCursor(TRUE);
+    g_cursor_subidas = 0;
+    opc_cursor_visible();                                    /* (el cursor ya queda sobre la ventana, abajo) */
     {   /* el cursor, sobre la ventana (en la stage el juego lo tenía centrado en otro lado o escondido) */
         RECT rv;
         if (GetWindowRect(v, &rv)) SetCursorPos((rv.left + rv.right) / 2, (rv.top + rv.bottom) / 2);
@@ -1156,6 +1190,10 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
         RECT cl;
         GetCursorPos(&c);
         GetClipCursor(&cl);
+        CURSORINFO ci = {sizeof(ci)};
+        GetCursorInfo(&ci);
+        apuntar("  (diag) Options abierta: cursor de Windows %s (subido %d)", (ci.flags & CURSOR_SHOWING) ? "VISIBLE" : "ESCONDIDO",
+                g_cursor_subidas);
         apuntar("  (diag) Options abierta: al frente %s · cursor (%ld, %ld) · cursor encerrado en (%ld,%ld)-(%ld,%ld) · %s",
                 GetForegroundWindow() == v ? "OPTIONS" : GetForegroundWindow() == g_ventana_juego ? "EL JUEGO" : "otra ventana",
                 c.x, c.y, cl.left, cl.top, cl.right, cl.bottom, g_sin_bordes ? "pantalla completa sin bordes" : "ventana");

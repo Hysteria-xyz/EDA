@@ -1305,9 +1305,9 @@ static int entrada_ok(void)
 /* ★ (16-nov) EL CLIC EN LA BARRA (Clan / Options / Messenger), EN UN SOLO LUGAR. Medido (diagnóstico 23:39):
  *   · en el Inventory en pantalla completa el clic en Options no llegaba como mensaje (ni una línea), y
  *   · al cerrar Options con su X, el «soltar» caía en el juego, justo sobre la barra, y la volvía a abrir.
- *   Ahora el clic se ve por las dos vías por donde el juego lee el mouse (mensajes y su DirectInput) y sólo
- *   cuenta si el botón se APRETÓ en el juego (un soltar que viene de otra ventana no hace nada); las dos vías
- *   dejan una sola acción (la primera que suelta), y Options además tiene su propio anti-rebote. */
+ *   Ahora el clic sólo cuenta si el botón se APRETÓ en el juego (un soltar que viene de otra ventana no hace
+ *   nada), y Options además tiene su propio anti-rebote. (El mouse por DirectInput NO se usa: el juego arma su
+ *   propio formato de datos y el botón no está donde dice el estándar.) */
 static volatile LONG g_clic_armado;
 static DWORD g_clic_ultimo;
 static void clic_abajo(void) { InterlockedExchange(&g_clic_armado, 1); }
@@ -1362,27 +1362,23 @@ static void dik_cambio(BYTE dik, int apretada, const char *por)
 {
     for (int i = 0; i < 3; i++)
         if (DIK_ATAJO[i] == dik) {
-            if (apretada && !g_dik_antes[i]) atajo(i, por);
+            /* ★ (16-nov) el juego (LithTech) arma su PROPIO formato de teclado (SetDataFormat con una tabla suya,
+             *   0x4447E2): el «dwOfs» de sus eventos NO es el código DIK. Medido: con A (MoveLeft) llegaba 0x44 y
+             *   se tomaba como F10 → A abría Options. Ahora sólo cuenta si la tecla F está apretada DE VERDAD. */
+            if (apretada && !g_dik_antes[i]) {
+                static const int VK[3] = {VK_F10, VK_F11, VK_F12};
+                if (g_async_real && !(g_async_real(VK[i]) & 0x8000)) {
+                    if (g_diagnostico) apuntar("  (diag) tecla del juego con código 0x%02X que NO es %s (se ignora)", dik, i ? (i == 1 ? "F11" : "F12") : "F10");
+                    continue;                                /* (antes queda en 0: no es esta tecla) */
+                }
+                atajo(i, por);
+            }
             g_dik_antes[i] = (BYTE)apretada;
         }
-}
-/* el mouse del juego por DirectInput (no exclusivo: el cursor de Windows es el del juego) */
-static void *g_di_raton;
-static BYTE g_raton_antes;
-static void raton_boton(int apretado)
-{
-    if (!g_mz_botones || !g_ventana_juego) { g_raton_antes = (BYTE)apretado; return; }
-    if (apretado && !g_raton_antes && entrada_ok()) clic_abajo();        /* (sólo si el juego tenía la entrada) */
-    else if (!apretado && g_raton_antes) {
-        POINT p;
-        if (GetCursorPos(&p) && ScreenToClient(g_ventana_juego, &p)) clic_arriba(g_ventana_juego, p.x, p.y, "DirectInput");
-    }
-    g_raton_antes = (BYTE)apretado;
 }
 static long WINAPI mi_diestado(void *d, DWORD largo, void *datos)
 {
     long hr = g_diestado_real(d, largo, datos);
-    if (hr == 0 && datos && d == g_di_raton && largo >= 16) raton_boton((((BYTE *)datos)[12] & 0x80) != 0);
     if (hr == 0 && datos && largo == 256 && g_mz_atajos)          /* el teclado: 256 bytes, uno por tecla */
         for (int i = 0; i < 3; i++) dik_cambio(DIK_ATAJO[i], ((BYTE *)datos)[DIK_ATAJO[i]] & 0x80, "teclado del juego");
     if (hr == 0 && datos && !entrada_ok()) { memset(datos, 0, largo); g_entrada_tapada++; }
@@ -1391,12 +1387,11 @@ static long WINAPI mi_diestado(void *d, DWORD largo, void *datos)
 static long WINAPI mi_didatos(void *d, DWORD tam, void *datos, DWORD *n, DWORD flags)
 {
     long hr = g_didatos_real(d, tam, datos, n, flags);
-    if (hr == 0 && datos && n && (g_mz_atajos || d == g_di_raton) && !(flags & 1 /* DIGDD_PEEK */) && tam >= 8)
+    if (hr == 0 && datos && n && g_mz_atajos && !(flags & 1 /* DIGDD_PEEK */) && tam >= 8)
         for (DWORD i = 0; i < *n; i++) {                           /* (eventos: dwOfs = tecla, dwData & 0x80 = abajo) */
             BYTE *e = (BYTE *)datos + i * tam;
             DWORD ofs = *(DWORD *)e;
-            if (d == g_di_raton) { if (ofs == 12 /* DIMOFS_BUTTON0 */) raton_boton((*(DWORD *)(e + 4) & 0x80) != 0); }
-            else if (ofs == 0x44 || ofs == 0x57 || ofs == 0x58) dik_cambio((BYTE)ofs, (*(DWORD *)(e + 4) & 0x80) != 0, "eventos del juego");
+            if (ofs == 0x44 || ofs == 0x57 || ofs == 0x58) dik_cambio((BYTE)ofs, (*(DWORD *)(e + 4) & 0x80) != 0, "eventos del juego");
         }
     if (hr == 0 && n && *n && !entrada_ok()) { *n = 0; g_entrada_tapada++; }    /* (los eventos se tiran) */
     return hr;
@@ -1406,7 +1401,6 @@ static long WINAPI mi_dicrear(void *di, const void *guid, void **dev, void *unk)
 {
     long hr = g_dicrear_real(di, guid, dev, unk);
     if (hr == 0 && dev && *dev) {
-        if (guid && *(const DWORD *)guid == 0x6F1D2B60) g_di_raton = *dev;   /* GUID_SysMouse (…2B61 = teclado) */
         poner(VT(*dev), 9, (void *)mi_diestado, (void **)&g_diestado_real);     /* GetDeviceState */
         poner(VT(*dev), 10, (void *)mi_didatos, (void **)&g_didatos_real);      /* GetDeviceData */
     }
