@@ -232,8 +232,27 @@ static int subir(SOMBRA *s, UINT lo, UINT largo, UINT paso)
     return (int)((INT)(p - lo) / (INT)paso);
 }
 
-static SOMBRA *sombra_puesta(void)
+/* ★ (15-nov) LA INTERFAZ QUE DESAPARECÍA EN LA STAGE (barra de habilidades, ítems, ventanas, ESC): el anillo
+ *   sabía qué búfer estaba puesto sólo por SetStreamSource. Pero un «state block» (Apply: lo usan D3DX para
+ *   dibujar los sprites 2D y el juego para guardar/restaurar estados) vuelve a poner el búfer del juego SIN pasar
+ *   por SetStreamSource: el anillo creía que seguía el otro, no corría el dibujo y la placa leía el búfer VIEJO
+ *   (sólo tiene lo que el anillo fue subiendo en otros lugares) → esos dibujos salían vacíos. Ahora, en cada
+ *   dibujo, se le PREGUNTA al dispositivo (GetStreamSource) qué tiene puesto. g_desfasadas cuenta las veces que
+ *   lo anotado no coincidía (si es > 0, era esto). */
+typedef long (WINAPI *M_GSS)(void *, UINT, void **, UINT *, UINT *);       /* GetStreamSource (101) */
+typedef ULONG (WINAPI *M_RELEASE)(void *);
+static long g_desfasadas;
+static SOMBRA *sombra_puesta(void *dev)
 {
+    void *vb = NULL;
+    UINT desde = 0, paso = 0;
+    if (dev && ((M_GSS)VT(dev)[101])(dev, 0, &vb, &desde, &paso) == 0) {
+        if (vb) ((M_RELEASE)VT(vb)[2])(vb);                    /* (GetStreamSource le suma una referencia) */
+        if (vb != g_st_vb || desde != g_st_desde || (vb && paso != g_st_paso)) g_desfasadas++;
+        g_st_vb = vb;
+        g_st_desde = desde;
+        g_st_paso = paso;
+    }
     if (!g_st_vb) return NULL;
     for (int i = 0; i < 32; i++)
         if (g_sombras[i].vb == g_st_vb && g_sombras[i].copia) return &g_sombras[i];
@@ -264,7 +283,7 @@ static void subir_todo(SOMBRA *s)
 
 static long WINAPI mi_dp(void *dev, DWORD tipo, UINT inicio, UINT prims)
 {
-    SOMBRA *s = sombra_puesta();
+    SOMBRA *s = sombra_puesta(dev);
     if (s) {
         UINT n = vertices_de(tipo, prims);
         int corre = subir(s, g_st_desde + inicio * g_st_paso, n * g_st_paso, g_st_paso);
@@ -277,10 +296,10 @@ static long WINAPI mi_dp(void *dev, DWORD tipo, UINT inicio, UINT prims)
 
 static long WINAPI mi_dip(void *dev, DWORD tipo, INT base, UINT minimo, UINT n, UINT desde_idx, UINT prims)
 {
-    SOMBRA *s = sombra_puesta();
+    SOMBRA *s = sombra_puesta(dev);
     if (s) {
         INT primero = base + (INT)minimo;
-        if (primero >= 0) {
+        if (primero >= 0 && n > 0) {                     /* (n = 0: el juego no dijo cuántos → todo) */
             int corre = subir(s, g_st_desde + (UINT)primero * g_st_paso, n * g_st_paso, g_st_paso);
             if (corre != NO_SE_PUDO)
                 return g_dip_real(dev, tipo, base + corre, minimo, n, desde_idx, prims);
@@ -814,7 +833,7 @@ static void parche_ping_verde(void)
 static int g_mz_botones, g_mz_seleccion, g_mz_foco;
 /* ★ opciones=1 (15-nov): el botón Options abre una ventana DE LA DLL, en la PC del jugador (antes mandaba
  *   «/opciones» y el server abría EDA-Opciones.py: sólo andaba con el server en la misma PC). Ver más abajo. */
-static int g_mz_opciones;
+static int g_mz_opciones, g_mz_atajos;
 static void alternar_opciones(void);
 
 /* las funciones del juego que se usan para armar y mandar un paquete (las mismas que usa él) */
@@ -1033,6 +1052,45 @@ static void revisar_inventario(void)
     apuntar("  [mazino] marcas: %d", g_nmarcas);
 }
 
+/* ★ (15-nov) EL PRECIO DEL DIÁLOGO «Sell»: 0x526820 (el clic en Sell) busca el precio de la elegida en la tabla
+ *   de la escena (+0x160, 0x5D6ED0 por el número del ítem, item+8 → +4 = oro) y arma el texto con 0x4DDBD0
+ *   (Format(salida, plantilla, nombre, oro), la llamada de 0x5269C6). Con varias marcadas, se le pasa la SUMA del
+ *   precio de cada una (la misma búsqueda del juego). El server cobra cada una por su cuenta (servidor/tienda.py:
+ *   su propio precio, y un serial ya vendido no se paga dos veces). */
+typedef void *(__attribute__((thiscall)) *J_PRECIO)(void *, DWORD);         /* 0x5D6ED0 */
+typedef void (__cdecl *J_FORMATO)(void *, void *, void *, DWORD);           /* 0x4DDBD0 (varargs) */
+static int g_mz_precio_ok;
+static DWORD precio_de(BYTE *tabla, BYTE *it)
+{
+    if (!tabla || !it || !legible(it + 8, 2)) return 0;
+    BYTE *e = JUEGO(J_PRECIO, 0x5D6ED0)(tabla, *(WORD *)(it + 8));
+    return e && legible(e + 4, 4) ? *(DWORD *)(e + 4) : 0;
+}
+static void __cdecl mi_formato_venta(void *salida, void *plantilla, void *nombre, DWORD precio)
+{
+    DWORD total = precio;
+    BYTE *esc = leer_ptr((void *)0x934554), *tabla = esc ? esc + 0x160 : NULL, *sel = elegida();
+    if (g_mz_precio_ok && g_mz_seleccion && g_nmarcas > 1 && tabla) {
+        DWORD suma = 0;
+        int n = 0, con_elegida = 0, ok = 1;
+        for (int i = 0; i < g_nmarcas && ok; i++) {
+            BYTE *it = item_de(g_marcas[i].celda);
+            if (!it || !legible(it + 4, 4) || *(DWORD *)(it + 4) != g_marcas[i].serial) continue;
+            DWORD p = precio_de(tabla, it);
+            if (!p) ok = 0;
+            suma += p;
+            n++;
+            if (g_marcas[i].celda == sel) con_elegida = 1;
+        }
+        if (ok && !con_elegida) { suma += precio; n++; }            /* (la elegida no estaba marcada) */
+        if (ok && n > 1) {
+            total = suma;
+            apuntar("  [mazino] venta: %d ítems · total %lu (uno: %lu)", n, (unsigned long)total, (unsigned long)precio);
+        }
+    }
+    JUEGO(J_FORMATO, 0x4DDBD0)(salida, plantilla, nombre, total);
+}
+
 /* «Sell» → Confirm: el juego manda el 0x1041 de la elegida; nosotros, el de cada una de las demás */
 static void __attribute__((thiscall)) mi_vender(void *escena, DWORD serial)
 {
@@ -1055,13 +1113,21 @@ static void __attribute__((thiscall)) mi_vender(void *escena, DWORD serial)
 /* los botones Clan / Options / Messenger en las pantallas del costado (el juego no los une a nada) */
 static void barra(HWND h, LPARAM l)
 {
-    int pc = pantalla_costado(leer_ptr((void *)0x934554));
-    if (pc < 4 || pc > 7) return;
+    BYTE *esc = leer_ptr((void *)0x934554);
+    int pc = pantalla_costado(esc);
     RECT r;
     int x = (short)LOWORD(l), y = (short)HIWORD(l);
     if (GetClientRect(h, &r) && r.right > 0 && r.bottom > 0) {        /* (en la pantalla de 800×600) */
         x = x * 800 / r.right;
         y = y * 600 / r.bottom;
+    }
+    if (pc < 4 || pc > 7) {
+        /* (15-nov, MEDIR) un clic donde están Clan / Options / Messenger en OTRA pantalla (la sala de una stage
+         *   creada): se anota la escena para reconocerla; todavía no se actúa (en la partida esa zona es juego) */
+        if (y >= 8 && y <= 58 && x >= 465 && x <= 703)
+            apuntar("  [mazino] (medir) clic en la barra: x %d · pantalla %d · escena 0x%08lX vtable 0x%08lX", x, pc,
+                    (unsigned long)(ULONG_PTR)esc, (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL));
+        return;
     }
     if (y < 8 || y > 58) return;
     if (x >= 465 && x <= 539) chat("/clan");
@@ -1119,6 +1185,13 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
     if (hay && m && m->hwnd) {
         if (!g_ventana_juego) g_ventana_juego = GetAncestor(m->hwnd, GA_ROOT);
         if (g_mz_seleccion && m->message == WM_LBUTTONDOWN) g_antes = elegida();   /* la elegida ANTES del clic */
+        /* ★ F10 Options · F11 Messenger · F12 Clan (antes EDA-Atajos.py, sólo en la PC con Python); F10 llega
+         *   como tecla de sistema. Sin repetición (bit 30 = ya estaba apretada). */
+        if (g_mz_atajos && (m->message == WM_KEYDOWN || m->message == WM_SYSKEYDOWN) && !(m->lParam & (1L << 30))) {
+            if (m->wParam == VK_F10) { apuntar("  [mazino] F10"); opciones_o_chat(); }
+            else if (m->wParam == VK_F11) chat("/messenger");
+            else if (m->wParam == VK_F12) chat("/clan");
+        }
         if (m->message == WM_LBUTTONUP) {
             if (g_mz_seleccion && (m->wParam & MK_CONTROL)) g_pendiente = GetTickCount() + 120;
             else {
@@ -1150,6 +1223,11 @@ static void poner_mazino(void)
         apuntar("  [mazino] botones: enganchado el lobby (0x4F6061) y las pantallas del costado");
     if (g_mz_seleccion && desviar_llamada(0x51A12B, 0x54A990, (void *)mi_vender, "seleccion_multiple"))
         apuntar("  [mazino] seleccion_multiple: Ctrl+clic en la bolsa; «Sell» vende todas (0x51A12B)");
+    if (g_mz_seleccion && firma(0x5D6ED0, "51 56 8b f1 8d 44 24 0c") && firma(0x4DDBD0, "8b 4c 24 08 8d 44 24 0c")
+        && desviar_llamada(0x5269C6, 0x4DDBD0, (void *)mi_formato_venta, "precio_total")) {
+        g_mz_precio_ok = 1;
+        apuntar("  [mazino] seleccion_multiple: el diálogo de venta muestra la suma de las marcadas (0x5269C6)");
+    }
     if (g_mz_foco) {
         g_setcur_real = (M_SETCUR)parchear_iat("user32.dll", "SetPhysicalCursorPos", (void *)mi_setcur);
         g_clip_real = (M_CLIP)parchear_iat("user32.dll", "ClipCursor", (void *)mi_clip);
@@ -1158,7 +1236,7 @@ static void poner_mazino(void)
     if (g_mz_opciones && !g_opc_cs_lista) { InitializeCriticalSection(&g_opc_cs); g_opc_cs_lista = 1; }
     if (g_mz_opciones && !consola_del_juego())
         apuntar("  [mazino] opciones: (la consola del juego todavía no existe: se busca al usarla)");
-    if (g_mz_botones || g_mz_seleccion || g_mz_foco || g_mz_opciones) {
+    if (g_mz_botones || g_mz_seleccion || g_mz_foco || g_mz_opciones || g_mz_atajos) {
         g_peek_real = (M_PEEK)parchear_iat("user32.dll", "PeekMessageA", (void *)mi_peek);
         if (!g_peek_real) {
             apuntar("  [mazino] ⚠ no encontré PeekMessageA en el exe: sin selección múltiple, sin foco, sin botones del costado");
@@ -1402,8 +1480,9 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
         g_ventana = ahora;
         if (++ventanas % 60 == 0)                                   /* cada ~30 s */
         {
-            apuntar("  %d cuadros/s · despertadas %ld · bloqueos a la copia %ld · subidas al anillo %ld (%ld B en promedio)",
-                    g_fps, g_despertadas, g_convertidos, g_subidos, g_subidos ? g_subidos_bytes / g_subidos : 0);
+            apuntar("  %d cuadros/s · despertadas %ld · bloqueos a la copia %ld · subidas al anillo %ld (%ld B en promedio)"
+                    " · fuente corregida %ld", g_fps, g_despertadas, g_convertidos, g_subidos,
+                    g_subidos ? g_subidos_bytes / g_subidos : 0, g_desfasadas);
             if (g_medir_escritura)
                 apuntar("  escritura: %ld de %ld bloqueos CAMBIAN algo · promedio %ld B · máx %ld · empiezan en 0: %ld · siguen al anterior: %ld",
                         g_med_n, g_convertidos, g_med_n ? g_med_bytes / g_med_n : 0, g_med_max, g_med_desde0, g_med_siguiente);
@@ -1527,6 +1606,7 @@ static void leer_ajustes(HMODULE self)
     g_mz_seleccion = g_mazino ? GetPrivateProfileIntA("mazino", "seleccion_multiple", 1, ini) : 0;
     g_mz_foco = g_mazino ? GetPrivateProfileIntA("mazino", "foco", 1, ini) : 0;
     g_mz_opciones = g_mazino ? GetPrivateProfileIntA("mazino", "opciones", 1, ini) : 0;
+    g_mz_atajos = g_mazino ? GetPrivateProfileIntA("mazino", "atajos", 1, ini) : 0;
     /* ★ P2P: que los juegos se encuentren (MEDICIONES §52). Prendido por defecto: sólo arregla lo que
      *   el juego manda roto, y un .ini viejo (el launcher no lo pisa) sin este bloque lo tiene igual */
     g_p2p = GetPrivateProfileIntA("p2p", "activo", 1, ini);
@@ -1551,6 +1631,8 @@ static void leer_ajustes(HMODULE self)
     /* EDA_OPCIONES=1: la ventana Options de la dll aunque el .ini diga opciones=0 (EDA-DLL-Probar.bat, para probarla
      *   sin perder el panel de Python en el juego de todos los días) */
     if (g_mazino && GetEnvironmentVariableA("EDA_OPCIONES", v, sizeof(v))) g_mz_opciones = atoi(v);
+    /* EDA_ATAJOS=0: F10/F11/F12 los sigue haciendo EDA-Atajos.py (el juego de todos los días en la PC de desarrollo) */
+    if (g_mazino && GetEnvironmentVariableA("EDA_ATAJOS", v, sizeof(v))) g_mz_atajos = atoi(v);
     if (g_tope < 0) g_tope = 0;
     GetPrivateProfileStringA("red", "server", "", g_server, sizeof(g_server), ini);
     char env[256];                                   /* ⚠ un dominio no entra en los 32 de `v` */
@@ -1589,8 +1671,8 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
     }
     if (g_mejoras && g_letras32) parche_letras();
     if (g_mejoras && g_ping_verde) parche_ping_verde();
-    apuntar("  MAZINO %d (botones %d, selección múltiple %d, foco %d, opciones %d) · anillo %d", g_mazino, g_mz_botones,
-            g_mz_seleccion, g_mz_foco, g_mz_opciones, g_buferes);
+    apuntar("  MAZINO %d (botones %d, selección múltiple %d, foco %d, opciones %d, atajos %d) · anillo %d", g_mazino,
+            g_mz_botones, g_mz_seleccion, g_mz_foco, g_mz_opciones, g_mz_atajos, g_buferes);
     if (g_mejoras && g_mazino && g_mz_opciones) opc_al_arrancar();   /* antes de que el juego lea autoexec.cfg */
     if (g_mejoras && g_mazino) poner_mazino();
     preparar_linea();                                /* ★ el login del launcher (y puede traer el server) */

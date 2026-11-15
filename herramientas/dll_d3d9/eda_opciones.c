@@ -45,6 +45,47 @@ static J_CONSOLA consola_del_juego(void)
     return f && legible(f, 1) ? (J_CONSOLA)f : NULL;
 }
 
+/* ★ (15-nov) EL VOLUMEN EN VIVO: la consola sólo cambia la variable; el juego la lleva al sonido UNA vez, al
+ *   arrancar (0x40377E: GetConsoleVar «MusicVolume» → su valor → 0x5C2050() el sonido → 0x5C0080(v) música /
+ *   0x5C0020(v) efectos). Se llaman esas mismas dos funciones, en el hilo del juego. */
+typedef void *(__cdecl *J_SONIDO)(void);
+typedef void (__attribute__((thiscall)) *J_VOLUMEN)(void *, float);
+static volatile LONG g_vol_musica = -1, g_vol_efectos = -1;   /* 0..100 pendientes; -1 = nada */
+static int volumen_ok(void)
+{
+    static int ok = -1;
+    if (ok < 0)
+        ok = firma(0x5C2050, "64 a1 00 00 00 00 8a 0d b8 6d 93 00") && firma(0x5C0080, "d9 44 24 04 57 8b f9")
+             && firma(0x5C0020, "d9 44 24 04 56 8b f1");
+    return ok;
+}
+static void opc_volumen(void)
+{
+    LONG m = InterlockedExchange(&g_vol_musica, -1), e = InterlockedExchange(&g_vol_efectos, -1);
+    if ((m < 0 && e < 0) || !volumen_ok()) return;
+    void *snd = JUEGO(J_SONIDO, 0x5C2050)();
+    if (!snd) return;
+    if (m >= 0) JUEGO(J_VOLUMEN, 0x5C0080)(snd, m / 100.0f);
+    if (e >= 0) JUEGO(J_VOLUMEN, 0x5C0020)(snd, e / 100.0f);
+    apuntar("  [mazino] opciones: volumen al sonido del juego (música %ld · efectos %ld)", m, e);
+}
+
+/* ★ los valores QUE USA EL JUEGO (para que el panel muestre lo real): GetConsoleVar = [0x92CF50]+0xFC (cdecl,
+ *   el nombre) y su valor = la función 0x5C de la vtable (thiscall), como en 0x403784. Sólo en el hilo del juego. */
+typedef void *(__cdecl *J_VARIABLE)(const char *);
+typedef float (__attribute__((thiscall)) *J_VALOR)(void *, void *);
+static int variable_del_juego(const char *nombre, float *valor)
+{
+    BYTE *o = leer_ptr((void *)0x92CF50);
+    BYTE *f = o ? leer_ptr(o + 0xFC) : NULL, *vt = o ? leer_ptr(o) : NULL;
+    BYTE *g = vt ? leer_ptr(vt + 0x5C) : NULL;
+    if (!f || !g || !legible(f, 1) || !legible(g, 1)) return 0;
+    void *h = ((J_VARIABLE)f)(nombre);
+    if (!h) return 0;
+    *valor = ((J_VALOR)g)(o, h);
+    return 1;
+}
+
 static void opc_correr_cola(void)
 {
     char lista[OPC_LINEAS][96];
@@ -54,11 +95,12 @@ static void opc_correr_cola(void)
     memcpy(lista, g_opc_cola, sizeof(lista));
     g_opc_n = 0;
     LeaveCriticalSection(&g_opc_cs);
-    if (n <= 0) return;
+    if (n <= 0) { opc_volumen(); return; }
     J_CONSOLA run = consola_del_juego();
     if (!run) { apuntar("  [mazino] opciones: ⚠ no encontré la consola del juego (0x92CF50): quedan para el reinicio"); return; }
     for (int i = 0; i < n; i++) run(lista[i]);
     apuntar("  [mazino] opciones: %d en vivo (%s%s)", n, lista[0], n > 1 ? " …" : "");
+    opc_volumen();
 }
 
 /* ── las opciones (las de EDA-Opciones.py, POR_DEFECTO) ── */
@@ -165,10 +207,20 @@ static double cfg_num(const char *cfg, const char *prefijo, double defecto)
 
 /* lo guardado: [opciones] del ini; si no hay, EDA-opciones.json (PC de desarrollo); si no, lo que dice
  *   el autoexec.cfg del juego; y lo que falte, POR_DEFECTO. Devuelve de dónde salió (para el registro). */
+static int mas_nuevo(const WCHAR *a, const char *b)       /* ¿el archivo a es más nuevo que b? */
+{
+    WIN32_FILE_ATTRIBUTE_DATA x, y;
+    if (!GetFileAttributesExW(a, GetFileExInfoStandard, &x)) return 0;
+    if (!GetFileAttributesExA(b, GetFileExInfoStandard, &y)) return 1;
+    return CompareFileTime(&x.ftLastWriteTime, &y.ftLastWriteTime) > 0;
+}
 static const char *opc_leer(OPC *o)
 {
+    WCHAR rj[MAX_PATH];
     *o = OPC_DEFECTO;
-    if (g_ini[0] && GetPrivateProfileIntA("opciones", "guardado", 0, g_ini)) {
+    /* (en la PC de desarrollo el panel de Python guarda EDA-opciones.json: si es más nuevo, manda ése) */
+    int json = ruta_json(rj), json_nuevo = json && g_ini[0] && mas_nuevo(rj, g_ini);
+    if (g_ini[0] && GetPrivateProfileIntA("opciones", "guardado", 0, g_ini) && !json_nuevo) {
         for (int i = 0; i < 10; i++) *opc_campo(o, i) = GetPrivateProfileIntA("opciones", OPC_CLAVES[i], *opc_campo(o, i), g_ini);
         opc_limitar(o);
         return "eda_d3d9.ini";
@@ -317,6 +369,8 @@ static int opc_guardar(const OPC *o)
         escribir_archivo(r, j, (DWORD)lstrlenA(j));
     }
     char l[20][64], e[64];
+    InterlockedExchange(&g_vol_musica, o->musica);
+    InterlockedExchange(&g_vol_efectos, o->efectos);
     int n = opc_lineas(o, l, 1);
     for (int i = 0; i < n; i++) opc_encolar(l[i]);
     opc_escala(o, e, "x-axis");
@@ -380,12 +434,18 @@ static void opc_ubicar_tick(void)
 /* ★ al abrir el juego (DllMain): lo guardado en el ini, al autoexec.cfg */
 static void opc_al_arrancar(void)
 {
-    if (!g_ini[0] || !GetPrivateProfileIntA("opciones", "guardado", 0, g_ini)) {
+    WCHAR rj[MAX_PATH];
+    if (!(g_ini[0] && GetPrivateProfileIntA("opciones", "guardado", 0, g_ini)) && !ruta_json(rj)) {
         apuntar("  [mazino] opciones: nada guardado en eda_d3d9.ini todavía (se usa el autoexec.cfg tal cual)");
         return;
     }
     OPC o;
-    opc_leer(&o);
+    const char *origen = opc_leer(&o);
+    if (!lstrcmpA(origen, "EDA-opciones.json")) {              /* (lo aplicó EDA-Opciones.py --aplicar) */
+        apuntar("  [mazino] opciones: manda EDA-opciones.json (más nuevo): el autoexec.cfg queda como lo dejó Python");
+        if (!o.completa && o.monitor > 1) g_ubicar = o.monitor;
+        return;
+    }
     int ok = opc_al_cfg(&o);
     apuntar("  [mazino] opciones: [opciones] → autoexec.cfg %s (%s, monitor %d)", ok ? "puesto" : "⚠ no se pudo escribir",
             o.completa ? "pantalla completa" : "ventana", o.monitor);
@@ -548,7 +608,24 @@ static int encima_de(int k) { return k >= 0 && k == g_encima; }
 
 static HWND g_opc_ventana;
 static volatile LONG g_opc_abriendo;
-static OPC g_op;
+static OPC g_op, g_abierto;              /* (g_abierto: cómo estaba al abrir, para saber qué pide reinicio) */
+static float g_valor_real[8];                  /* lo que usa el juego, leído al apretar Options (hilo del juego) */
+static int g_valor_hay[8];
+static const char *const REAL_NOMBRES[8] = {"MusicVolume", "SoundVolume", "ModelShadow_Proj_Enable", "DetailTextures",
+                                           "EnvMapEnable", "FogEnable", "ScreenGlowEnable", "windowed"};
+static void opc_leer_real(void)
+{
+    for (int i = 0; i < 8; i++) g_valor_hay[i] = variable_del_juego(REAL_NOMBRES[i], &g_valor_real[i]);
+}
+static void opc_poner_real(OPC *o)
+{
+    int *campos[7] = {&o->musica, &o->efectos, &o->sombras, &o->detalle, &o->reflejos, &o->niebla, &o->brillo};
+    int n = 0;
+    for (int i = 0; i < 7; i++)
+        if (g_valor_hay[i]) { *campos[i] = i < 2 ? (int)(g_valor_real[i] * 100 + 0.5f) : g_valor_real[i] > 0.5f; n++; }
+    opc_limitar(o);
+    if (n) apuntar("  [mazino] opciones: %d valores leídos del juego (música %d · efectos %d)", n, o->musica, o->efectos);
+}
 static int g_seccion, g_nmon = 1;
 static WCHAR g_estado[160];
 static DWORD g_estado_color = VERDE;
@@ -644,6 +721,8 @@ static void dibujar_seccion(HDC d, int x, int y, int derecha)
             y += 26 + 5;
         }
         y += 4;
+        y += parrafo(d, x, y, 400, L"Modo y monitor se aplican AL REINICIAR EDA (el juego los lee sólo al abrir).",
+                     ORO, F_CHICA) + 4;
         parrafo(d, x, y, 400, L"La interfaz de 2009 sólo funciona en 800×600 (en pantalla completa se estira). "
                               L"El monitor vale en modo ventana.", GRIS, F_CHICA);
         break;
@@ -864,8 +943,10 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         case C_DESLIZADOR: g_arrastre = k; SetCapture(v); deslizar(k, x); break;
         case C_GUARDAR:
             if (opc_guardar(&g_op)) {
-                lstrcpyW(g_estado, L"Aplicado al instante (ventana / pantalla completa y monitor: al reabrir EDA).");
-                g_estado_color = VERDE;
+                lstrcpyW(g_estado, g_op.completa != g_abierto.completa || g_op.monitor != g_abierto.monitor
+                         ? L"Guardado. Sonido, mouse y gráficos: ya. Modo de pantalla / monitor: AL REINICIAR EDA."
+                         : L"Aplicado al instante.");
+                g_estado_color = g_op.completa != g_abierto.completa || g_op.monitor != g_abierto.monitor ? ORO : VERDE;
             } else {
                 lstrcpyW(g_estado, L"No se pudo guardar en eda_d3d9.ini.");
                 g_estado_color = ROJO_LUZ;
@@ -922,8 +1003,10 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
         F_TITULO = G.fuente(-16, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Trebuchet MS");
     }
     const char *origen = opc_leer(&g_op);
+    opc_poner_real(&g_op);                                   /* ★ lo que usa el juego manda sobre lo guardado */
     g_nmon = opc_monitores(NULL);
     if (g_op.monitor > g_nmon) g_op.monitor = g_nmon;
+    g_abierto = g_op;
     g_seccion = 0;
     g_estado[0] = 0;
     WNDCLASSW c = {0};
@@ -961,6 +1044,7 @@ static void alternar_opciones(void)
 {
     if (g_opc_ventana) { PostMessageW(g_opc_ventana, WM_CLOSE, 0, 0); return; }
     if (InterlockedExchange(&g_opc_abriendo, 1)) return;
+    opc_leer_real();                                         /* (acá estamos en el hilo del juego) */
     HANDLE h = CreateThread(NULL, 0, opc_hilo, NULL, 0, NULL);
     if (h) CloseHandle(h); else InterlockedExchange(&g_opc_abriendo, 0);
 }
