@@ -1112,14 +1112,25 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
     if (!v) { InterlockedExchange(&g_opc_abriendo, 0); return 0; }
     g_opc_ventana = v;
     InterlockedExchange(&g_opc_abriendo, 0);
+    InterlockedExchange(&g_panel_abierto, 1);
+    if (g_clip_real) g_clip_real(NULL);                      /* el cursor, libre */
     ShowWindow(v, SW_SHOWNORMAL);
+    /* ★ al frente DE VERDAD: con el juego en pantalla completa sin bordes, SetForegroundWindow solo no alcanza
+     *   (el juego tiene el foco y el mouse). Se une un momento la entrada de los dos hilos para poder pasarlo. */
+    DWORD hilo_juego = g_ventana_juego ? GetWindowThreadProcessId(g_ventana_juego, NULL) : 0, yo_h = GetCurrentThreadId();
+    if (hilo_juego && hilo_juego != yo_h) AttachThreadInput(yo_h, hilo_juego, TRUE);
     SetForegroundWindow(v);
+    SetActiveWindow(v);
+    SetFocus(v);
+    if (hilo_juego && hilo_juego != yo_h) AttachThreadInput(yo_h, hilo_juego, FALSE);
+    ShowCursor(TRUE);
     apuntar("  [mazino] opciones: ventana abierta (lo guardado salió de %s)", origen);
     MSG m;
     while (GetMessageW(&m, NULL, 0, 0) > 0) {
         TranslateMessage(&m);
         DispatchMessageW(&m);
     }
+    InterlockedExchange(&g_panel_abierto, 0);
     UnregisterClassW(L"EDA_Opciones", yo);
     if (g_ventana_juego) SetForegroundWindow(g_ventana_juego);
     return 0;

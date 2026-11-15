@@ -1200,7 +1200,13 @@ static void vigilar_wndproc(HWND h)
     apuntar("  [mazino] foco: WndProc 0x%08lX → EDA no se pausa al cambiar de ventana", (unsigned long)(ULONG_PTR)actual);
 }
 
-static int juego_al_frente(void) { return !g_ventana_juego || GetForegroundWindow() == g_ventana_juego; }
+/* ★ (15-nov) con una ventana nuestra abierta (Options) el juego NO tiene el mouse: en pantalla completa sin bordes
+ *   el juego tapa todo y, al seguir «al frente», centraba y encerraba el cursor: los clics pasaban por debajo */
+static volatile LONG g_panel_abierto;
+static int juego_al_frente(void)
+{
+    return !g_panel_abierto && (!g_ventana_juego || GetForegroundWindow() == g_ventana_juego);
+}
 
 typedef BOOL (WINAPI *M_SETCUR)(int, int);
 typedef BOOL (WINAPI *M_CLIP)(const RECT *);
