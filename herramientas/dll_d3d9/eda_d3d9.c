@@ -331,6 +331,7 @@ static void anillo_en_vivo(int prender)
  *   El anillo queda prendido SÓLO en las escenas medidas (lobby, sala: ahí está el lag de §42 y la interfaz se ve
  *   bien); en las demás (la stage) se apaga solo y el juego dibuja como en 2009. [video] anillo=2 = siempre. */
 static volatile LONG c_present, c_dibujos, c_peek, c_peek_otro;
+static volatile LONG g_presents_total;               /* (diagnóstico: huecos sin cuadros = congelamientos) */
 static volatile DWORD g_ultimo_peek;
 static volatile LONG g_anillo_deseado = -1;          /* -1 = sin pedido; 0/1 = lo que el vigía quiere */
 static int g_anillo_modo = 1;                        /* 1 = sólo lobby/sala · 2 = siempre */
@@ -936,6 +937,7 @@ static int g_mz_botones, g_mz_seleccion, g_mz_foco;
 /* ★ opciones=1 (15-nov): el botón Options abre una ventana DE LA DLL, en la PC del jugador (antes mandaba
  *   «/opciones» y el server abría EDA-Opciones.py: sólo andaba con el server en la misma PC). Ver más abajo. */
 static int g_mz_opciones, g_mz_atajos;
+static const char *g_opc_por = "?";                /* (diagnóstico) qué abrió Options: F10, botón, barra */
 static void alternar_opciones(void);
 
 /* las funciones del juego que se usan para armar y mandar un paquete (las mismas que usa él) */
@@ -1002,7 +1004,12 @@ static void opciones_o_chat(void)
     if (g_mz_opciones) alternar_opciones();
     else { apuntar("  [mazino] opciones: [mazino] opciones=0 → se pide al server (panel de Python)"); chat("/opciones"); }
 }
-static void __attribute__((thiscall)) boton_opc(void *pantalla, void *ev) { (void)pantalla; (void)ev; opciones_o_chat(); }
+static void __attribute__((thiscall)) boton_opc(void *pantalla, void *ev)
+{
+    (void)pantalla; (void)ev;
+    g_opc_por = "botón del lobby";
+    opciones_o_chat();
+}
 static BYTE g_delegados[3][0x18];
 
 static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int control, void *delegado)
@@ -1230,7 +1237,7 @@ static void barra(HWND h, LPARAM l)
     DWORD vt = esc ? (DWORD)(ULONG_PTR)leer_ptr(esc) : 0;
     if ((pc < 4 || pc > 7) && vt == 0x0089A268 && y >= 8 && y <= 58) {   /* ★ la SALA (medida): la misma barra */
         if (x >= 465 && x <= 539) chat("/clan");
-        else if (x >= 547 && x <= 621) opciones_o_chat();
+        else if (x >= 547 && x <= 621) { g_opc_por = "barra de arriba"; opciones_o_chat(); }
         else if (x >= 629 && x <= 703) chat("/messenger");
         return;
     }
@@ -1244,7 +1251,7 @@ static void barra(HWND h, LPARAM l)
     }
     if (y < 8 || y > 58) return;
     if (x >= 465 && x <= 539) chat("/clan");
-    else if (x >= 547 && x <= 621) opciones_o_chat();
+    else if (x >= 547 && x <= 621) { g_opc_por = "barra de arriba"; opciones_o_chat(); }
     else if (x >= 629 && x <= 703) chat("/messenger");
 }
 
@@ -1326,7 +1333,7 @@ static void atajo(int cual, const char *por)                  /* 0 = F10 · 1 = 
     if (ahora - g_atajo_ultimo[cual] < 300) return;           /* (la misma pulsación por las dos vías) */
     g_atajo_ultimo[cual] = ahora;
     apuntar("  [mazino] %s detectado (%s)", NOMBRE[cual], por);
-    if (cual == 0) opciones_o_chat();
+    if (cual == 0) { g_opc_por = "F10"; opciones_o_chat(); }
     else chat(cual == 1 ? "/messenger" : "/clan");
 }
 /* DIK_F10 = 0x44 · DIK_F11 = 0x57 · DIK_F12 = 0x58 */
@@ -1695,6 +1702,7 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
     LARGE_INTEGER ahora;
     QueryPerformanceCounter(&ahora);
     InterlockedIncrement(&c_present);
+    InterlockedIncrement(&g_presents_total);
     if (g_anillo_deseado >= 0) aplicar_pedido_anillo();
     g_cuadros++;
     if (g_avisado_sin_present) { apuntar("  (medir) vuelve el Present (dispositivo 0x%08lX)", (unsigned long)(ULONG_PTR)dev); g_avisado_sin_present = 0; }
@@ -1816,6 +1824,7 @@ static void leer_ajustes(HMODULE self)
      *   escribe el launcher (tope_fps, mostrar_fps) siguen donde estaban. ═══ */
     g_mejoras = GetPrivateProfileIntA("general", "mejoras", 1, ini);
     g_diagnostico = GetPrivateProfileIntA("general", "diagnostico", 0, ini);
+    if (GetEnvironmentVariableA("EDA_DIAGNOSTICO", v, sizeof(v))) g_diagnostico = atoi(v);   /* (EDA-Diagnostico.bat) */
     /* LO MÍNIMO */
     g_tope = GetPrivateProfileIntA("video", "tope_fps", 120, ini);
     g_mostrar = GetPrivateProfileIntA("video", "mostrar_fps", 0, ini);
@@ -1918,6 +1927,20 @@ static DWORD WINAPI vigia(LPVOID nada)
     for (;;) {
         Sleep(250);
         if (vuelta % 4 == 0) reafirmar_ganchos();                      /* (cada 1 s) */
+        if (g_diagnostico) {                                          /* ★ congelamientos: ≥ 1 s sin un cuadro */
+            static LONG total_antes;
+            static DWORD quieto_desde;
+            LONG t = g_presents_total;
+            DWORD ahora = GetTickCount();
+            if (t != total_antes) {
+                if (quieto_desde && ahora - quieto_desde >= 1000)
+                    apuntar("  (diag) ⚠ CONGELADO %lu ms sin cuadros (escena 0x%08lX · Options %s · al frente 0x%08lX)",
+                            ahora - quieto_desde, (unsigned long)vt_antes, g_panel_abierto ? "abierta" : "cerrada",
+                            (unsigned long)(ULONG_PTR)GetForegroundWindow());
+                quieto_desde = 0;
+                total_antes = t;
+            } else if (t && !quieto_desde) quieto_desde = ahora;
+        }
         BYTE *esc = leer_ptr((void *)0x934554);
         DWORD vt = esc ? (DWORD)(ULONG_PTR)leer_ptr(esc) : 0;
         if (vt != vt_antes) {

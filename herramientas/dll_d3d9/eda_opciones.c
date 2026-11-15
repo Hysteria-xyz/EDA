@@ -1136,13 +1136,25 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
     }
     if (GetForegroundWindow() != v)                          /* (abierta pero sin el foco: se dice) */
         apuntar("  [mazino] opciones: ⚠ abierta pero SIN FOCO (al frente: 0x%08lX)", (unsigned long)(ULONG_PTR)GetForegroundWindow());
-    apuntar("  [mazino] opciones: ventana abierta (lo guardado salió de %s)", origen);
+    apuntar("  [mazino] opciones: ventana abierta por %s (lo guardado salió de %s)", g_opc_por, origen);
+    if (g_diagnostico) {
+        POINT c;
+        RECT cl;
+        GetCursorPos(&c);
+        GetClipCursor(&cl);
+        apuntar("  (diag) Options abierta: al frente %s · cursor (%ld, %ld) · cursor encerrado en (%ld,%ld)-(%ld,%ld) · %s",
+                GetForegroundWindow() == v ? "OPTIONS" : GetForegroundWindow() == g_ventana_juego ? "EL JUEGO" : "otra ventana",
+                c.x, c.y, cl.left, cl.top, cl.right, cl.bottom, g_sin_bordes ? "pantalla completa sin bordes" : "ventana");
+    }
+    g_opc_por = "?";
     MSG m;
     while (GetMessageW(&m, NULL, 0, 0) > 0) {
         TranslateMessage(&m);
         DispatchMessageW(&m);
     }
     InterlockedExchange(&g_panel_abierto, 0);
+    if (g_diagnostico) apuntar("  (diag) Options cerrada: al frente %s",
+                               GetForegroundWindow() == g_ventana_juego ? "EL JUEGO" : "otra ventana");
     UnregisterClassW(L"EDA_Opciones", yo);
     if (g_ventana_juego) SetForegroundWindow(g_ventana_juego);
     return 0;
