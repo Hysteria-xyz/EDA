@@ -105,15 +105,17 @@ static void opc_correr_cola(void)
 
 /* ── las opciones (las de EDA-Opciones.py, POR_DEFECTO) ── */
 typedef struct {
-    int completa, monitor, musica, efectos, sens, sombras, detalle, reflejos, niebla, brillo;
+    int completa, monitor, musica, efectos, sens, sombras, detalle, reflejos, niebla, brillo, gamma;
 } OPC;
-static const OPC OPC_DEFECTO = {0, 1, 100, 50, 6, 0, 0, 0, 1, 0};
-static const char *const OPC_CLAVES[10] = {"pantalla_completa", "monitor", "musica", "efectos", "sensibilidad",
-                                           "sombras", "texturas_detalle", "reflejos", "niebla", "brillo"};
+#define OPC_N 11
+static const OPC OPC_DEFECTO = {0, 1, 100, 50, 6, 0, 0, 0, 1, 0, 100};
+static const char *const OPC_CLAVES[OPC_N] = {"pantalla_completa", "monitor", "musica", "efectos", "sensibilidad",
+                                              "sombras", "texturas_detalle", "reflejos", "niebla", "brillo",
+                                              "brillo_pantalla"};
 static int *opc_campo(OPC *o, int i)
 {
-    int *c[10] = {&o->completa, &o->monitor, &o->musica, &o->efectos, &o->sens, &o->sombras, &o->detalle,
-                  &o->reflejos, &o->niebla, &o->brillo};
+    int *c[OPC_N] = {&o->completa, &o->monitor, &o->musica, &o->efectos, &o->sens, &o->sombras, &o->detalle,
+                     &o->reflejos, &o->niebla, &o->brillo, &o->gamma};
     return c[i];
 }
 static void opc_limitar(OPC *o)
@@ -125,6 +127,8 @@ static void opc_limitar(OPC *o)
     if (o->sens < 1) o->sens = 1;
     if (o->sens > 30) o->sens = 30;
     if (o->monitor < 1) o->monitor = 1;
+    if (o->gamma < 50) o->gamma = 50;
+    if (o->gamma > 150) o->gamma = 150;
 }
 
 /* rutas al lado del exe (la carpeta del juego) y EDA-opciones.json (sólo en la PC de desarrollo:
@@ -221,7 +225,7 @@ static const char *opc_leer(OPC *o)
     /* (en la PC de desarrollo el panel de Python guarda EDA-opciones.json: si es más nuevo, manda ése) */
     int json = ruta_json(rj), json_nuevo = json && g_ini[0] && mas_nuevo(rj, g_ini);
     if (g_ini[0] && GetPrivateProfileIntA("opciones", "guardado", 0, g_ini) && !json_nuevo) {
-        for (int i = 0; i < 10; i++) *opc_campo(o, i) = GetPrivateProfileIntA("opciones", OPC_CLAVES[i], *opc_campo(o, i), g_ini);
+        for (int i = 0; i < OPC_N; i++) *opc_campo(o, i) = GetPrivateProfileIntA("opciones", OPC_CLAVES[i], *opc_campo(o, i), g_ini);
         opc_limitar(o);
         return "eda_d3d9.ini";
     }
@@ -229,7 +233,7 @@ static const char *opc_leer(OPC *o)
     if (ruta_json(r)) {
         char *j = leer_archivo(r, NULL);
         if (j) {
-            for (int i = 0; i < 10; i++) json_valor(j, OPC_CLAVES[i], opc_campo(o, i));
+            for (int i = 0; i < OPC_N; i++) json_valor(j, OPC_CLAVES[i], opc_campo(o, i));
             HeapFree(GetProcessHeap(), 0, j);
             opc_limitar(o);
             return "EDA-opciones.json";
@@ -247,6 +251,7 @@ static const char *opc_leer(OPC *o)
             o->reflejos = cfg_num(c, "\"EnvMapEnable\"", 0) > 0.5;
             o->niebla = cfg_num(c, "\"FogEnable\"", 1) > 0.5;
             o->brillo = cfg_num(c, "\"ScreenGlowEnable\"", 0) > 0.5;
+            o->gamma = (int)(cfg_num(c, "\"GammaR\"", 1.0) * 100 + 0.5);
             HeapFree(GetProcessHeap(), 0, c);
             opc_limitar(o);
             return "autoexec.cfg";
@@ -273,6 +278,8 @@ static int opc_lineas(const OPC *o, char l[][64], int en_vivo)
     wsprintfA(l[n++], "\"ScreenGlowEnable\" \"%d\"", o->brillo ? 1 : 0);
     lstrcpyA(l[n++], "\"ScreenGlowGaussAmp0\" \"0.045\"");
     lstrcpyA(l[n++], "\"ScreenGlowGaussAmp1\" \"0.035\"");
+    for (int k = 0; k < 3; k++)                              /* el brillo de la pantalla: la gamma del render */
+        wsprintfA(l[n++], "\"Gamma%c\" \"%d.%02d\"", "RGB"[k], o->gamma / 100, o->gamma % 100);
     if (!en_vivo) lstrcpyA(l[n++], "\"alwaysfocused\" \"0\"");
     return n;
 }
@@ -345,13 +352,42 @@ static int opc_al_cfg(const OPC *o)
     return ok;
 }
 
+/* ★ EN VIVO (sin guardar): sonido (con las funciones del juego), mouse, gráficos y brillo, por la consola */
+static int g_sens_aplicada;              /* (la escala del mouse no es una variable del juego: la última puesta) */
+static void opc_aplicar_vivo(const OPC *o)
+{
+    char l[20][64], e[64];
+    InterlockedExchange(&g_vol_musica, o->musica);
+    InterlockedExchange(&g_vol_efectos, o->efectos);
+    int n = opc_lineas(o, l, 1);
+    for (int i = 0; i < n; i++) opc_encolar(l[i]);
+    opc_escala(o, e, "x-axis");
+    opc_encolar(e);
+    opc_escala(o, e, "y-axis");
+    opc_encolar(e);
+    g_sens_aplicada = o->sens;
+}
+
+/* ★ el MODO DE PANTALLA sin cerrar EDA: las variables y «RestartRender», el comando del motor (0x423C40) que
+ *   rehace el video con ellas y vuelve a cargar texturas e interfaz él mismo (no un Reset nuestro a ciegas) */
+static void opc_cambiar_modo(const OPC *o)
+{
+    char t[64];
+    wsprintfA(t, "\"windowed\" \"%d\"", o->completa ? 0 : 1);
+    opc_encolar(t);
+    opc_encolar("\"screenwidth\" \"800\"");
+    opc_encolar("\"screenheight\" \"600\"");
+    opc_encolar("RestartRender");
+    apuntar("  [mazino] opciones: modo de pantalla → %s (RestartRender)", o->completa ? "pantalla completa" : "ventana");
+}
+
 /* GUARDAR: el ini, el json (si está) y la consola */
 static int opc_guardar(const OPC *o)
 {
     char v[16];
     int ok = g_ini[0] != 0;
     if (ok) {
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < OPC_N; i++) {
             wsprintfA(v, "%d", *opc_campo((OPC *)o, i));
             ok &= WritePrivateProfileStringA("opciones", OPC_CLAVES[i], v, g_ini) != 0;
         }
@@ -362,21 +398,13 @@ static int opc_guardar(const OPC *o)
         char j[600];
         wsprintfA(j, "{\n \"pantalla_completa\": %s,\n \"musica\": %d,\n \"efectos\": %d,\n \"sensibilidad\": %d,\n"
                      " \"sombras\": %s,\n \"texturas_detalle\": %s,\n \"reflejos\": %s,\n \"niebla\": %s,\n"
-                     " \"monitor\": %d,\n \"brillo\": %s\n}",
+                     " \"monitor\": %d,\n \"brillo\": %s,\n \"brillo_pantalla\": %d\n}",
                   o->completa ? "true" : "false", o->musica, o->efectos, o->sens, o->sombras ? "true" : "false",
                   o->detalle ? "true" : "false", o->reflejos ? "true" : "false", o->niebla ? "true" : "false",
-                  o->monitor, o->brillo ? "true" : "false");
+                  o->monitor, o->brillo ? "true" : "false", o->gamma);
         escribir_archivo(r, j, (DWORD)lstrlenA(j));
     }
-    char l[20][64], e[64];
-    InterlockedExchange(&g_vol_musica, o->musica);
-    InterlockedExchange(&g_vol_efectos, o->efectos);
-    int n = opc_lineas(o, l, 1);
-    for (int i = 0; i < n; i++) opc_encolar(l[i]);
-    opc_escala(o, e, "x-axis");
-    opc_encolar(e);
-    opc_escala(o, e, "y-axis");
-    opc_encolar(e);
+    opc_aplicar_vivo(o);
     apuntar("  [mazino] opciones: guardadas (%s) · música %d · efectos %d · mouse %d · %s · monitor %d", ok ? "ini" : "⚠ ini",
             o->musica, o->efectos, o->sens, o->completa ? "pantalla completa" : "ventana", o->monitor);
     return ok;
@@ -429,6 +457,14 @@ static void opc_ubicar_tick(void)
     int y = a.top + (a.bottom - a.top - al > 0 ? (a.bottom - a.top - al) / 2 : 0);
     if (w.left != x || w.top != y) SetWindowPos(g_ventana_juego, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     if (++g_ubicadas == 1) apuntar("  [mazino] opciones: la ventana del juego al monitor %d", g_ubicar);
+}
+
+static void opc_mover_monitor(int monitor)
+{
+    g_ubicadas = 0;
+    g_ubicar_desde = 0;
+    g_ubicar = monitor;
+    apuntar("  [mazino] opciones: monitor %d (en vivo)", monitor);
 }
 
 /* ★ al abrir el juego (DllMain): lo guardado en el ini, al autoexec.cfg */
@@ -609,13 +645,13 @@ static int encima_de(int k) { return k >= 0 && k == g_encima; }
 static HWND g_opc_ventana;
 static volatile LONG g_opc_abriendo;
 static OPC g_op, g_abierto;              /* (g_abierto: cómo estaba al abrir, para saber qué pide reinicio) */
-static float g_valor_real[8];                  /* lo que usa el juego, leído al apretar Options (hilo del juego) */
-static int g_valor_hay[8];
-static const char *const REAL_NOMBRES[8] = {"MusicVolume", "SoundVolume", "ModelShadow_Proj_Enable", "DetailTextures",
-                                           "EnvMapEnable", "FogEnable", "ScreenGlowEnable", "windowed"};
+static float g_valor_real[9];                  /* lo que usa el juego, leído al apretar Options (hilo del juego) */
+static int g_valor_hay[9];
+static const char *const REAL_NOMBRES[9] = {"MusicVolume", "SoundVolume", "ModelShadow_Proj_Enable", "DetailTextures",
+                                           "EnvMapEnable", "FogEnable", "ScreenGlowEnable", "windowed", "GammaR"};
 static void opc_leer_real(void)
 {
-    for (int i = 0; i < 8; i++) g_valor_hay[i] = variable_del_juego(REAL_NOMBRES[i], &g_valor_real[i]);
+    for (int i = 0; i < 9; i++) g_valor_hay[i] = variable_del_juego(REAL_NOMBRES[i], &g_valor_real[i]);
 }
 static void opc_poner_real(OPC *o)
 {
@@ -623,6 +659,9 @@ static void opc_poner_real(OPC *o)
     int n = 0;
     for (int i = 0; i < 7; i++)
         if (g_valor_hay[i]) { *campos[i] = i < 2 ? (int)(g_valor_real[i] * 100 + 0.5f) : g_valor_real[i] > 0.5f; n++; }
+    if (g_valor_hay[7]) o->completa = g_valor_real[7] < 0.5f;            /* windowed */
+    if (g_valor_hay[8]) o->gamma = (int)(g_valor_real[8] * 100 + 0.5f);
+    if (g_sens_aplicada) o->sens = g_sens_aplicada;
     opc_limitar(o);
     if (n) apuntar("  [mazino] opciones: %d valores leídos del juego (música %d · efectos %d)", n, o->musica, o->efectos);
 }
@@ -721,10 +760,13 @@ static void dibujar_seccion(HDC d, int x, int y, int derecha)
             y += 26 + 5;
         }
         y += 4;
-        y += parrafo(d, x, y, 400, L"Modo y monitor se aplican AL REINICIAR EDA (el juego los lee sólo al abrir).",
-                     ORO, F_CHICA) + 4;
-        parrafo(d, x, y, 400, L"La interfaz de 2009 sólo funciona en 800×600 (en pantalla completa se estira). "
-                              L"El monitor vale en modo ventana.", GRIS, F_CHICA);
+        y += 5;
+        deslizador(d, fila_etiqueta(d, x, y + 4, L"Brillo", TEXTO, F_NORMAL), y, 3, g_op.gamma, 50, 150);
+        y += 22 + 5 + 4;
+        y += parrafo(d, x, y, 400, L"Modo y monitor: al GUARDAR, sin cerrar EDA (el juego rehace su video un "
+                                   L"momento). Brillo, sonido, mouse y gráficos: al moverlos.", ORO, F_CHICA) + 4;
+        parrafo(d, x, y, 400, L"La interfaz de 2009 sólo funciona en 800×600 (en pantalla completa se estira): "
+                              L"por eso no hay otras resoluciones. El monitor vale en modo ventana.", GRIS, F_CHICA);
         break;
     }
     case 1:                                                             /* SONIDO */
@@ -847,14 +889,14 @@ static int ctl_en(int x, int y)
 
 static void deslizar(int k, int x)
 {
-    static const int DESDE[3] = {0, 0, 1}, HASTA[3] = {100, 100, 30};
+    static const int DESDE[4] = {0, 0, 1, 50}, HASTA[4] = {100, 100, 30, 150};
     CTL *c = &g_ctl[k];
     int id = c->id, x0 = c->r.left + 8, x1 = c->r.left + 260 - 8;
     int v = DESDE[id] + ((HASTA[id] - DESDE[id]) * (x - x0) * 2 + (x1 - x0)) / (2 * (x1 - x0 > 0 ? x1 - x0 : 1));
     if (v < DESDE[id]) v = DESDE[id];
     if (v > HASTA[id]) v = HASTA[id];
-    int *campo = id == 0 ? &g_op.musica : id == 1 ? &g_op.efectos : &g_op.sens;
-    *campo = v;
+    int *campos[4] = {&g_op.musica, &g_op.efectos, &g_op.sens, &g_op.gamma};
+    *campos[id] = v;
 }
 
 /* abrir un archivo con su programa (como doble clic): cmd /c start, sin enlazar shell32 */
@@ -938,15 +980,18 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         case C_CASILLA: {
             int *campos[5] = {&g_op.brillo, &g_op.sombras, &g_op.detalle, &g_op.reflejos, &g_op.niebla};
             *campos[c.id] = !*campos[c.id];
+            opc_aplicar_vivo(&g_op);                         /* ★ al instante */
             break;
         }
         case C_DESLIZADOR: g_arrastre = k; SetCapture(v); deslizar(k, x); break;
         case C_GUARDAR:
             if (opc_guardar(&g_op)) {
-                lstrcpyW(g_estado, g_op.completa != g_abierto.completa || g_op.monitor != g_abierto.monitor
-                         ? L"Guardado. Sonido, mouse y gráficos: ya. Modo de pantalla / monitor: AL REINICIAR EDA."
-                         : L"Aplicado al instante.");
-                g_estado_color = g_op.completa != g_abierto.completa || g_op.monitor != g_abierto.monitor ? ORO : VERDE;
+                int modo = g_op.completa != g_abierto.completa, mon = g_op.monitor != g_abierto.monitor;
+                if (modo) opc_cambiar_modo(&g_op);
+                else if (mon && !g_op.completa) opc_mover_monitor(g_op.monitor);
+                lstrcpyW(g_estado, modo ? L"Guardado. Cambiando el modo de pantalla…" : L"Guardado y aplicado.");
+                g_estado_color = VERDE;
+                g_abierto = g_op;
             } else {
                 lstrcpyW(g_estado, L"No se pudo guardar en eda_d3d9.ini.");
                 g_estado_color = ROJO_LUZ;
@@ -958,16 +1003,17 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         return 0;
     }
     case WM_LBUTTONUP:
-        if (g_arrastre >= 0) { g_arrastre = -1; ReleaseCapture(); }
+        if (g_arrastre >= 0) { g_arrastre = -1; ReleaseCapture(); opc_aplicar_vivo(&g_op); }   /* ★ al instante */
         return 0;
     case WM_MOUSEWHEEL: {
         POINT p = {(short)LOWORD(l), (short)HIWORD(l)};
         ScreenToClient(v, &p);
         int k = ctl_en(p.x, p.y);
         if (k >= 0 && g_ctl[k].tipo == C_DESLIZADOR) {
-            int id = g_ctl[k].id, *campo = id == 0 ? &g_op.musica : id == 1 ? &g_op.efectos : &g_op.sens;
-            *campo += GET_WHEEL_DELTA_WPARAM(w) > 0 ? 1 : -1;
+            int *campos[4] = {&g_op.musica, &g_op.efectos, &g_op.sens, &g_op.gamma};
+            *campos[g_ctl[k].id] += GET_WHEEL_DELTA_WPARAM(w) > 0 ? 1 : -1;
             opc_limitar(&g_op);
+            opc_aplicar_vivo(&g_op);                         /* ★ al instante */
             InvalidateRect(v, NULL, FALSE);
         }
         return 0;
