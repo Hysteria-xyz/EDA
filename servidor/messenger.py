@@ -272,6 +272,10 @@ def abrir_atajos():
     corriendo, o si cambió desde que se abrió."""
     import subprocess
     import sys
+    # ★ (15-nov) con la d3d9.dll nueva, F10/F11/F12 los hace la dll (lee el teclado de DirectInput del juego). Si
+    #   además corría EDA-Atajos.py, F10 abría DOS Options (la de la dll, en vivo, y la de Python, que pide reabrir).
+    if os.environ.get("EDA_ATAJOS") == "1":
+        return False
     ruta = os.path.join(os.path.dirname(config.RAIZ), "EDA-Atajos.py")
     pid = os.path.join(config.ESTADO, "atajos.pid")
     if sys.platform != "win32" or not os.path.exists(ruta):

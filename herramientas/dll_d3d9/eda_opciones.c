@@ -1130,6 +1130,10 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
     SetFocus(v);
     if (hilo_juego && hilo_juego != yo_h) AttachThreadInput(yo_h, hilo_juego, FALSE);
     ShowCursor(TRUE);
+    {   /* el cursor, sobre la ventana (en la stage el juego lo tenía centrado en otro lado o escondido) */
+        RECT rv;
+        if (GetWindowRect(v, &rv)) SetCursorPos((rv.left + rv.right) / 2, (rv.top + rv.bottom) / 2);
+    }
     if (GetForegroundWindow() != v)                          /* (abierta pero sin el foco: se dice) */
         apuntar("  [mazino] opciones: ⚠ abierta pero SIN FOCO (al frente: 0x%08lX)", (unsigned long)(ULONG_PTR)GetForegroundWindow());
     apuntar("  [mazino] opciones: ventana abierta (lo guardado salió de %s)", origen);
