@@ -1064,9 +1064,20 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         }
         return 0;
     }
-    case WM_KEYDOWN:
-        if (w == VK_ESCAPE) DestroyWindow(v);
-        return 0;
+    /* ★ (16-nov) con Options al frente el teclado del juego (DirectInput, «sólo al frente») no ve nada: F10 y A
+     *   se leen acá y pasan por el MISMO interruptor que en el juego (atajo → alternar_opciones), sin repetición
+     *   (bit 30 = la tecla ya estaba apretada). F10 llega como tecla de sistema: se traga para que no abra el menú. */
+    case WM_KEYDOWN: case WM_SYSKEYDOWN:
+        if (w == VK_ESCAPE) { DestroyWindow(v); return 0; }
+        if (w == VK_F10 || w == 'A') {
+            if (!(l & (1L << 30))) atajo(0, w == VK_F10 ? "Options al frente" : "A, Options al frente");
+            return 0;
+        }
+        if (m == WM_KEYDOWN) return 0;
+        break;                                               /* (Alt+F4 y las demás de sistema, como siempre) */
+    case WM_SYSKEYUP:
+        if (w == VK_F10) return 0;
+        break;
     case WM_CLOSE: DestroyWindow(v); return 0;
     case WM_DESTROY:
         g_opc_ventana = NULL;
@@ -1113,8 +1124,11 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
         x = (j.left + j.right - OPC_ANCHO) / 2;
         y = (j.top + j.bottom - OPC_ALTO) / 2;
     }
-    HWND v = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, L"EDA_Opciones", L"Options", WS_POPUP,
-                             x, y, OPC_ANCHO, OPC_ALTO, NULL, NULL, yo, NULL);
+    /* ★ (16-nov) ventana DEL juego, no «siempre encima»: su dueño es la ventana de EDA, así Windows la deja
+     *   arriba de EDA (también en pantalla completa sin bordes), la baja junto con EDA cuando otra aplicación
+     *   pasa al frente (Opera) y, al cerrarla, le devuelve el foco a EDA solo. Sin SetWindowPos ni temporizadores. */
+    HWND v = CreateWindowExW(WS_EX_TOOLWINDOW, L"EDA_Opciones", L"Options", WS_POPUP,
+                             x, y, OPC_ANCHO, OPC_ALTO, g_ventana_juego, NULL, yo, NULL);
     if (!v) { InterlockedExchange(&g_opc_abriendo, 0); apuntar("  [mazino] opciones: ⚠ no se pudo crear la ventana (%lu)", GetLastError()); return 0; }
     g_opc_ventana = v;
     InterlockedExchange(&g_opc_abriendo, 0);
@@ -1152,6 +1166,8 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
         TranslateMessage(&m);
         DispatchMessageW(&m);
     }
+    /* (si F10 / A siguen apretadas al cerrar, el juego no las toma como una pulsación nueva: hay que soltarlas) */
+    for (int i = 0; i < 3; i++) g_dik_antes[i] = 1;
     InterlockedExchange(&g_panel_abierto, 0);
     if (g_diagnostico) apuntar("  (diag) Options cerrada: al frente %s",
                                GetForegroundWindow() == g_ventana_juego ? "EL JUEGO" : "otra ventana");
@@ -1163,6 +1179,12 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
 /* el botón Options (y F10 más adelante): abre la ventana, o la cierra si ya estaba */
 static void alternar_opciones(void)
 {
+    /* ★ (16-nov) UN solo interruptor para F10, A, el botón del lobby y la barra: dos pedidos en menos de 300 ms
+     *   son la misma pulsación vista por dos vías (no abre y cierra de golpe) */
+    static DWORD ultimo;
+    DWORD ahora = GetTickCount();
+    if (ahora - ultimo < 300) { apuntar("  [mazino] opciones: pedido repetido (%s) → ignorado", g_opc_por); return; }
+    ultimo = ahora;
     if (g_opc_ventana) { apuntar("  [mazino] opciones: ya estaba abierta → se cierra"); PostMessageW(g_opc_ventana, WM_CLOSE, 0, 0); return; }
     if (InterlockedExchange(&g_opc_abriendo, 1)) { apuntar("  [mazino] opciones: ya se está abriendo (pedido ignorado)"); return; }
     opc_leer_real();                                         /* (acá estamos en el hilo del juego) */

@@ -1224,17 +1224,18 @@ static void __attribute__((thiscall)) mi_vender(void *escena, DWORD serial)
 }
 
 /* los botones Clan / Options / Messenger en las pantallas del costado (el juego no los une a nada) */
-static void barra(HWND h, LPARAM l)
+static void barra_xy(HWND h, int x, int y, const char *por)
 {
     BYTE *esc = leer_ptr((void *)0x934554);
     int pc = pantalla_costado(esc);
     RECT r;
-    int x = (short)LOWORD(l), y = (short)HIWORD(l);
     if (GetClientRect(h, &r) && r.right > 0 && r.bottom > 0) {        /* (en la pantalla de 800×600) */
         x = x * 800 / r.right;
         y = y * 600 / r.bottom;
     }
     DWORD vt = esc ? (DWORD)(ULONG_PTR)leer_ptr(esc) : 0;
+    if (g_diagnostico && y >= 0 && y <= 70 && x >= 440 && x <= 720)
+        apuntar("  (diag) clic arriba (%s): x %d · y %d · pantalla %d · vtable 0x%08lX", por, x, y, pc, (unsigned long)vt);
     if ((pc < 4 || pc > 7) && vt == 0x0089A268 && y >= 8 && y <= 58) {   /* ★ la SALA (medida): la misma barra */
         if (x >= 465 && x <= 539) chat("/clan");
         else if (x >= 547 && x <= 621) { g_opc_por = "barra de arriba"; opciones_o_chat(); }
@@ -1300,6 +1301,24 @@ static int entrada_ok(void)
     if (g_panel_abierto) return 0;
     return !g_ventana_juego || GetForegroundWindow() == g_ventana_juego;
 }
+
+/* ★ (16-nov) EL CLIC EN LA BARRA (Clan / Options / Messenger), EN UN SOLO LUGAR. Medido (diagnóstico 23:39):
+ *   · en el Inventory en pantalla completa el clic en Options no llegaba como mensaje (ni una línea), y
+ *   · al cerrar Options con su X, el «soltar» caía en el juego, justo sobre la barra, y la volvía a abrir.
+ *   Ahora el clic se ve por las dos vías por donde el juego lee el mouse (mensajes y su DirectInput) y sólo
+ *   cuenta si el botón se APRETÓ en el juego (un soltar que viene de otra ventana no hace nada); las dos vías
+ *   dejan una sola acción (la primera que suelta), y Options además tiene su propio anti-rebote. */
+static volatile LONG g_clic_armado;
+static DWORD g_clic_ultimo;
+static void clic_abajo(void) { InterlockedExchange(&g_clic_armado, 1); }
+static void clic_arriba(HWND h, int x, int y, const char *por)
+{
+    if (!InterlockedExchange(&g_clic_armado, 0)) return;     /* (no se apretó en el juego, o ya lo tomó la otra vía) */
+    DWORD ahora = GetTickCount();
+    if (ahora - g_clic_ultimo < 250) return;
+    g_clic_ultimo = ahora;
+    barra_xy(h, x, y, por);
+}
 typedef SHORT (WINAPI *M_TECLA)(int);
 static M_TECLA g_async_real, g_tecla_real;
 static SHORT WINAPI mi_async(int vk) { SHORT v = g_async_real(vk); return entrada_ok() ? v : 0; }
@@ -1347,9 +1366,23 @@ static void dik_cambio(BYTE dik, int apretada, const char *por)
             g_dik_antes[i] = (BYTE)apretada;
         }
 }
+/* el mouse del juego por DirectInput (no exclusivo: el cursor de Windows es el del juego) */
+static void *g_di_raton;
+static BYTE g_raton_antes;
+static void raton_boton(int apretado)
+{
+    if (!g_mz_botones || !g_ventana_juego) { g_raton_antes = (BYTE)apretado; return; }
+    if (apretado && !g_raton_antes && entrada_ok()) clic_abajo();        /* (sólo si el juego tenía la entrada) */
+    else if (!apretado && g_raton_antes) {
+        POINT p;
+        if (GetCursorPos(&p) && ScreenToClient(g_ventana_juego, &p)) clic_arriba(g_ventana_juego, p.x, p.y, "DirectInput");
+    }
+    g_raton_antes = (BYTE)apretado;
+}
 static long WINAPI mi_diestado(void *d, DWORD largo, void *datos)
 {
     long hr = g_diestado_real(d, largo, datos);
+    if (hr == 0 && datos && d == g_di_raton && largo >= 16) raton_boton((((BYTE *)datos)[12] & 0x80) != 0);
     if (hr == 0 && datos && largo == 256 && g_mz_atajos)          /* el teclado: 256 bytes, uno por tecla */
         for (int i = 0; i < 3; i++) dik_cambio(DIK_ATAJO[i], ((BYTE *)datos)[DIK_ATAJO[i]] & 0x80, "teclado del juego");
     if (hr == 0 && datos && !entrada_ok()) { memset(datos, 0, largo); g_entrada_tapada++; }
@@ -1358,11 +1391,12 @@ static long WINAPI mi_diestado(void *d, DWORD largo, void *datos)
 static long WINAPI mi_didatos(void *d, DWORD tam, void *datos, DWORD *n, DWORD flags)
 {
     long hr = g_didatos_real(d, tam, datos, n, flags);
-    if (hr == 0 && datos && n && g_mz_atajos && !(flags & 1 /* DIGDD_PEEK */) && tam >= 8)
+    if (hr == 0 && datos && n && (g_mz_atajos || d == g_di_raton) && !(flags & 1 /* DIGDD_PEEK */) && tam >= 8)
         for (DWORD i = 0; i < *n; i++) {                           /* (eventos: dwOfs = tecla, dwData & 0x80 = abajo) */
             BYTE *e = (BYTE *)datos + i * tam;
             DWORD ofs = *(DWORD *)e;
-            if (ofs == 0x44 || ofs == 0x57 || ofs == 0x58) dik_cambio((BYTE)ofs, (*(DWORD *)(e + 4) & 0x80) != 0, "eventos del juego");
+            if (d == g_di_raton) { if (ofs == 12 /* DIMOFS_BUTTON0 */) raton_boton((*(DWORD *)(e + 4) & 0x80) != 0); }
+            else if (ofs == 0x44 || ofs == 0x57 || ofs == 0x58) dik_cambio((BYTE)ofs, (*(DWORD *)(e + 4) & 0x80) != 0, "eventos del juego");
         }
     if (hr == 0 && n && *n && !entrada_ok()) { *n = 0; g_entrada_tapada++; }    /* (los eventos se tiran) */
     return hr;
@@ -1372,6 +1406,7 @@ static long WINAPI mi_dicrear(void *di, const void *guid, void **dev, void *unk)
 {
     long hr = g_dicrear_real(di, guid, dev, unk);
     if (hr == 0 && dev && *dev) {
+        if (guid && *(const DWORD *)guid == 0x6F1D2B60) g_di_raton = *dev;   /* GUID_SysMouse (…2B61 = teclado) */
         poner(VT(*dev), 9, (void *)mi_diestado, (void **)&g_diestado_real);     /* GetDeviceState */
         poner(VT(*dev), 10, (void *)mi_didatos, (void **)&g_didatos_real);      /* GetDeviceData */
     }
@@ -1422,6 +1457,7 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
     if (hay && m && m->hwnd) {
         if (!g_ventana_juego) g_ventana_juego = GetAncestor(m->hwnd, GA_ROOT);
         if (g_mz_seleccion && m->message == WM_LBUTTONDOWN) g_antes = elegida();   /* la elegida ANTES del clic */
+        if (g_mz_botones && m->message == WM_LBUTTONDOWN) clic_abajo();             /* (apretado EN el juego) */
         /* ★ F10 Options · F11 Messenger · F12 Clan (antes EDA-Atajos.py, sólo en la PC con Python); F10 llega
          *   como tecla de sistema. Sin repetición (bit 30 = ya estaba apretada). */
         if (g_mz_atajos && (m->message == WM_KEYDOWN || m->message == WM_SYSKEYDOWN) && !(m->lParam & (1L << 30))) {
@@ -1433,7 +1469,7 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
             if (g_mz_seleccion && (m->wParam & MK_CONTROL)) g_pendiente = GetTickCount() + 120;
             else {
                 if (g_mz_seleccion) g_simple = GetTickCount() + 120;
-                if (g_mz_botones) barra(m->hwnd, m->lParam);
+                if (g_mz_botones) clic_arriba(m->hwnd, (short)LOWORD(m->lParam), (short)HIWORD(m->lParam), "mensaje");
             }
         }
     }
