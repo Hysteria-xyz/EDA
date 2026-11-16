@@ -27,6 +27,7 @@ services:
       EDA_PORTERO_CLAVES: ${EDA_PORTERO_CLAVES:-}
       EDA_CUENTAS_CLAVE_PUBLICA: ${EDA_CUENTAS_CLAVE_PUBLICA:-}
       EDA_PREFIJO_CUENTA: ${EDA_PREFIJO_CUENTA:-}
+      EDA_CUENTA_NUEVA: ${EDA_CUENTA_NUEVA:-}
       EDA_HTTP_PUERTO: ${EDA_HTTP_PUERTO:-}
       # ★ P2P entre casas (servidor/nat.py, MEDICIONES §53): 1 = directo con la pública real; vacío = relay
       EDA_P2P_ENTRE_CASAS: ${EDA_P2P_ENTRE_CASAS:-}

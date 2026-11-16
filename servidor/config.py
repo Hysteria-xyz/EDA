@@ -72,6 +72,11 @@ CUENTAS_CLAVE_PUBLICA = (os.environ.get("EDA_CUENTAS_CLAVE_PUBLICA") or "").stri
 #   número es el Eñeños ID (la persona), no un número de R2Beat. Hasta 4 letras, números o «_» (el nombre de un
 #   personaje sin bautizar es el de su cuenta, y tiene que entrar en 12).
 PREFIJO_CUENTA = os.environ.get("EDA_PREFIJO_CUENTA") or "r2b_"
+# ★ (15-nov) cómo nace la cuenta de quien entra con el pase por primera vez:
+#   "personaje" = como siempre: con el personaje de siempre ya hecho (y el apodo del pase lo bautiza)
+#   "vacia"     = SIN personajes: el pase lo deja entrar, y sus personajes los crea él en la pantalla del
+#                 juego (el cliente ya la muestra vacía: es lo que pasa cuando alguien los borra todos)
+CUENTA_NUEVA = os.environ.get("EDA_CUENTA_NUEVA") or "personaje"
 PORTERO_EMISOR = "r2beat-portero"
 PORTERO_AUDIENCIA = "eda"
 PORTERIA = os.path.join(ESTADO, "porteria.db")              # los tickets dados y los pases ya usados
