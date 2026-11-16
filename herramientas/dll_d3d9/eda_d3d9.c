@@ -998,7 +998,8 @@ static void chat(const char *texto)
 
 /* ── botones del lobby ── */
 static void __attribute__((thiscall)) boton_clan(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/clan"); }
-static void __attribute__((thiscall)) boton_msn(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/messenger"); }
+static void msn_pedido(const char *por);
+static void __attribute__((thiscall)) boton_msn(void *pantalla, void *ev) { (void)pantalla; (void)ev; msn_pedido("botón del lobby"); }
 static void opciones_o_chat(void)
 {
     if (g_mz_opciones) alternar_opciones();
@@ -1055,6 +1056,16 @@ static BYTE *leer_ptr(const void *p) { return legible(p, 4) ? *(BYTE *const *)p 
 
 /* la pantalla del costado: 4 / 5 / 6 = Shop / Inventory / Refinery (con la bolsa), 7 = Skill */
 static int pantalla_costado(BYTE *esc) { return esc && legible(esc + 0xDC, 4) ? *(int *)(esc + 0xDC) : -1; }
+
+/* ★ (16-nov, PUNTO 2) MESSENGER: el origen de CADA pedido (F11, botón del lobby, barra del costado), con la escena,
+ *   como en Options. Por ahora el pedido sigue siendo el de siempre: «/messenger» al server. */
+static void msn_pedido(const char *por)
+{
+    BYTE *esc = leer_ptr((void *)0x934554);
+    apuntar("  [mazino] messenger: pedido por %s · escena 0x%08lX · pantalla %d", por,
+            (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL), pantalla_costado(esc));
+    chat("/messenger");
+}
 
 static BYTE *grilla(int *k_out)
 {
@@ -1261,7 +1272,7 @@ static void barra_xy(HWND h, int x, int y, const char *por, int ya800)
     if (y < 8 || y > 64) return;                     /* (la placa llega a y 61: medido en la captura de 23:42) */
     if (x >= 465 && x <= 539) chat("/clan");
     else if (x >= 547 && x <= 621) { g_opc_por = "barra de arriba"; opciones_o_chat(); }
-    else if (x >= 629 && x <= 703) chat("/messenger");
+    else if (x >= 629 && x <= 703) msn_pedido("barra del costado");
 }
 
 /* ── el foco ── */
@@ -1402,7 +1413,8 @@ static void atajo(int cual, const char *por)                  /* 0 = F10 · 1 = 
     g_atajo_ultimo[cual] = ahora;
     apuntar("  [mazino] %s detectado (%s)", NOMBRE[cual], por);
     if (cual == 0) { g_opc_por = "F10"; opciones_o_chat(); }
-    else chat(cual == 1 ? "/messenger" : "/clan");
+    else if (cual == 1) msn_pedido("F11");
+    else chat("/clan");
 }
 /* DIK_F10 = 0x44 · DIK_F11 = 0x57 · DIK_F12 = 0x58 */
 static const BYTE DIK_ATAJO[3] = {0x44, 0x57, 0x58};
@@ -1535,6 +1547,58 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
     return hay;
 }
 
+/* ★ (16-nov, PUNTO 2 — MEDIR) LO QUE EL SERVER LE MANDA AL CHAT (0x1005), en TODAS las escenas. Medido en el exe:
+ *   el bucle de red (0x4E56B0) pasa los comandos 0x1003..0x100B a la escena (+0x34 → 0x4DB6F0; la stage salta ahí
+ *   mismo), y 0x4DB6F0 elige por una tabla: 0x1005 → 0x4DB735 (entrada 0x4DB7BC). Esa entrada apunta ahora a un
+ *   puente de 20 bytes que llama a msn_chat_llega(escena, mensaje) y sigue SIEMPRE al original: sólo mira.
+ *   Es el canal por el que el Messenger de la dll va a recibir la lista de amigos y los mensajes. */
+static DWORD g_chat_vistos;
+static int __cdecl msn_chat_llega(void *escena, void *msg)
+{
+    (void)escena;
+    g_chat_vistos++;
+    if (!g_diagnostico || !msg || !legible((BYTE *)msg + 0x1010, 8)) return 0;
+    BYTE *datos = *(BYTE **)((BYTE *)msg + 0x1010);
+    WORD pos = *(WORD *)((BYTE *)msg + 0x1014), largo = *(WORD *)((BYTE *)msg + 0x1016);
+    if (!datos || largo < pos + 41 || !legible(datos + pos, largo - pos)) return 0;
+    BYTE *b = datos + pos;                                   /* H B I I · nombre 26 B (UTF-16) · u32 largo · texto */
+    WCHAR nombre[14] = {0}, texto[96] = {0};
+    memcpy(nombre, b + 11, 26);
+    DWORD n = *(DWORD *)(b + 37);
+    if (n > (DWORD)(largo - pos - 41)) n = largo - pos - 41;
+    if (n > 2 * 95) n = 2 * 95;
+    memcpy(texto, b + 41, n);
+    char nom8[64], tex8[300];
+    WideCharToMultiByte(CP_UTF8, 0, nombre, -1, nom8, sizeof(nom8), NULL, NULL);
+    WideCharToMultiByte(CP_UTF8, 0, texto, -1, tex8, sizeof(tex8), NULL, NULL);
+    BYTE *esc = leer_ptr((void *)0x934554);
+    apuntar("  (diag) chat del server: tipo %d · «%s» · %s · escena 0x%08lX", b[2], nom8, tex8,
+            (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL));
+    return 0;                                                /* (por ahora nunca se lo queda: el juego lo muestra igual) */
+}
+static void poner_puente_chat(void)
+{
+    DWORD *entrada = (DWORD *)0x4DB7BC, prot;
+    if (!firma(0x4DB721, "ff 24 85 b4 b7 4d 00") || !legible(entrada, 4) || *entrada != 0x4DB735) {
+        apuntar("  [mazino] messenger: ⚠ la tabla de mensajes no está como en EDA_limpio.exe: no se toca");
+        return;
+    }
+    BYTE *p = (BYTE *)VirtualAlloc(NULL, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!p) return;
+    BYTE c[] = {0x57, 0x56,                                  /* push edi (mensaje) · push esi (escena) */
+                0xB8, 0, 0, 0, 0, 0xFF, 0xD0,                /* mov eax, msn_chat_llega · call eax */
+                0x83, 0xC4, 0x08, 0x85, 0xC0, 0x75, 0x07,    /* add esp, 8 · test eax, eax · jnz se_queda */
+                0xB8, 0x35, 0xB7, 0x4D, 0x00, 0xFF, 0xE0,    /* mov eax, 0x4DB735 · jmp eax (lo de siempre) */
+                0x5F, 0x5E, 0xC2, 0x04, 0x00};               /* se_queda: pop edi · pop esi · ret 4 */
+    *(DWORD *)(c + 3) = (DWORD)(ULONG_PTR)msn_chat_llega;
+    memcpy(p, c, sizeof(c));
+    FlushInstructionCache(GetCurrentProcess(), p, sizeof(c));
+    if (!VirtualProtect(entrada, 4, PAGE_EXECUTE_READWRITE, &prot)) return;
+    *entrada = (DWORD)(ULONG_PTR)p;
+    VirtualProtect(entrada, 4, prot, &prot);
+    apuntar("  [mazino] messenger: el chat del server (0x1005) pasa por la dll (sólo mira)");
+}
+
 static void poner_mazino(void)
 {
     /* las funciones del juego para mandar un paquete: verificadas antes de usarlas */
@@ -1546,6 +1610,7 @@ static void poner_mazino(void)
         apuntar("  [mazino] ⚠ las funciones del juego no están donde en EDA_limpio.exe: botones y selección apagados");
         g_mz_botones = g_mz_seleccion = 0;
     }
+    if (g_mz_paquetes_ok && g_diagnostico) poner_puente_chat();          /* (PUNTO 2, medir: sólo en diagnóstico) */
     if (g_mz_botones && desviar_llamada(0x4F6061, 0x4DF900, (void *)mi_unir_lobby, "botones"))
         apuntar("  [mazino] botones: enganchado el lobby (0x4F6061) y las pantallas del costado");
     if (g_mz_seleccion && desviar_llamada(0x51A12B, 0x54A990, (void *)mi_vender, "seleccion_multiple"))
