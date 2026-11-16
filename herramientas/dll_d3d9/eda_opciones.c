@@ -1022,6 +1022,16 @@ static void opc_avisar_posicion(void)
     int w = 800, hh = 600;
     pantalla_del_juego(&w, &hh);
     int gx = p.x * w / r.right, gy = p.y * hh / r.bottom;
+    /* ★ (16-nov) Y EL CURSOR DE WINDOWS TAMBIÉN. Medido 13:35:05: se mandó (409, 282) y 0,7 s después el juego
+     *   tenía (799, 508): el juego toma la posición de Windows de la ventana TAL CUAL como suya (800×600, sin
+     *   escalar; lo de más de 800 lo recorta a 799 — clic: Windows (1145, 513) → juego (799, 513)). Jugando, él
+     *   mismo mantiene el cursor de Windows dentro de ese 800×600 (SetPhysicalCursorPos); con Options abierta eso
+     *   está frenado y el mouse anda por los 1920. Al cerrar, el cursor de Windows vuelve al punto que el juego
+     *   espera (el mismo lugar en la imagen estirada): su próximo movimiento ya no lo manda al borde. Una vez. */
+    if (r.right != w || r.bottom != hh) {
+        POINT s = {gx, gy};
+        if (ClientToScreen(g_ventana_juego, &s)) SetCursorPos(s.x, s.y);
+    }
     PostMessageA(g_ventana_juego, WM_MOUSEMOVE, 0, MAKELPARAM(gx, gy));
     if (g_diagnostico) apuntar("  (diag) Options cerrada: mouse en (%ld, %ld) de %ldx%ld → cursor del juego en (%d, %d) de %dx%d",
                                p.x, p.y, r.right, r.bottom, gx, gy, w, hh);
@@ -1255,6 +1265,12 @@ static void alternar_opciones(void)
      *   son la misma pulsación vista por dos vías (no abre y cierra de golpe) */
     static DWORD ultimo;
     DWORD ahora = GetTickCount();
+    /* ★ (16-nov) el origen de CADA pedido, con la escena y la pantalla del costado en que llegó */
+    {
+        BYTE *esc = leer_ptr((void *)0x934554);
+        apuntar("  [mazino] opciones: pedido por %s · escena 0x%08lX · pantalla %d · Options %s", g_opc_por,
+                (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL), pantalla_costado(esc), g_opc_ventana ? "abierta" : "cerrada");
+    }
     if (ahora - ultimo < 300) { apuntar("  [mazino] opciones: pedido repetido (%s) → ignorado", g_opc_por); return; }
     ultimo = ahora;
     if (g_opc_ventana) { apuntar("  [mazino] opciones: ya estaba abierta → se cierra"); PostMessageW(g_opc_ventana, WM_CLOSE, 0, 0); return; }

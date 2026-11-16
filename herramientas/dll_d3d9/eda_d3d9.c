@@ -1242,16 +1242,14 @@ static void barra_xy(HWND h, int x, int y, const char *por, int ya800)
      *   Options abierta llegaban acá y no hacían nada (el juego no tiene la entrada mientras Options está abierta,
      *   a propósito). Nada se le pasa al juego: es nuestro interruptor, el mismo de F10. Clan/Messenger, quietos. */
     if (g_panel_abierto) {
-        int lugar = vt == 0x00899670 || vt == 0x00899740 || vt == 0x0089A268 || (pc >= 4 && pc <= 7);
+        int lugar = vt == 0x00899670 || vt == 0x00899740 || (pc >= 4 && pc <= 7);   /* (la sala NO: ver abajo) */
         if (lugar && y >= 8 && y <= 64 && x >= 544 && x <= 621) { g_opc_por = "botón Options (para cerrar)"; opciones_o_chat(); }
         return;
     }
-    if ((pc < 4 || pc > 7) && vt == 0x0089A268 && y >= 8 && y <= 58) {   /* ★ la SALA (medida): la misma barra */
-        if (x >= 465 && x <= 539) chat("/clan");
-        else if (x >= 547 && x <= 621) { g_opc_por = "barra de arriba"; opciones_o_chat(); }
-        else if (x >= 629 && x <= 703) chat("/messenger");
-        return;
-    }
+    /* ★ (16-nov) LA SALA (0x0089A268) YA NO SE TOCA. Medido 13:39:10 y 13:39:15: al volver de la stage, en la sala,
+     *   un clic en (580, 39) y (567, 43) era el botón PROPIO del juego que lleva al Inventory (la escena pasó a
+     *   0x00899F10 en ≤ 200 ms) y la regla vieja «la sala tiene la misma barra» lo tomaba además como Options:
+     *   Options se abría sola al pasar de la sala al inventario. En la sala, Options = F10. */
     if (pc < 4 || pc > 7) {
         /* (15-nov, MEDIR) un clic donde están Clan / Options / Messenger en OTRA pantalla (la sala de una stage
          *   creada): se anota la escena para reconocerla; todavía no se actúa (en la partida esa zona es juego) */
