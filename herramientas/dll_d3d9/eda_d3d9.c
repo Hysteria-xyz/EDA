@@ -937,7 +937,10 @@ static int g_mz_botones, g_mz_seleccion, g_mz_foco;
 /* ★ opciones=1 (15-nov): el botón Options abre una ventana DE LA DLL, en la PC del jugador (antes mandaba
  *   «/opciones» y el server abría EDA-Opciones.py: sólo andaba con el server en la misma PC). Ver más abajo. */
 static int g_mz_opciones, g_mz_atajos;
-static const char *g_opc_por = "?";                /* (diagnóstico) qué abrió Options: F10, botón, barra */
+static const char *g_opc_por = "?";
+static HWND g_msn_ventana;                          /* (Punto 2) la ventana del Messenger de la dll */
+static const char *g_msn_por = "?";                 /* (diagnóstico) qué abrió el Messenger */
+static int g_mz_messenger = 1;                      /* [mazino] messenger=0: F11 / botón mandan /messenger como antes */                /* (diagnóstico) qué abrió Options: F10, botón, barra */
 static void alternar_opciones(void);
 
 /* las funciones del juego que se usan para armar y mandar un paquete (las mismas que usa él) */
@@ -994,6 +997,25 @@ static void chat(const char *texto)
     for (int i = 0; i < n; i++) *(WORD *)(c + 13 + 2 * i) = (BYTE)texto[i];
     mandar_paquete(0x100D, c, 13 + 2 * n);
     apuntar("  [mazino] botón → «%s»", texto);
+}
+/* (Punto 2) un comando de chat con acentos y más largo (el Messenger: /amigo, /quitar, /m) — hilo del juego */
+static void chat_w(const WCHAR *texto)
+{
+    BYTE c[13 + 2 * 176];
+    int n = lstrlenW(texto);
+    if (n > 176) n = 176;
+    if (!g_mz_paquetes_ok) return;
+    c[0] = 1;
+    *(DWORD *)(c + 1) = 0xFFFFFFFF;
+    *(DWORD *)(c + 5) = 0;
+    *(DWORD *)(c + 9) = (DWORD)(2 * n);
+    memcpy(c + 13, texto, 2 * n);
+    mandar_paquete(0x100D, c, 13 + 2 * n);
+    char cmd[16];
+    int k = 0;
+    while (k < 15 && texto[k] && texto[k] != L' ') { cmd[k] = (char)texto[k]; k++; }
+    cmd[k] = 0;
+    apuntar("  [mazino] messenger → server: «%s …»", cmd);
 }
 
 /* ── botones del lobby ── */
@@ -1059,12 +1081,15 @@ static int pantalla_costado(BYTE *esc) { return esc && legible(esc + 0xDC, 4) ? 
 
 /* ★ (16-nov, PUNTO 2) MESSENGER: el origen de CADA pedido (F11, botón del lobby, barra del costado), con la escena,
  *   como en Options. Por ahora el pedido sigue siendo el de siempre: «/messenger» al server. */
+static void msn_alternar(void);
 static void msn_pedido(const char *por)
 {
     BYTE *esc = leer_ptr((void *)0x934554);
-    apuntar("  [mazino] messenger: pedido por %s · escena 0x%08lX · pantalla %d", por,
-            (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL), pantalla_costado(esc));
-    chat("/messenger");
+    apuntar("  [mazino] messenger: pedido por %s · escena 0x%08lX · pantalla %d · Messenger %s", por,
+            (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL), pantalla_costado(esc), g_msn_ventana ? "abierto" : "cerrado");
+    if (!g_mz_messenger) { chat("/messenger"); return; }     /* (como antes: el panel de Python, sólo en local) */
+    g_msn_por = por;
+    msn_alternar();
 }
 
 static BYTE *grilla(int *k_out)
@@ -1255,6 +1280,7 @@ static void barra_xy(HWND h, int x, int y, const char *por, int ya800)
     if (g_panel_abierto) {
         int lugar = vt == 0x00899670 || vt == 0x00899740 || (pc >= 4 && pc <= 7);   /* (la sala NO: ver abajo) */
         if (lugar && y >= 8 && y <= 64 && x >= 544 && x <= 621) { g_opc_por = "botón Options (para cerrar)"; opciones_o_chat(); }
+        else if (lugar && y >= 8 && y <= 64 && x >= 629 && x <= 703) msn_pedido("botón Messenger (con un panel abierto)");
         return;
     }
     /* ★ (16-nov) LA SALA (0x0089A268) YA NO SE TOCA. Medido 13:39:10 y 13:39:15: al volver de la stage, en la sala,
@@ -1495,6 +1521,9 @@ static BOOL WINAPI mi_clip(const RECT *r) { return g_clip_real(juego_al_frente()
 /* ── ★ LAS OPTIONS, EN LA DLL: el panel de paneles/EDA-Opciones.py, con su mismo diseño (eda_opciones.c) ── */
 #include "eda_opciones.c"
 
+/* ── ★ EL MESSENGER, EN LA DLL (Punto 2): eda_messenger.c, con el dibujo y el manejo de ventana de Options ── */
+#include "eda_messenger.c"
+
 /* ── el bombeo de mensajes del juego (PeekMessageA, su hilo principal) ── */
 typedef BOOL (WINAPI *M_PEEK)(LPMSG, HWND, UINT, UINT, UINT);
 static M_PEEK g_peek_real;
@@ -1542,6 +1571,7 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
     if (g_mz_foco && g_ventana_juego && (g_vueltas & 255) == 1) vigilar_wndproc(g_ventana_juego);
     if (g_mz_seleccion && (g_pendiente || g_simple || (g_vueltas & 3) == 0)) revisar_inventario();
     opc_correr_cola_desde_dibujo();                  /* (la cola de Options y el volumen pendiente) */
+    msn_correr_cola();                               /* (lo que el Messenger le pide al server) */
     if (g_ubicar && (g_vueltas & 127) == 0) opc_ubicar_tick();
     if ((g_pantalla_pedida >= 0 || g_sin_bordes) && (g_vueltas & 63) == 0) opc_pantalla_tick();
     return hay;
@@ -1553,28 +1583,40 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
  *   puente de 20 bytes que llama a msn_chat_llega(escena, mensaje) y sigue SIEMPRE al original: sólo mira.
  *   Es el canal por el que el Messenger de la dll va a recibir la lista de amigos y los mensajes. */
 static DWORD g_chat_vistos;
+static WCHAR g_msn_llegado[2050];                            /* (hilo del juego: una copia para leerlo) */
 static int __cdecl msn_chat_llega(void *escena, void *msg)
 {
     (void)escena;
     g_chat_vistos++;
-    if (!g_diagnostico || !msg || !legible((BYTE *)msg + 0x1010, 8)) return 0;
+    if (!msg || !legible((BYTE *)msg + 0x1010, 8)) return 0;
     BYTE *datos = *(BYTE **)((BYTE *)msg + 0x1010);
     WORD pos = *(WORD *)((BYTE *)msg + 0x1014), largo = *(WORD *)((BYTE *)msg + 0x1016);
     if (!datos || largo < pos + 41 || !legible(datos + pos, largo - pos)) return 0;
     BYTE *b = datos + pos;                                   /* H B I I · nombre 26 B (UTF-16) · u32 largo · texto */
-    WCHAR nombre[14] = {0}, texto[96] = {0};
+    WCHAR nombre[14] = {0};
     memcpy(nombre, b + 11, 26);
+    nombre[13] = 0;
     DWORD n = *(DWORD *)(b + 37);
     if (n > (DWORD)(largo - pos - 41)) n = largo - pos - 41;
-    if (n > 2 * 95) n = 2 * 95;
-    memcpy(texto, b + 41, n);
-    char nom8[64], tex8[300];
-    WideCharToMultiByte(CP_UTF8, 0, nombre, -1, nom8, sizeof(nom8), NULL, NULL);
-    WideCharToMultiByte(CP_UTF8, 0, texto, -1, tex8, sizeof(tex8), NULL, NULL);
-    BYTE *esc = leer_ptr((void *)0x934554);
-    apuntar("  (diag) chat del server: tipo %d · «%s» · %s · escena 0x%08lX", b[2], nom8, tex8,
-            (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL));
-    return 0;                                                /* (por ahora nunca se lo queda: el juego lo muestra igual) */
+    if (n > 2 * 2048) n = 2 * 2048;
+    memcpy(g_msn_llegado, b + 41, n);
+    g_msn_llegado[n / 2] = 0;
+    int msn = !lstrcmpW(nombre, L"[MSN]");
+    if (g_diagnostico) {
+        char nom8[64], tex8[200];
+        WCHAR corto[90];
+        lstrcpynW(corto, g_msn_llegado, 90);
+        for (WCHAR *p = corto; *p; p++) if (*p == L'\t' || *p == L'\n') *p = L'|';
+        WideCharToMultiByte(CP_UTF8, 0, nombre, -1, nom8, sizeof(nom8), NULL, NULL);
+        WideCharToMultiByte(CP_UTF8, 0, corto, -1, tex8, sizeof(tex8), NULL, NULL);
+        BYTE *esc = leer_ptr((void *)0x934554);
+        apuntar("  (diag) chat del server: tipo %d · «%s» · %s · escena 0x%08lX%s", b[2], nom8, tex8,
+                (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL), msn ? " → Messenger de la dll (no se muestra)" : "");
+    }
+    if (!g_mz_messenger) return 0;
+    if (msn) { msn_recibir(g_msn_llegado); return 1; }      /* ★ los datos del Messenger: el juego no los muestra */
+    if (!lstrcmpW(nombre, L"[Messenger]")) msn_avisar(g_msn_llegado);   /* (la respuesta a ADD / DELETE: a la línea de estado) */
+    return 0;
 }
 static void poner_puente_chat(void)
 {
@@ -1596,7 +1638,7 @@ static void poner_puente_chat(void)
     if (!VirtualProtect(entrada, 4, PAGE_EXECUTE_READWRITE, &prot)) return;
     *entrada = (DWORD)(ULONG_PTR)p;
     VirtualProtect(entrada, 4, prot, &prot);
-    apuntar("  [mazino] messenger: el chat del server (0x1005) pasa por la dll (sólo mira)");
+    apuntar("  [mazino] messenger: el chat del server (0x1005) pasa por la dll (se queda sólo con «[MSN]»)");
 }
 
 static void poner_mazino(void)
@@ -1610,7 +1652,8 @@ static void poner_mazino(void)
         apuntar("  [mazino] ⚠ las funciones del juego no están donde en EDA_limpio.exe: botones y selección apagados");
         g_mz_botones = g_mz_seleccion = 0;
     }
-    if (g_mz_paquetes_ok && g_diagnostico) poner_puente_chat();          /* (PUNTO 2, medir: sólo en diagnóstico) */
+    msn_listo();
+    if (g_mz_paquetes_ok && (g_mz_messenger || g_diagnostico)) poner_puente_chat();   /* (Punto 2: el canal del Messenger) */
     if (g_mz_botones && desviar_llamada(0x4F6061, 0x4DF900, (void *)mi_unir_lobby, "botones"))
         apuntar("  [mazino] botones: enganchado el lobby (0x4F6061) y las pantallas del costado");
     if (g_mz_seleccion && desviar_llamada(0x51A12B, 0x54A990, (void *)mi_vender, "seleccion_multiple"))
@@ -2009,6 +2052,7 @@ static void leer_ajustes(HMODULE self)
     g_mz_foco = g_mazino ? GetPrivateProfileIntA("mazino", "foco", 1, ini) : 0;
     g_mz_opciones = g_mazino ? GetPrivateProfileIntA("mazino", "opciones", 1, ini) : 0;
     g_mz_atajos = g_mazino ? GetPrivateProfileIntA("mazino", "atajos", 1, ini) : 0;
+    g_mz_messenger = g_mazino ? GetPrivateProfileIntA("mazino", "messenger", 1, ini) : 0;
     g_mz_entrada = g_mazino ? GetPrivateProfileIntA("mazino", "entrada", 1, ini) : 0;
     /* ★ P2P: que los juegos se encuentren (MEDICIONES §52). Prendido por defecto: sólo arregla lo que
      *   el juego manda roto, y un .ini viejo (el launcher no lo pisa) sin este bloque lo tiene igual */

@@ -1446,8 +1446,9 @@ def pruebas_messenger(chequear):
         t = texto.encode("utf-16-le")
         return struct.pack("<BIII", 1, 0xFFFFFFFF, 0, len(t)) + t
 
-    def textos(r, destino):
-        return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino]
+    def textos(r, destino):                     # (lo que se VE en el chat: los «[MSN]» se los queda la dll)
+        return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino
+                and x[1][11:37].decode("utf-16-le").rstrip("\0") != "[MSN]"]
     from servidor import messenger
     responder(0x1017, b"", 301)
     responder(0x1017, b"", 302)
@@ -1468,6 +1469,23 @@ def pruebas_messenger(chequear):
              textos(r, 302) == ["hola amigo"] and textos(r, 301) == ["hola amigo"])
     r = responder(0x100D, chat_("/messenger"), 301)
     chequear("botón Messenger (/messenger) → los amigos y la ayuda", len(textos(r, 301)) == 2)
+    # ★ (16-nov) el Messenger de la DLL: «/msn abrir» → la lista y la historia por «[MSN]» (la dll se los queda)
+    def msn(r, destino):
+        return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino
+                and x[1][11:37].decode("utf-16-le").rstrip("\0") == "[MSN]"]
+    r = responder(0x100D, chat_("/msn abrir"), 301)
+    lista = msn(r, 301)
+    chequear("dll: /msn abrir → la lista: yo y el amigo conectado, y la historia",
+             lista and lista[0].startswith("L\t%s\t" % nom_a) and ("\nA\t%s\t" % nom_b) in lista[0]
+             and "\t1\ten el lobby" in lista[0] and any(x == "h\t%s\t%s\t%s\thola amigo" % (nom_a, nom_b, x.split("\t")[3])
+                                                       for x in lista[1:]), lista)
+    chequear("★ el revés: el otro (sin la dll) no recibe nada de [MSN]", not msn(r, 302))
+    r = responder(0x100D, chat_("/msn abrir"), 301)
+    chequear("dll: al reabrir, la lista sin repetir la historia", len(msn(r, 301)) == 1)
+    r = responder(0x100D, chat_("/m %s otra vez" % nom_b), 301)
+    chequear("dll: un /m llega como H al que tiene la dll (y el chat sigue igual)",
+             [x.split("\t")[4] for x in msn(r, 301)] == ["otra vez"] and textos(r, 302)[-1] == "otra vez")
+    chequear("dll: sin cambios, el tick no manda la lista otra vez", not msn(tick([301, 302]), 301))
     r = responder(0x100D, chat_("/clan"), 301)
     chequear("botón Clan (/clan) → un aviso", any(t.startswith("Clan:") for t in textos(r, 301)))
     r = responder(0x100D, chat_("/opciones"), 301)
@@ -1481,13 +1499,15 @@ def pruebas_messenger(chequear):
     cerrada(302)
     t = tick([301])
     chequear("el amigo se va → con el tick, «se desconectó»", any("se desconectó" in x for x in textos(t, 301)))
+    chequear("dll: el amigo se va → el tick manda la lista nueva (desconectado)",
+             any(("\nA\t%s\t" % nom_b) in x and "\t0\t" in x for x in msn(t, 301)), msn(t, 301))
     r = responder(0x100D, chat_("/m %s sigues?" % nom_b), 301)
     chequear("★ el revés: /m a un desconectado → aviso (lo leerá al volver), sin mensaje al chat",
              len(textos(r, 301)) == 1 and textos(r, 301)[0].startswith("%s no está conectado: lo leerá" % nom_b)
              and not textos(r, 302), textos(r, 301))
     chats = [json.loads(x) for x in open(messenger.ruta_chat(), encoding="utf-8")]
     chequear("la conversación queda en messenger_chat.jsonl (también la de un desconectado)",
-             [(m["de"], m["a"], m["texto"]) for m in chats] == [(nom_a, nom_b, "hola amigo"),
+             [(m["de"], m["a"], m["texto"]) for m in chats] == [(nom_a, nom_b, "hola amigo"), (nom_a, nom_b, "otra vez"),
                                                                (nom_a, nom_b, "sigues?")], chats)
     # ★ el PANEL (EDA-Messenger.py): estado y pedidos por archivo; el otro vuelve a conectarse
     from servidor import messenger

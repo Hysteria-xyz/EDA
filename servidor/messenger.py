@@ -26,7 +26,7 @@ from servidor.cuentas import NOMBRES, leer, guardar, nivel, nombre_visible, ruta
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO
 
 COMANDOS = ("amigos", "amigo", "agregar", "quitar", "borrar", "m", "w", "mp", "susurro", "messenger", "clan",
-            "opciones")
+            "opciones", "msn")
 
 
 def aviso(texto, destino, tipo=3):
@@ -34,6 +34,65 @@ def aviso(texto, destino, tipo=3):
     nom = "[Messenger]".encode("utf-16-le")[:24].ljust(26, b"\0")
     return (0x1005, struct.pack("<HBII", 0, tipo, 0xFF00FF00, 0) + nom + struct.pack("<I", len(b)) + b,
             0, destino)
+
+
+# ★ (16-nov) EL MESSENGER DE LA DLL (d3d9.dll, Punto 2): la ventana la dibuja la dll en la PC del jugador (local y
+#   multijugador, sin Python). Los datos le llegan por el MISMO chat (0x1005) con el nombre «[MSN]»: la dll los toma
+#   y el juego no los muestra. Sólo los recibe una conexión que lo pidió con «/msn abrir» (un cliente sin la dll
+#   nunca lo pide: para él nada cambia). Las acciones son los comandos de siempre (/amigo, /quitar, /m).
+#     L\t<yo>\t<nick>\t<nivel>\t<clase>\t<dónde>        y por amigo   A\t<cuenta>\t<nick>\t<nivel>\t<clase>\t<1|0>\t<dónde>
+#     H\t<de>\t<a>\t<hora>\t<texto>                      un mensaje nuevo (cuentas); h = los últimos 30, al abrir
+MSN_AMIGOS_MAX = 20
+
+
+def dato_msn(texto, destino):
+    b = texto[:1800].encode("utf-16-le")
+    nom = "[MSN]".encode("utf-16-le").ljust(26, b"\0")
+    return (0x1005, struct.pack("<HBII", 0, 3, 0xFF00FF00, 0) + nom + struct.pack("<I", len(b)) + b, 0, destino)
+
+
+def _limpio(x):
+    return str(x).replace("\t", " ").replace("\n", " ")
+
+
+def lista_msn(cuentas, yo):
+    """El texto L/A de la cuenta `yo` (con el estado() de todas)."""
+    d = cuentas.get(yo, {})
+    lineas = ["L\t%s\t%s\t%s\t%s\t%s" % (yo, _limpio(d.get("nick", yo)), d.get("nivel", 0), d.get("clase", 1),
+                                            _limpio(d.get("donde", "")))]
+    for a in d.get("amigos", [])[:MSN_AMIGOS_MAX]:
+        x = cuentas.get(a, {})
+        lineas.append("A\t%s\t%s\t%s\t%s\t%d\t%s" % (a, _limpio(x.get("nick", a)), x.get("nivel", 0), x.get("clase", 1),
+                                                       1 if x.get("conectado") else 0, _limpio(x.get("donde", ""))))
+    return "\n".join(lineas)
+
+
+def msn_dll():
+    """{conexión: último texto L mandado} de los que abrieron el Messenger de la dll."""
+    return VIVO.__dict__.setdefault("MSN_DLL", {})
+
+
+def historia_msn(yo, cuantos=30):
+    try:
+        with open(ruta_chat(), encoding="utf-8") as f:
+            todos = [json.loads(x) for x in f if x.strip()]
+    except (OSError, ValueError):
+        return []
+    mios = [m for m in todos if yo in (m.get("de"), m.get("a"))][-cuantos:]
+    return ["h\t%s\t%s\t%s\t%s" % (m.get("de"), m.get("a"), m.get("hora", ""), _limpio(m.get("texto", "")))
+            for m in mios]                                  # (h = de la historia: la dll no lo cuenta como nuevo)
+
+
+def msn_abrir(conexion, c):
+    """«/msn abrir»: la lista (siempre) y, la primera vez de esta conexión, los últimos mensajes."""
+    activos = msn_dll()
+    primera = conexion not in activos
+    texto = lista_msn(estado()["cuentas"], c["nombre"])
+    activos[conexion] = texto
+    r = [dato_msn(texto, conexion)]
+    if primera:
+        r += [dato_msn(h, conexion) for h in historia_msn(c["nombre"])]
+    return r
 
 
 def _nick_guardado(nombre):
@@ -121,12 +180,15 @@ def comando(texto, conexion, c):
         if len(partes) < 3:
             return [aviso("Uso: /m <nick> <mensaje>", conexion)]
         otro, n = buscar(partes[1])
+        al_msn = []
         if otro and otro != c["nombre"]:
             registrar_mensaje(c["nombre"], otro, partes[2])  # ★ la conversación del Messenger (F11)
+            h = "H\t%s\t%s\t%s\t%s" % (c["nombre"], otro, time.strftime("%H:%M"), _limpio(partes[2]))
+            al_msn = [dato_msn(h, x) for x in (conexion, n) if x is not None and x in msn_dll()]
         if not n:
             if otro and otro != c["nombre"]:
-                return [aviso("%s no está conectado: lo leerá en su Messenger (F11) al volver." % partes[1],
-                              conexion)]
+                return al_msn + [aviso("%s no está conectado: lo leerá en su Messenger (F11) al volver." % partes[1],
+                                       conexion)]
             return [aviso("%s no está conectado." % partes[1], conexion)]
         b = partes[2].encode("utf-16-le")
 
@@ -134,7 +196,9 @@ def comando(texto, conexion, c):
             nom = nombre.encode("utf-16-le")[:24].ljust(26, b"\0")
             return (0x1005, struct.pack("<HBII", 0, 1, 0xFFFFFFFF, 0) + nom + struct.pack("<I", len(b)) + b,
                     0, destino)
-        return [privado("[de %s]" % yo, n), privado("[a %s]" % partes[1], conexion)]
+        return al_msn + [privado("[de %s]" % yo, n), privado("[a %s]" % partes[1], conexion)]
+    if sub == "msn":                                        # ★ el Messenger de la dll (no lo escribe una persona)
+        return msn_abrir(conexion, c) if len(partes) >= 2 and partes[1].lower() == "abrir" else []
     ayuda = aviso("Messenger: /amigos · /amigo <nick> · /quitar <nick> · /m <nick> <mensaje>", conexion)
     if sub == "clan":                                       # ★ el botón Clan del lobby
         return [aviso("Clan: en la beta de 2009 no existía (el cliente no trae sus pantallas). "
@@ -410,10 +474,28 @@ def al_salir(nombre):
     VIVO.__dict__.setdefault("SALIDAS", []).append(nombre)
 
 
+def tick_msn():
+    """A cada Messenger de la dll abierto alguna vez: la lista, sólo si cambió (amigos que entran, salen, se mueven)."""
+    activos = msn_dll()
+    for n in [x for x in activos if x not in ASIGNADAS]:
+        del activos[n]
+    if not activos:
+        return []
+    cuentas = estado()["cuentas"]
+    r = []
+    for n in list(activos):
+        texto = lista_msn(cuentas, ASIGNADAS[n])
+        if texto != activos[n]:
+            activos[n] = texto
+            r.append(dato_msn(texto, n))
+    return r
+
+
 def tick():
     r = []
     for nombre in VIVO.__dict__.pop("SALIDAS", []):
         r += avisar_amigos(nombre, "%s se desconectó." % _nick_guardado(nombre))
+    r += tick_msn()
     r += atender_pedidos()                                  # lo que pidió el panel
     escribir_estado()                                       # y lo que el panel muestra
     escribir_inventarios()

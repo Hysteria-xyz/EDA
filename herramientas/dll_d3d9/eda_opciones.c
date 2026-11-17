@@ -550,6 +550,7 @@ typedef struct {
     BOOL (WINAPI *borrar_dc)(HDC);
     HGDIOBJ (WINAPI *stock)(int);
     BOOL (WINAPI *medir)(HDC, LPCWSTR, int, LPSIZE);
+    COLORREF (WINAPI *color_fondo)(HDC, COLORREF);          /* (el Messenger: el fondo de sus EDIT) */
 } GDI;
 static GDI G;
 static int gdi_listo(void)
@@ -565,7 +566,7 @@ static int gdi_listo(void)
     CARGA(ir, "MoveToEx"); CARGA(trazar, "LineTo"); CARGA(color_texto, "SetTextColor"); CARGA(fondo, "SetBkMode");
     CARGA(fuente, "CreateFontW"); CARGA(dc, "CreateCompatibleDC"); CARGA(mapa, "CreateCompatibleBitmap");
     CARGA(copiar, "BitBlt"); CARGA(borrar_dc, "DeleteDC"); CARGA(stock, "GetStockObject");
-    CARGA(medir, "GetTextExtentPoint32W");
+    CARGA(medir, "GetTextExtentPoint32W"); CARGA(color_fondo, "SetBkColor");
 #undef CARGA
     hecho = 1;
     return 1;
@@ -1274,6 +1275,11 @@ static void alternar_opciones(void)
     if (ahora - ultimo < 300) { apuntar("  [mazino] opciones: pedido repetido (%s) → ignorado", g_opc_por); return; }
     ultimo = ahora;
     if (g_opc_ventana) { apuntar("  [mazino] opciones: ya estaba abierta → se cierra"); PostMessageW(g_opc_ventana, WM_CLOSE, 0, 0); return; }
+    if (g_msn_ventana) {                                     /* (Punto 2: un panel a la vez) */
+        apuntar("  [mazino] opciones: el Messenger está abierto → se cierra el Messenger (un panel a la vez)");
+        PostMessageW(g_msn_ventana, WM_CLOSE, 0, 0);
+        return;
+    }
     if (InterlockedExchange(&g_opc_abriendo, 1)) { apuntar("  [mazino] opciones: ya se está abriendo (pedido ignorado)"); return; }
     opc_leer_real();                                         /* (acá estamos en el hilo del juego) */
     HANDLE h = CreateThread(NULL, 0, opc_hilo, NULL, 0, NULL);
