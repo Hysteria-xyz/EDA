@@ -994,27 +994,27 @@ static void opc_cursor_visible(void)
 /* (16-nov, medido 03:25: «subido» crecía 8 → 62 en una sesión: el juego baja el contador por su cuenta mientras
  *   Options está abierta, y devolver «lo subido» lo dejaba cada vez más bajo. Ahora se deja EXACTO en el nivel que
  *   tenía el juego al abrir: unas pocas llamadas, una sola vez, al cerrar.) */
-static void opc_cursor_devolver(void)
+static void opc_cursor_devolver(const char *quien)          /* quien: "Options" / "Messenger" (el registro) */
 {
     LONG k = InterlockedExchange(&g_cursor_subidas, 0), nivel = InterlockedExchange(&g_cursor_nivel, -1000);
     if (nivel == -1000) return;                              /* (nunca se tocó) */
     int n = ShowCursor(FALSE), vueltas = 0;
     while (n > nivel && vueltas++ < 300) n = ShowCursor(FALSE);
     while (n < nivel && vueltas++ < 300) n = ShowCursor(TRUE);
-    if (g_diagnostico) apuntar("  (diag) Options: cursor de Windows devuelto al juego (nivel %ld, ahora %d; subido %ld)", nivel, n, k);
+    if (g_diagnostico) apuntar("  (diag) %s: cursor de Windows devuelto al juego (nivel %ld, ahora %d; subido %ld)", quien, nivel, n, k);
 }
 /* ★ (16-nov) EL CURSOR AL CERRAR. Medido en el exe: el cursor que dibuja el juego se mueve con los WM_MOUSEMOVE de
  *   SU ventana (0x780DB0 → +0x27DC/+0x27E0 del objeto 0x94952C), no con la posición real. Con Options abierta el
  *   mouse está sobre Options y el juego no recibe movimientos: su cursor queda donde estaba ANTES de abrir (p. ej.
  *   sobre el botón Options, arriba a la derecha) y al cerrar aparecía ahí hasta mover el mouse. Al cerrar se le
  *   manda al juego UN WM_MOUSEMOVE con la posición real del cursor: su cursor aparece donde está el mouse. */
-static void opc_avisar_posicion(void)
+static void opc_avisar_posicion(const char *quien)
 {
     POINT p;
     RECT r;
     if (!g_ventana_juego || !GetCursorPos(&p) || !ScreenToClient(g_ventana_juego, &p) || !GetClientRect(g_ventana_juego, &r)) return;
     if (p.x < 0 || p.y < 0 || p.x >= r.right || p.y >= r.bottom) {             /* (el mouse está fuera del juego) */
-        if (g_diagnostico) apuntar("  (diag) Options cerrada: el mouse está fuera del juego (%ld, %ld): no se toca", p.x, p.y);
+        if (g_diagnostico) apuntar("  (diag) %s cerrado: el mouse está fuera del juego (%ld, %ld): no se toca", quien, p.x, p.y);
         return;
     }
     /* ★ (16-nov) EN LAS COORDENADAS DEL JUEGO. Medido 03:38–03:44: en pantalla completa se mandaba (960, 540) de
@@ -1034,8 +1034,8 @@ static void opc_avisar_posicion(void)
         if (ClientToScreen(g_ventana_juego, &s)) SetCursorPos(s.x, s.y);
     }
     PostMessageA(g_ventana_juego, WM_MOUSEMOVE, 0, MAKELPARAM(gx, gy));
-    if (g_diagnostico) apuntar("  (diag) Options cerrada: mouse en (%ld, %ld) de %ldx%ld → cursor del juego en (%d, %d) de %dx%d",
-                               p.x, p.y, r.right, r.bottom, gx, gy, w, hh);
+    if (g_diagnostico) apuntar("  (diag) %s cerrado: mouse en (%ld, %ld) de %ldx%ld → cursor del juego en (%d, %d) de %dx%d",
+                               quien, p.x, p.y, r.right, r.bottom, gx, gy, w, hh);
 }
 
 static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
@@ -1144,11 +1144,14 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
      *   se lee acá y pasan por el MISMO interruptor que en el juego (atajo → alternar_opciones), sin repetición
      *   (bit 30 = la tecla ya estaba apretada). F10 llega como tecla de sistema: se traga para que no abra el menú. */
     case WM_KEYDOWN: case WM_SYSKEYDOWN:
+        diag_tecla("Options (su ventana)", m, w, l, 1);
         if (w == VK_ESCAPE) { DestroyWindow(v); return 0; }
         if (w == VK_F10) {                                   /* (A es «MoveLeft» del juego: no es atajo) */
             if (!(l & (1L << 30))) atajo(0, "Options al frente");
             return 0;
         }
+        /* ★ (17-nov, PUNTO 2) F11 con Options al frente: el interruptor del Messenger (cierra Options y lo abre) */
+        if (w == VK_F11) { if (!(l & (1L << 30))) atajo(1, "Options al frente"); return 0; }
         if (m == WM_KEYDOWN) return 0;
         break;                                               /* (Alt+F4 y las demás de sistema, como siempre) */
     case WM_SYSKEYUP:
@@ -1157,7 +1160,7 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
     case WM_CLOSE: DestroyWindow(v); return 0;
     case WM_DESTROY:
         InterlockedExchange(&g_panel_abierto, 0);            /* (desde acá el juego ya no sube el cursor) */
-        opc_cursor_devolver();                               /* (todavía con la entrada unida a la del juego) */
+        opc_cursor_devolver("Options");                      /* (todavía con la entrada unida a la del juego) */
         g_opc_ventana = NULL;
         g_arrastre = -1;
         g_encima = -1;
@@ -1255,9 +1258,33 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
                                GetForegroundWindow() == g_ventana_juego ? "EL JUEGO" : "otra ventana");
     UnregisterClassW(L"EDA_Opciones", yo);
     if (g_ventana_juego) SetForegroundWindow(g_ventana_juego);
-    opc_avisar_posicion();
+    opc_avisar_posicion("Options");
     return 0;
 }
+
+/* ★ (17-nov, PUNTO 2) LOS DOS PANELES, UN SOLO MANEJO. Options y el Messenger corren cada uno en su hilo (su
+ *   ventana, su bucle); acá se cuentan, para que el pedido «abrir el otro» espere a que el anterior termine. */
+static DWORD WINAPI panel_hilo(LPVOID f)
+{
+    DWORD r = ((LPTHREAD_START_ROUTINE)f)(NULL);
+    InterlockedDecrement(&g_paneles_hilos);
+    return r;
+}
+static int panel_lanzar(LPTHREAD_START_ROUTINE f)
+{
+    InterlockedIncrement(&g_paneles_hilos);
+    HANDLE h = CreateThread(NULL, 0, panel_hilo, (LPVOID)f, 0, NULL);
+    if (h) { CloseHandle(h); return 1; }
+    InterlockedDecrement(&g_paneles_hilos);
+    return 0;
+}
+static void panel_despues(LONG cual)                         /* 1 = Options · 2 = Messenger */
+{
+    g_panel_siguiente_desde = GetTickCount();
+    InterlockedExchange(&g_panel_siguiente, cual);
+}
+static void opc_abrir(void);
+static void msn_abrir(void);
 
 /* el botón Options (y F10 más adelante): abre la ventana, o la cierra si ya estaba */
 static void alternar_opciones(void)
@@ -1275,14 +1302,19 @@ static void alternar_opciones(void)
     if (ahora - ultimo < 300) { apuntar("  [mazino] opciones: pedido repetido (%s) → ignorado", g_opc_por); return; }
     ultimo = ahora;
     if (g_opc_ventana) { apuntar("  [mazino] opciones: ya estaba abierta → se cierra"); PostMessageW(g_opc_ventana, WM_CLOSE, 0, 0); return; }
-    if (g_msn_ventana) {                                     /* (Punto 2: un panel a la vez) */
-        apuntar("  [mazino] opciones: el Messenger está abierto → se cierra el Messenger (un panel a la vez)");
-        PostMessageW(g_msn_ventana, WM_CLOSE, 0, 0);
+    if (g_msn_ventana || g_msn_abriendo) {                   /* (Punto 2: un panel a la vez) */
+        apuntar("  [mazino] opciones: el Messenger está abierto → se cierra el Messenger y después se abre Options");
+        panel_despues(1);
+        if (g_msn_ventana) PostMessageW(g_msn_ventana, WM_CLOSE, 0, 0);
         return;
     }
+    if (g_panel_siguiente == 2) { InterlockedExchange(&g_panel_siguiente, 0); apuntar("  [mazino] opciones: se cancela el Messenger pedido"); }
+    opc_abrir();
+}
+/* (en el hilo del juego: alternar_opciones o panel_siguiente_tick) */
+static void opc_abrir(void)
+{
     if (InterlockedExchange(&g_opc_abriendo, 1)) { apuntar("  [mazino] opciones: ya se está abriendo (pedido ignorado)"); return; }
     opc_leer_real();                                         /* (acá estamos en el hilo del juego) */
-    HANDLE h = CreateThread(NULL, 0, opc_hilo, NULL, 0, NULL);
-    if (h) CloseHandle(h);
-    else { InterlockedExchange(&g_opc_abriendo, 0); apuntar("  [mazino] opciones: ⚠ no se pudo crear su hilo (%lu)", GetLastError()); }
+    if (!panel_lanzar(opc_hilo)) { InterlockedExchange(&g_opc_abriendo, 0); apuntar("  [mazino] opciones: ⚠ no se pudo crear su hilo (%lu)", GetLastError()); }
 }

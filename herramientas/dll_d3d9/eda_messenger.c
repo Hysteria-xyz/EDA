@@ -35,7 +35,6 @@ static WCHAR g_msn_sel[24];                       /* la cuenta elegida ("" = nin
 static WCHAR g_msn_aviso[160];                    /* la línea de estado (lo último de «[Messenger]» o un pedido) */
 static int g_msn_pestana, g_msn_scroll, g_msn_scroll_chat;
 static HWND g_msn_nick_e, g_msn_texto_e;
-static volatile LONG g_msn_abriendo;
 static HBRUSH g_msn_pincel;
 static WCHAR g_msn_cola[MSN_COLA][176];
 static int g_msn_ncola;
@@ -488,7 +487,7 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
     case WM_CLOSE: DestroyWindow(v); return 0;
     case WM_DESTROY:
         InterlockedExchange(&g_panel_abierto, 0);              /* (desde acá el juego ya no sube el cursor) */
-        opc_cursor_devolver();
+        opc_cursor_devolver("Messenger");
         g_msn_ventana = NULL;
         g_msn_nick_e = g_msn_texto_e = NULL;
         g_mencima = -1;
@@ -564,6 +563,7 @@ static DWORD WINAPI msn_hilo(LPVOID nada)
         /* ★ las teclas de la ventana (también con el cursor en un EDIT, que se las quedaría): F11 = el interruptor,
          *   F10 = Options (cierra el Messenger: un panel a la vez), Esc = cerrar, Enter = ADD o mandar */
         if (mm.message == WM_KEYDOWN || mm.message == WM_SYSKEYDOWN) {
+            diag_tecla("Messenger (su ventana)", mm.message, mm.wParam, mm.lParam, 1);
             int repetida = (mm.lParam & (1L << 30)) != 0;
             if (mm.wParam == VK_F11) { if (!repetida) atajo(1, "Messenger al frente"); continue; }
             if (mm.wParam == VK_F10) { if (!repetida) atajo(0, "Messenger al frente"); continue; }
@@ -581,7 +581,7 @@ static DWORD WINAPI msn_hilo(LPVOID nada)
                                GetForegroundWindow() == g_ventana_juego ? "EL JUEGO" : "otra ventana");
     UnregisterClassW(L"EDA_Messenger", yo);
     if (g_ventana_juego) SetForegroundWindow(g_ventana_juego);
-    opc_avisar_posicion();                                    /* (el cursor, en las coordenadas del juego) */
+    opc_avisar_posicion("Messenger");                         /* (el cursor, en las coordenadas del juego) */
     return 0;
 }
 
@@ -593,15 +593,20 @@ static void msn_alternar(void)
     if (ahora - ultimo < 300) { apuntar("  [mazino] messenger: pedido repetido (%s) → ignorado", g_msn_por); return; }
     ultimo = ahora;
     if (g_msn_ventana) { apuntar("  [mazino] messenger: ya estaba abierto → se cierra"); PostMessageW(g_msn_ventana, WM_CLOSE, 0, 0); return; }
-    if (g_opc_ventana) {
-        apuntar("  [mazino] messenger: Options está abierta → se cierra Options (un panel a la vez)");
-        PostMessageW(g_opc_ventana, WM_CLOSE, 0, 0);
+    if (g_opc_ventana || g_opc_abriendo) {
+        apuntar("  [mazino] messenger: Options está abierta → se cierra Options y después se abre el Messenger");
+        panel_despues(2);
+        if (g_opc_ventana) PostMessageW(g_opc_ventana, WM_CLOSE, 0, 0);
         return;
     }
+    if (g_panel_siguiente == 1) { InterlockedExchange(&g_panel_siguiente, 0); apuntar("  [mazino] messenger: se cancela la Options pedida"); }
+    msn_abrir();
+}
+/* (en el hilo del juego: msn_alternar o panel_siguiente_tick) */
+static void msn_abrir(void)
+{
     if (InterlockedExchange(&g_msn_abriendo, 1)) { apuntar("  [mazino] messenger: ya se está abriendo (pedido ignorado)"); return; }
     msn_listo();
     msn_encolar(L"/msn abrir");                                /* (la lista llega mientras se abre la ventana) */
-    HANDLE h = CreateThread(NULL, 0, msn_hilo, NULL, 0, NULL);
-    if (h) CloseHandle(h);
-    else { InterlockedExchange(&g_msn_abriendo, 0); apuntar("  [mazino] messenger: ⚠ no se pudo crear su hilo (%lu)", GetLastError()); }
+    if (!panel_lanzar(msn_hilo)) { InterlockedExchange(&g_msn_abriendo, 0); apuntar("  [mazino] messenger: ⚠ no se pudo crear su hilo (%lu)", GetLastError()); }
 }
