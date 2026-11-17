@@ -1409,6 +1409,14 @@ static void cursor_juego_esconder(const char *quien)
         if (g_diagnostico) apuntar("  (diag) %s: el cursor de EDA ya estaba escondido (o no se pudo leer)", quien);
         return;
     }
+    /* ★ (17-nov) la flecha de Windows aparece DONDE SE VEÍA el cursor de EDA (antes se la llevaba al centro del
+     *   panel: el salto que se veía al abrir). En pantalla completa el juego tiene el mouse de Windows en SU 800×600
+     *   (sin escalar) y el dibujo estirado: se lo pone en el punto estirado ANTES de que la flecha se vea. */
+    RECT r;
+    if (g_ventana_juego && GetClientRect(g_ventana_juego, &r) && r.right > 0 && r.bottom > 0) {
+        POINT s = {x * r.right / 800, y * r.bottom / 600};
+        if (ClientToScreen(g_ventana_juego, &s)) SetCursorPos(s.x, s.y);
+    }
     *(float *)(o + 0x27DC) = -4096.0f;
     *(float *)(o + 0x27E0) = -4096.0f;
     if (g_diagnostico) apuntar("  (diag) %s: cursor de EDA escondido (estaba en %d, %d de 800x600): sólo la flecha de Windows", quien, x, y);
@@ -1583,14 +1591,18 @@ static BOOL WINAPI mi_clip(const RECT *r) { return g_clip_real(juego_al_frente()
 static void panel_siguiente_tick(void)
 {
     if (g_paneles_hilos || g_opc_ventana || g_msn_ventana || g_opc_abriendo || g_msn_abriendo) {
-        if (GetTickCount() - g_panel_siguiente_desde > 3000 && InterlockedExchange(&g_panel_siguiente, 0))
+        if (GetTickCount() - g_panel_siguiente_desde > 3000 && InterlockedExchange(&g_panel_siguiente, 0)) {
             apuntar("  [mazino] paneles: ⚠ el otro panel no terminó de cerrarse en 3 s → no se abre el pedido");
+            if (!g_opc_ventana && !g_msn_ventana) panel_al_cerrar("cambio de panel");   /* (el juego, de vuelta) */
+        }
         return;
     }
     LONG c = InterlockedExchange(&g_panel_siguiente, 0);
     apuntar("  [mazino] paneles: el otro ya se cerró → se abre %s", c == 1 ? "Options" : "el Messenger");
     if (c == 1) opc_abrir();
     else if (c == 2) msn_abrir();
+    /* (en el cambio la compuerta quedó cerrada: si el nuevo panel no pudo arrancar, se le devuelve el juego) */
+    if (!g_paneles_hilos && !g_opc_abriendo && !g_msn_abriendo) panel_al_cerrar("cambio de panel");
 }
 
 /* ── el bombeo de mensajes del juego (PeekMessageA, su hilo principal) ── */

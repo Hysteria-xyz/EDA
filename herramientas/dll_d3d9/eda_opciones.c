@@ -1003,6 +1003,24 @@ static void opc_cursor_devolver(const char *quien)          /* quien: "Options" 
     while (n < nivel && vueltas++ < 300) n = ShowCursor(TRUE);
     if (g_diagnostico) apuntar("  (diag) %s: cursor de Windows devuelto al juego (nivel %ld, ahora %d; subido %ld)", quien, nivel, n, k);
 }
+/* ★ (17-nov, PUNTO 2) AL CERRAR UN PANEL (su WM_DESTROY, Options o Messenger), UN SOLO LUGAR. Medido 11:05:
+ *   al cerrar, la flecha se escondía y el cursor de EDA se ponía DESPUÉS de que la ventana desaparecía; en el medio
+ *   Windows le manda al juego su propio WM_MOUSEMOVE con la posición física (en pantalla completa, en 1920×1080:
+ *   el juego la recorta a su borde) y el cursor de EDA se veía un instante en otro lado. Ahora todo pasa ANTES de
+ *   que la ventana desaparezca: flecha escondida, mouse en el punto del juego, cursor de EDA ahí. Y si se está
+ *   pasando al otro panel (g_panel_siguiente), no se devuelve nada: la compuerta sigue cerrada, la flecha sigue
+ *   visible y el cursor de EDA sigue escondido hasta que el otro panel termine de abrirse (sin dos cursores). */
+static void opc_avisar_posicion(const char *quien);
+static void panel_al_cerrar(const char *quien)
+{
+    if (g_panel_siguiente) {
+        if (g_diagnostico) apuntar("  (diag) %s cerrado para abrir el otro panel: flecha y cursor de EDA quedan como están", quien);
+        return;
+    }
+    InterlockedExchange(&g_panel_abierto, 0);                /* (desde acá el juego ya no sube el cursor) */
+    opc_cursor_devolver(quien);
+    opc_avisar_posicion(quien);
+}
 /* ★ (16-nov) EL CURSOR AL CERRAR. Medido en el exe: el cursor que dibuja el juego se mueve con los WM_MOUSEMOVE de
  *   SU ventana (0x780DB0 → +0x27DC/+0x27E0 del objeto 0x94952C), no con la posición real. Con Options abierta el
  *   mouse está sobre Options y el juego no recibe movimientos: su cursor queda donde estaba ANTES de abrir (p. ej.
@@ -1163,8 +1181,7 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         break;
     case WM_CLOSE: DestroyWindow(v); return 0;
     case WM_DESTROY:
-        InterlockedExchange(&g_panel_abierto, 0);            /* (desde acá el juego ya no sube el cursor) */
-        opc_cursor_devolver("Options");                      /* (todavía con la entrada unida a la del juego) */
+        panel_al_cerrar("Options");                          /* (todavía con la entrada unida a la del juego) */
         g_opc_ventana = NULL;
         g_arrastre = -1;
         g_encima = -1;
@@ -1229,11 +1246,7 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
     SetActiveWindow(v);
     SetFocus(v);
     if (hilo_juego && hilo_juego != yo_h) AttachThreadInput(yo_h, hilo_juego, FALSE);
-    opc_cursor_visible();                                    /* (el cursor ya queda sobre la ventana, abajo) */
-    {   /* el cursor, sobre la ventana (en la stage el juego lo tenía centrado en otro lado o escondido) */
-        RECT rv;
-        if (GetWindowRect(v, &rv)) SetCursorPos((rv.left + rv.right) / 2, (rv.top + rv.bottom) / 2);
-    }
+    opc_cursor_visible();                                    /* (la flecha aparece donde estaba el cursor de EDA) */
     if (GetForegroundWindow() != v)                          /* (abierta pero sin el foco: se dice) */
         apuntar("  [mazino] opciones: ⚠ abierta pero SIN FOCO (al frente: 0x%08lX)", (unsigned long)(ULONG_PTR)GetForegroundWindow());
     apuntar("  [mazino] opciones: ventana abierta por %s (lo guardado salió de %s)", g_opc_por, origen);
@@ -1258,12 +1271,10 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
     }
     /* (si F10 / A siguen apretadas al cerrar, el juego no las toma como una pulsación nueva: hay que soltarlas) */
     for (int i = 0; i < 3; i++) g_dik_antes[i] = 1;
-    InterlockedExchange(&g_panel_abierto, 0);
     if (g_diagnostico) apuntar("  (diag) Options cerrada: al frente %s",
                                GetForegroundWindow() == g_ventana_juego ? "EL JUEGO" : "otra ventana");
     UnregisterClassW(L"EDA_Opciones", yo);
-    if (g_ventana_juego) SetForegroundWindow(g_ventana_juego);
-    opc_avisar_posicion("Options");
+    if (!g_panel_siguiente && g_ventana_juego) SetForegroundWindow(g_ventana_juego);   /* (cambio de panel: el otro toma el frente) */
     return 0;
 }
 

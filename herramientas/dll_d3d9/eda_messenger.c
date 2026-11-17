@@ -486,8 +486,7 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
     }
     case WM_CLOSE: DestroyWindow(v); return 0;
     case WM_DESTROY:
-        InterlockedExchange(&g_panel_abierto, 0);              /* (desde acá el juego ya no sube el cursor) */
-        opc_cursor_devolver("Messenger");
+        panel_al_cerrar("Messenger");
         g_msn_ventana = NULL;
         g_msn_nick_e = g_msn_texto_e = NULL;
         g_mencima = -1;
@@ -548,11 +547,7 @@ static DWORD WINAPI msn_hilo(LPVOID nada)
     SetActiveWindow(v);
     SetFocus(v);
     if (hilo_juego && hilo_juego != yo_h) AttachThreadInput(yo_h, hilo_juego, FALSE);
-    opc_cursor_visible();
-    {
-        RECT rv;
-        if (GetWindowRect(v, &rv)) SetCursorPos((rv.left + rv.right) / 2, (rv.top + rv.bottom) / 2);
-    }
+    opc_cursor_visible();                                    /* (la flecha aparece donde estaba el cursor de EDA) */
     apuntar("  [mazino] messenger: ventana abierta por %s", g_msn_por);
     if (g_diagnostico)
         apuntar("  (diag) Messenger abierto: al frente %s · %s",
@@ -577,12 +572,10 @@ static DWORD WINAPI msn_hilo(LPVOID nada)
         DispatchMessageW(&mm);
     }
     for (int i = 0; i < 3; i++) g_dik_antes[i] = 1;            /* (F10/F11 sostenidas no cuentan de nuevo) */
-    InterlockedExchange(&g_panel_abierto, 0);
     if (g_diagnostico) apuntar("  (diag) Messenger cerrado: al frente %s",
                                GetForegroundWindow() == g_ventana_juego ? "EL JUEGO" : "otra ventana");
     UnregisterClassW(L"EDA_Messenger", yo);
-    if (g_ventana_juego) SetForegroundWindow(g_ventana_juego);
-    opc_avisar_posicion("Messenger");                         /* (el cursor, en las coordenadas del juego) */
+    if (!g_panel_siguiente && g_ventana_juego) SetForegroundWindow(g_ventana_juego);   /* (cambio de panel: el otro toma el frente) */
     return 0;
 }
 
