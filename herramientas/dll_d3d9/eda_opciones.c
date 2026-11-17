@@ -1012,6 +1012,10 @@ static void opc_avisar_posicion(const char *quien)
 {
     POINT p;
     RECT r;
+    if (g_panel_siguiente) {                                 /* (se abre el otro panel: el cursor de EDA sigue escondido) */
+        if (g_diagnostico) apuntar("  (diag) %s cerrado: se abre el otro panel → el cursor de EDA sigue escondido", quien);
+        return;
+    }
     if (!g_ventana_juego || !GetCursorPos(&p) || !ScreenToClient(g_ventana_juego, &p) || !GetClientRect(g_ventana_juego, &r)) return;
     if (p.x < 0 || p.y < 0 || p.x >= r.right || p.y >= r.bottom) {             /* (el mouse está fuera del juego) */
         if (g_diagnostico) apuntar("  (diag) %s cerrado: el mouse está fuera del juego (%ld, %ld): no se toca", quien, p.x, p.y);
@@ -1214,6 +1218,7 @@ static DWORD WINAPI opc_hilo(LPVOID nada)
     g_opc_ventana = v;
     InterlockedExchange(&g_opc_abriendo, 0);
     InterlockedExchange(&g_panel_abierto, 1);
+    cursor_juego_esconder("Options");                        /* (un solo cursor: el de Windows) */
     if (g_clip_real) g_clip_real(NULL);                      /* el cursor, libre */
     ShowWindow(v, SW_SHOWNORMAL);
     /* ★ al frente DE VERDAD: con el juego en pantalla completa sin bordes, SetForegroundWindow solo no alcanza

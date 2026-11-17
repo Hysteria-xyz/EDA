@@ -539,6 +539,7 @@ static DWORD WINAPI msn_hilo(LPVOID nada)
     g_msn_ventana = v;
     InterlockedExchange(&g_msn_abriendo, 0);
     InterlockedExchange(&g_panel_abierto, 1);
+    cursor_juego_esconder("Messenger");                       /* (un solo cursor: el de Windows) */
     if (g_clip_real) g_clip_real(NULL);
     ShowWindow(v, SW_SHOWNORMAL);
     DWORD hilo_juego = g_ventana_juego ? GetWindowThreadProcessId(g_ventana_juego, NULL) : 0, yo_h = GetCurrentThreadId();

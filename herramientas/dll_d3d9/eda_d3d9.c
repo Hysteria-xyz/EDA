@@ -1394,6 +1394,25 @@ static int cursor_del_juego(int *x, int *y)
     *y = (int)fy * 600 / hh;
     return 1;
 }
+/* ★ (17-nov, PUNTO 2) UN SOLO CURSOR A LA VEZ. Medido en el exe: el cursor de EDA es un dibujo del juego que
+ *   cada cuadro se pone donde dice el objeto de entrada (0x519BE0: ILTInput+0x158 → 0x780B80, que lee +0x27DC /
+ *   +0x27E0, y el dibujo va a esa posición menos su punta). Con un panel abierto el juego no recibe el mouse y ese
+ *   dibujo quedaba QUIETO en la imagen, al lado de la flecha de Windows: dos cursores. Al abrir un panel se lleva
+ *   la posición fuera de la pantalla (el dibujo no se ve); no se toca el dibujado, ni el HUD, ni nada más. Al
+ *   cerrar, el WM_MOUSEMOVE de siempre (opc_avisar_posicion) la vuelve a poner donde está el mouse (el juego la
+ *   recorta a su pantalla). Una escritura al abrir, nada por cuadro. */
+static void cursor_juego_esconder(const char *quien)
+{
+    int x, y;
+    BYTE *o = leer_ptr((void *)0x94952C);
+    if (!cursor_del_juego(&x, &y)) {                     /* (ya fuera de la pantalla, o no se pudo leer) */
+        if (g_diagnostico) apuntar("  (diag) %s: el cursor de EDA ya estaba escondido (o no se pudo leer)", quien);
+        return;
+    }
+    *(float *)(o + 0x27DC) = -4096.0f;
+    *(float *)(o + 0x27E0) = -4096.0f;
+    if (g_diagnostico) apuntar("  (diag) %s: cursor de EDA escondido (estaba en %d, %d de 800x600): sólo la flecha de Windows", quien, x, y);
+}
 /* la pantalla del juego (+0x330 × +0x334): para hablarle en SUS coordenadas */
 static int pantalla_del_juego(int *w, int *hh)
 {
