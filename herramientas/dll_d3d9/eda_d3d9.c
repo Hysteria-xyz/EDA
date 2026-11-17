@@ -1580,6 +1580,28 @@ static M_PEEK g_peek_real;
 static DWORD g_hilo_juego;
 static long g_vueltas;
 
+/* ★★ (17-nov, PUNTO 2) F10 CUANDO OTRO PROGRAMA LA TIENE COMO ATAJO GLOBAL. Medido 00:17–00:23: F10 no llegó
+ *   NI UNA VEZ a ninguna ventana de EDA (juego, Options, Messenger; F11, Esc y Enter sí), y EDA-Probar-F10 00:27:
+ *   «F10 sola: OCUPADA por otro programa» (RegisterHotKey; también Alt+F10; F11 libre). Windows le entrega esa
+ *   tecla SÓLO a ese programa: ningún mensaje WM_KEYDOWN / WM_SYSKEYDOWN para EDA, por eso dejó de andar en todas
+ *   las escenas a la vez y no era la dll (el camino de F10 es el mismo de 330f830). Pero el ESTADO de la tecla sí
+ *   se actualiza (medido: F10 «marcada apretada»). Acá, en el bombeo del juego que ya corre (sin hilos, ganchos ni
+ *   timers): F10 recién apretada + una ventana de EDA al frente (juego, Options o Messenger) → el mismo atajo().
+ *   Si el mensaje también llega (nadie la tiene tomada), atajo() deja una sola pulsación (300 ms). */
+static void f10_por_estado(void)
+{
+    static int antes;
+    int abajo = g_async_real ? (g_async_real(VK_F10) & 0x8000) != 0 : (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+    if (abajo && !antes) {
+        HWND f = GetForegroundWindow();
+        DWORD pid = 0;
+        if (f) GetWindowThreadProcessId(f, &pid);
+        if (pid == GetCurrentProcessId()) atajo(0, "estado del teclado");
+        else if (g_diagnostico) apuntar("  (diag) F10 apretada con otro programa al frente: no es para EDA");
+    }
+    antes = abajo;
+}
+
 static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
 {
     BOOL hay = g_peek_real(m, h, a, b, r);
@@ -1619,6 +1641,7 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
         if (tapar) { m->message = WM_NULL; g_entrada_tapada++; }       /* (el juego no ve nada mientras Options está) */
     }
     ++g_vueltas;
+    if (g_mz_atajos && (g_vueltas & 3) == 0) f10_por_estado();   /* (una lectura del teclado: nada más) */
     if (g_mz_foco && g_ventana_juego && (g_vueltas & 255) == 1) vigilar_wndproc(g_ventana_juego);
     if (g_mz_seleccion && (g_pendiente || g_simple || (g_vueltas & 3) == 0)) revisar_inventario();
     opc_correr_cola_desde_dibujo();                  /* (la cola de Options y el volumen pendiente) */
