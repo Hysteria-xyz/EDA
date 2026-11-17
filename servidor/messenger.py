@@ -72,13 +72,30 @@ def msn_dll():
     return VIVO.__dict__.setdefault("MSN_DLL", {})
 
 
+# ★ (17-nov, PUNTO 2) LAS CONVERSACIONES DURAN SÓLO LA SESIÓN. Antes cada /m quedaba para siempre en
+#   messenger_chat.jsonl y al abrir el Messenger volvían las de sesiones anteriores. Ahora viven en la memoria del
+#   server: cada mensaje lo «ven» sus dos jugadores (`para`); cuando uno se desconecta deja de verlo (al_salir), y el
+#   mensaje se borra cuando ya no lo ve nadie. Así una sesión nueva empieza sin historial, y el otro (si sigue
+#   jugando) conserva la conversación hasta que él también se vaya. A un desconectado no se le guarda nada.
+#   messenger_chat.jsonl NO se borra ni se toca (queda como estaba); la lista de amigos sigue en la cuenta.
+MSN_SESION_MAX = 300                                        # (en memoria, todos los jugadores juntos)
+
+
+def mensajes_sesion():
+    return VIVO.__dict__.setdefault("MSN_SESION", [])
+
+
+def olvidar_sesion(nombre):
+    """`nombre` se desconectó: deja de ver sus mensajes; los que ya no ve nadie, fuera."""
+    todos = mensajes_sesion()
+    for m in todos:
+        m["para"].discard(nombre)
+    todos[:] = [m for m in todos if m["para"]]
+
+
 def historia_msn(yo, cuantos=30):
-    try:
-        with open(ruta_chat(), encoding="utf-8") as f:
-            todos = [json.loads(x) for x in f if x.strip()]
-    except (OSError, ValueError):
-        return []
-    mios = [m for m in todos if yo in (m.get("de"), m.get("a"))][-cuantos:]
+    """Los mensajes de ESTA sesión de `yo` (los que todavía ve), como líneas «h»."""
+    mios = [m for m in mensajes_sesion() if yo in m["para"]][-cuantos:]
     return ["h\t%s\t%s\t%s\t%s" % (m.get("de"), m.get("a"), m.get("hora", ""), _limpio(m.get("texto", "")))
             for m in mios]                                  # (h = de la historia: la dll no lo cuenta como nuevo)
 
@@ -181,15 +198,15 @@ def comando(texto, conexion, c):
             return [aviso("Uso: /m <nick> <mensaje>", conexion)]
         otro, n = buscar(partes[1])
         al_msn = []
+        if not n:                                           # ★ (17-nov) a un desconectado no se le guarda nada
+            if otro and otro != c["nombre"]:
+                return [aviso("%s no está conectado: el mensaje no se envió (las conversaciones duran sólo la sesión)."
+                              % partes[1], conexion)]
+            return [aviso("%s no está conectado." % partes[1], conexion)]
         if otro and otro != c["nombre"]:
-            registrar_mensaje(c["nombre"], otro, partes[2])  # ★ la conversación del Messenger (F11)
+            registrar_mensaje(c["nombre"], otro, partes[2])  # ★ la conversación del Messenger (F11), en memoria
             h = "H\t%s\t%s\t%s\t%s" % (c["nombre"], otro, time.strftime("%H:%M"), _limpio(partes[2]))
             al_msn = [dato_msn(h, x) for x in (conexion, n) if x is not None and x in msn_dll()]
-        if not n:
-            if otro and otro != c["nombre"]:
-                return al_msn + [aviso("%s no está conectado: lo leerá en su Messenger (F11) al volver." % partes[1],
-                                       conexion)]
-            return [aviso("%s no está conectado." % partes[1], conexion)]
         b = partes[2].encode("utf-16-le")
 
         def privado(nombre, destino):
@@ -252,12 +269,10 @@ def ruta_inventario(nombre):
 
 
 def registrar_mensaje(de, a, texto):
-    """★ Cada mensaje privado queda en messenger_chat.jsonl: la ventana de conversación del
-    Messenger lo muestra (también a un desconectado, cuando vuelve)."""
-    os.makedirs(config.ESTADO, exist_ok=True)
-    with open(ruta_chat(), "a", encoding="utf-8") as f:
-        f.write(json.dumps({"de": de, "a": a, "texto": texto, "hora": time.strftime("%H:%M")},
-                           ensure_ascii=False) + "\n")
+    """★ (17-nov) Cada mensaje privado queda EN MEMORIA, sólo para la sesión (ver mensajes_sesion)."""
+    todos = mensajes_sesion()
+    todos.append({"de": de, "a": a, "texto": texto, "hora": time.strftime("%H:%M"), "para": {de, a}})
+    del todos[:-MSN_SESION_MAX]
 
 
 def estado_inventario(c):
@@ -470,8 +485,10 @@ def abrir_panel(nombre):
 
 
 def al_salir(nombre):
-    """Lo llama `cerrada`: el aviso sale con el próximo tick (cerrada no puede contestar)."""
+    """Lo llama `cerrada`: el aviso sale con el próximo tick (cerrada no puede contestar). Su sesión terminó:
+    sus conversaciones dejan de estar para él."""
     VIVO.__dict__.setdefault("SALIDAS", []).append(nombre)
+    olvidar_sesion(nombre)
 
 
 def tick_msn():

@@ -1502,13 +1502,15 @@ def pruebas_messenger(chequear):
     chequear("dll: el amigo se va → el tick manda la lista nueva (desconectado)",
              any(("\nA\t%s\t" % nom_b) in x and "\t0\t" in x for x in msn(t, 301)), msn(t, 301))
     r = responder(0x100D, chat_("/m %s sigues?" % nom_b), 301)
-    chequear("★ el revés: /m a un desconectado → aviso (lo leerá al volver), sin mensaje al chat",
-             len(textos(r, 301)) == 1 and textos(r, 301)[0].startswith("%s no está conectado: lo leerá" % nom_b)
-             and not textos(r, 302), textos(r, 301))
-    chats = [json.loads(x) for x in open(messenger.ruta_chat(), encoding="utf-8")]
-    chequear("la conversación queda en messenger_chat.jsonl (también la de un desconectado)",
-             [(m["de"], m["a"], m["texto"]) for m in chats] == [(nom_a, nom_b, "hola amigo"), (nom_a, nom_b, "otra vez"),
-                                                               (nom_a, nom_b, "sigues?")], chats)
+    chequear("★ el revés: /m a un desconectado → aviso (no se envía ni se guarda), sin mensaje al chat ni H",
+             len(textos(r, 301)) == 1 and textos(r, 301)[0].startswith("%s no está conectado: el mensaje no se envió" % nom_b)
+             and not textos(r, 302) and not msn(r, 301), textos(r, 301))
+    # ★ (17-nov) las conversaciones duran sólo la sesión: en memoria, nada en messenger_chat.jsonl
+    chequear("sesión: nada se escribe en messenger_chat.jsonl", not os.path.exists(messenger.ruta_chat()))
+    chequear("sesión: el que se fue ya no ve la conversación; el que sigue, sí",
+             not messenger.historia_msn(nom_b)
+             and [x.split("\t")[4] for x in messenger.historia_msn(nom_a)] == ["hola amigo", "otra vez"],
+             messenger.historia_msn(nom_a))
     # ★ el PANEL (EDA-Messenger.py): estado y pedidos por archivo; el otro vuelve a conectarse
     from servidor import messenger
     responder(0x1017, b"", 302)

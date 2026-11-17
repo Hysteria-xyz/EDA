@@ -292,10 +292,12 @@ static void msn_pintar(HDC d)
             if (saltar > 0) { saltar--; continue; }
             if (y + 32 > MLISTA1 - 2) continue;
             int sel = !lstrcmpiW(a->cuenta, g_msn_sel);
-            DWORD fondo = sel ? 0x3a0b0b : 0x0b0c0e;
             m_registrar(ML0 + 4, y, ML1 - 4, y + 32, M_FILA, i);
-            caja(d, ML0 + 4, y, ML1 - 4, y + 32, fondo);
+            /* ★ (17-nov) la elegida bien visible: fondo rojo, borde doble y la barra roja a la izquierda */
+            if (sel) degrade(d, ML0 + 4, y, ML1 - 4, y + 32, 0x7a1414, 0x3a0808);
+            else caja(d, ML0 + 4, y, ML1 - 4, y + 32, 0x0b0c0e);
             borde(d, ML0 + 4, y, ML1 - 5, y + 31, sel ? ROJO_LUZ : ACERO_OSCURO);
+            if (sel) { borde(d, ML0 + 5, y + 1, ML1 - 6, y + 30, ROJO_LUZ); caja(d, ML0 + 4, y, ML0 + 7, y + 32, ROJO_LUZ); }
             ovalo(d, ML0 + 10, y + 7, ML0 + 18, y + 15, a->conectado ? VERDE : 0x3a3d42, 0x000000);
             WCHAR t[40];
             wsprintfW(t, a->nivel ? L"LV %d" : L"LV —", a->nivel);
@@ -499,6 +501,8 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         }
         break;
     case WM_ERASEBKGND: return 1;
+    /* ★ (17-nov) el primer clic sobre el Messenger (si el frente lo tenía el juego) activa Y cuenta como clic */
+    case WM_MOUSEACTIVATE: return MA_ACTIVATE;
     case WM_APP + 7: msn_ajustar_edit(v); InvalidateRect(v, NULL, FALSE); return 0;
     case WM_CTLCOLOREDIT: {
         if (!g_msn_pincel) g_msn_pincel = G.solido(RGB(0, 0, 0));
@@ -543,6 +547,8 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         case M_PESTANA: g_msn_pestana = c.id; g_msn_scroll = 0; break;
         case M_FILA:
             msn_elegir(c.id);
+            if (g_diagnostico) apuntar("  (diag) messenger: %s en la fila de %s → %s", m == WM_LBUTTONDBLCLK ? "doble clic" : "clic",
+                                       msn_u8(g_msn_sel), m == WM_LBUTTONDBLCLK ? "elegido y conversación" : "elegido");
             if (m == WM_LBUTTONDBLCLK) msn_chat_abrir();
             break;
         case M_ADD: msn_agregar(); break;
