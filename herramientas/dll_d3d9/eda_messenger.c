@@ -31,7 +31,12 @@ static WCHAR g_msn_yo[24], g_msn_yo_nick[24], g_msn_yo_donde[48];
 static int g_msn_yo_nivel, g_msn_yo_clase;
 static MSN_MSG g_msn_h[MSN_HIST];
 static int g_msn_nh;
-static WCHAR g_msn_sel[24];                       /* la cuenta elegida ("" = ninguna) */
+static WCHAR g_msn_sel[24];                       /* la cuenta elegida en la LISTA ("" = ninguna) */
+/* ★ (17-nov, PUNTO 2) la lista y la conversación, cada una lo suyo: elegir un amigo NO abre su conversación (eso
+ *   es CHAT o doble clic); la X chica de la derecha cierra sólo la conversación; DELETE pide confirmación y, cuando
+ *   el server manda la lista sin ese amigo, se cierra su conversación (el historial del server no se toca). */
+static WCHAR g_msn_chat[24];                      /* la conversación abierta a la derecha ("" = ninguna) */
+static WCHAR g_msn_confirmar[24];                 /* DELETE esperando «sí / no» ("" = nada) */
 static WCHAR g_msn_aviso[160];                    /* la línea de estado (lo último de «[Messenger]» o un pedido) */
 static int g_msn_pestana, g_msn_scroll, g_msn_scroll_chat;
 static HWND g_msn_nick_e, g_msn_texto_e;
@@ -39,6 +44,12 @@ static HBRUSH g_msn_pincel;
 static WCHAR g_msn_cola[MSN_COLA][176];
 static int g_msn_ncola;
 
+static const char *msn_u8(const WCHAR *w)        /* (el registro: UTF-8) */
+{
+    static char b[96];
+    if (!WideCharToMultiByte(CP_UTF8, 0, w, -1, b, sizeof(b), NULL, NULL)) b[0] = 0;
+    return b;
+}
 static void msn_listo(void)
 {
     if (!g_msn_cs_lista) { InitializeCriticalSection(&g_msn_cs); g_msn_cs_lista = 1; }
@@ -137,6 +148,13 @@ static void msn_recibir(WCHAR *t)
                 l2 = sig2;
             }
             sig = NULL;                                          /* (ya se leyó todo el paquete) */
+            /* el que ya no es amigo (DELETE confirmado por el server): fuera de la selección y de la conversación */
+            if (g_msn_chat[0] && !msn_amigo(g_msn_chat)) {
+                if (g_diagnostico) apuntar("  (diag) messenger: %s ya no está en la lista → se cierra su conversación", msn_u8(g_msn_chat));
+                g_msn_chat[0] = 0;
+            }
+            if (g_msn_sel[0] && !msn_amigo(g_msn_sel)) g_msn_sel[0] = 0;
+            if (g_msn_confirmar[0] && !msn_amigo(g_msn_confirmar)) g_msn_confirmar[0] = 0;
         } else if ((f[0][0] == L'H' || f[0][0] == L'h') && n >= 5) {   /* un mensaje: de, a, hora, texto */
             if (g_msn_nh == MSN_HIST) { memmove(g_msn_h, g_msn_h + 1, sizeof(MSN_MSG) * (MSN_HIST - 1)); g_msn_nh--; }
             MSN_MSG *m = &g_msn_h[g_msn_nh++];
@@ -145,11 +163,11 @@ static void msn_recibir(WCHAR *t)
             lstrcpynW(m->hora, f[3], 8);
             lstrcpynW(m->texto, f[4], 160);
             /* (h = de la historia, al abrir: no cuenta como nuevo) */
-            if (f[0][0] == L'H' && lstrcmpiW(m->de, g_msn_yo) && (!g_msn_ventana || lstrcmpiW(g_msn_sel, m->de))) {
+            if (f[0][0] == L'H' && lstrcmpiW(m->de, g_msn_yo) && (!g_msn_ventana || lstrcmpiW(g_msn_chat, m->de))) {
                 MSN_AMIGO *x = msn_amigo(m->de);
                 if (x) x->sin_leer++;
             }
-            if (!lstrcmpiW(g_msn_sel, m->de) || !lstrcmpiW(g_msn_sel, m->a)) g_msn_scroll_chat = 0;
+            if (!lstrcmpiW(g_msn_chat, m->de) || !lstrcmpiW(g_msn_chat, m->a)) g_msn_scroll_chat = 0;
         }
         linea = sig;
     }
@@ -158,7 +176,7 @@ static void msn_recibir(WCHAR *t)
 }
 
 /* ════════════════════════════════ LA VENTANA ════════════════════════════════ */
-enum { M_X = 1, M_PESTANA, M_FILA, M_ADD, M_CHAT, M_DEL, M_ENVIAR };
+enum { M_X = 1, M_PESTANA, M_FILA, M_ADD, M_CHAT, M_DEL, M_ENVIAR, M_CERRAR_CHAT, M_SI, M_NO };
 typedef struct { RECT r; int tipo, id; } MCTL;
 static MCTL g_mctl[48];
 static int g_nmctl, g_mencima = -1;
@@ -305,19 +323,36 @@ static void msn_pintar(HDC d)
     caja(d, ML0 + 4, MENTRADA_Y, ML1 - 4 - 62, MENTRADA_Y + 26, ACERO);
     caja(d, ML0 + 5, MENTRADA_Y + 1, ML1 - 5 - 62, MENTRADA_Y + 25, 0x000000);
     m_boton(d, ML1 - 4 - 58, MENTRADA_Y + 1, 58, 24, L"ADD", TEAL, M_ADD, 0);
-    m_boton(d, ML0 + 4, MBOTONES_Y, 90, 24, L"CHAT", MORADO, M_CHAT, 0);
-    m_boton(d, ML1 - 4 - 90, MBOTONES_Y, 90, 24, L"DELETE", GRANATE, M_DEL, 0);
-    if (g_msn_aviso[0]) texto(d, ML0 + 4, MSN_ALTO - 17 - 16, g_msn_aviso, GRIS, F_CHICA, 0);
+    if (g_msn_confirmar[0]) {                                  /* DELETE: «sí / no», en el mismo lugar */
+        MSN_AMIGO *q = msn_amigo(g_msn_confirmar);
+        WCHAR pr[96];
+        wsprintfW(pr, L"¿Quitar a %s de tus amigos?", q ? q->nick : g_msn_confirmar);
+        m_boton(d, ML0 + 4, MBOTONES_Y, 90, 24, L"SÍ", GRANATE, M_SI, 0);
+        m_boton(d, ML1 - 4 - 90, MBOTONES_Y, 90, 24, L"NO", ACERO_E, M_NO, 0);
+        texto(d, ML0 + 4, MSN_ALTO - 17 - 16, pr, ORO, F_CHICA, 0);
+    } else {
+        m_boton(d, ML0 + 4, MBOTONES_Y, 90, 24, L"CHAT", MORADO, M_CHAT, 0);
+        m_boton(d, ML1 - 4 - 90, MBOTONES_Y, 90, 24, L"DELETE", GRANATE, M_DEL, 0);
+        if (g_msn_aviso[0]) texto(d, ML0 + 4, MSN_ALTO - 17 - 16, g_msn_aviso, GRIS, F_CHICA, 0);
+    }
 
     /* ── derecha: la conversación ── */
-    MSN_AMIGO *a = g_msn_sel[0] ? msn_amigo(g_msn_sel) : NULL;
-    caja(d, MR0, MT0, MR1, MCHAT1, ACERO);
-    caja(d, MR0 + 1, MT0 + 1, MR1 - 1, MCHAT1 - 1, PANEL);
-    if (!g_msn_sel[0]) {
-        parrafo(d, MR0 + 30, MT0 + 150, MR1 - MR0 - 60, L"Elige un amigo de la lista (clic, o doble clic para "
-                L"escribirle).\nLos mensajes también le llegan si está desconectado: los lee al volver.", GRIS, F_CHICA);
+    MSN_AMIGO *a = g_msn_chat[0] ? msn_amigo(g_msn_chat) : NULL;
+    int hay_chat = g_msn_chat[0] != 0;
+    caja(d, MR0, MT0, MR1, hay_chat ? MCHAT1 : MCHAT1 + 32, ACERO);
+    caja(d, MR0 + 1, MT0 + 1, MR1 - 1, (hay_chat ? MCHAT1 : MCHAT1 + 32) - 1, PANEL);
+    if (!hay_chat) {
+        parrafo(d, MR0 + 30, MT0 + 150, MR1 - MR0 - 60, L"Selecciona un amigo para conversar.\n(elígelo en la lista "
+                L"y pulsa CHAT, o doble clic)\nLos mensajes también le llegan si está desconectado: los lee al volver.",
+                GRIS, F_CHICA);
     } else {
-        texto(d, MR0 + 10, MT0 + 6, a ? a->nick : g_msn_sel, TEXTO, F_BOLD, 0);
+        /* la X chica: cierra sólo la conversación */
+        int cx0 = MR1 - 22, cy0 = MT0 + 6, kx = m_registrar(cx0, cy0, cx0 + 16, cy0 + 16, M_CERRAR_CHAT, 0);
+        DWORD colx = kx >= 0 && kx == g_mencima ? ROJO_LUZ : GRIS;
+        borde(d, cx0, cy0, cx0 + 15, cy0 + 15, kx >= 0 && kx == g_mencima ? ROJO_LUZ : ACERO_OSCURO);
+        linea(d, cx0 + 4, cy0 + 4, cx0 + 12, cy0 + 12, colx, 2);
+        linea(d, cx0 + 11, cy0 + 4, cx0 + 3, cy0 + 12, colx, 2);
+        texto(d, MR0 + 10, MT0 + 6, a ? a->nick : g_msn_chat, TEXTO, F_BOLD, 0);
         WCHAR info[120];
         if (a && a->conectado) wsprintfW(info, L"● LV %d · %s · %s", a->nivel, m_clase(a->clase), a->donde);
         else lstrcpyW(info, L"○ desconectado: lo leerá al volver");
@@ -329,7 +364,7 @@ static void msn_pintar(HDC d)
         for (int i = g_msn_nh - 1; i >= 0 && abajo > arriba; i--) {
             MSN_MSG *m = &g_msn_h[i];
             int mio = !lstrcmpiW(m->de, g_msn_yo);
-            if (!((mio && !lstrcmpiW(m->a, g_msn_sel)) || (!lstrcmpiW(m->de, g_msn_sel) && !lstrcmpiW(m->a, g_msn_yo))))
+            if (!((mio && !lstrcmpiW(m->a, g_msn_chat)) || (!lstrcmpiW(m->de, g_msn_chat) && !lstrcmpiW(m->a, g_msn_yo))))
                 continue;
             if (saltar2 > 0) { saltar2--; continue; }
             WCHAR t[220];
@@ -346,9 +381,11 @@ static void msn_pintar(HDC d)
         G.usar(d, viejo);
     }
     LeaveCriticalSection(&g_msn_cs);
-    caja(d, MR0, MCHAT1 + 6, MR1 - 44, MCHAT1 + 32, ACERO);
-    caja(d, MR0 + 1, MCHAT1 + 7, MR1 - 45, MCHAT1 + 31, 0x000000);
-    m_boton(d, MR1 - 38, MCHAT1 + 6, 38, 26, L"↵", TEAL, M_ENVIAR, 0);
+    if (hay_chat) {                                             /* (sin conversación no hay dónde escribir) */
+        caja(d, MR0, MCHAT1 + 6, MR1 - 44, MCHAT1 + 32, ACERO);
+        caja(d, MR0 + 1, MCHAT1 + 7, MR1 - 45, MCHAT1 + 31, 0x000000);
+        m_boton(d, MR1 - 38, MCHAT1 + 6, 38, 26, L"↵", TEAL, M_ENVIAR, 0);
+    }
 }
 
 static void msn_texto_de(HWND e, WCHAR *t, int n)
@@ -370,33 +407,74 @@ static void msn_agregar(void)
     wsprintfW(a, L"Pedido: agregar a %s", nick);
     msn_avisar(a);
 }
+/* DELETE: primero la pregunta (msn_quitar); SÍ manda el pedido (msn_quitar_si); NO / Esc no toca nada */
 static void msn_quitar(void)
 {
-    WCHAR cmd[64], a[80];
     if (!g_msn_sel[0]) { msn_avisar(L"Elige un amigo de la lista."); return; }
-    wsprintfW(cmd, L"/quitar %s", g_msn_sel);
+    EnterCriticalSection(&g_msn_cs);
+    lstrcpynW(g_msn_confirmar, g_msn_sel, 24);
+    LeaveCriticalSection(&g_msn_cs);
+    if (g_diagnostico) apuntar("  (diag) messenger: DELETE de %s → pide confirmación", msn_u8(g_msn_confirmar));
+}
+static void msn_quitar_si(void)
+{
+    WCHAR cmd[64], a[80], q[24];
+    EnterCriticalSection(&g_msn_cs);
+    lstrcpynW(q, g_msn_confirmar, 24);
+    g_msn_confirmar[0] = 0;
+    LeaveCriticalSection(&g_msn_cs);
+    if (!q[0]) return;
+    wsprintfW(cmd, L"/quitar %s", q);
     msn_encolar(cmd);
-    wsprintfW(a, L"Pedido: quitar a %s", g_msn_sel);
+    wsprintfW(a, L"Pedido: quitar a %s (se cierra al confirmarlo el server)", q);
     msn_avisar(a);
+    if (g_diagnostico) apuntar("  (diag) messenger: DELETE de %s confirmado → al server", msn_u8(q));
+}
+static void msn_quitar_no(void)
+{
+    if (g_diagnostico && g_msn_confirmar[0]) apuntar("  (diag) messenger: DELETE de %s cancelado (nada cambia)", msn_u8(g_msn_confirmar));
+    g_msn_confirmar[0] = 0;
+}
+/* CHAT (o doble clic): abre a la derecha la conversación del elegido; la X chica la cierra */
+static void msn_chat_abrir(void)
+{
+    if (!g_msn_sel[0]) { msn_avisar(L"Elige un amigo de la lista."); return; }
+    EnterCriticalSection(&g_msn_cs);
+    lstrcpynW(g_msn_chat, g_msn_sel, 24);
+    MSN_AMIGO *x = msn_amigo(g_msn_chat);
+    if (x) x->sin_leer = 0;
+    g_msn_scroll_chat = 0;
+    LeaveCriticalSection(&g_msn_cs);
+    if (g_diagnostico) apuntar("  (diag) messenger: conversación con %s abierta", msn_u8(g_msn_chat));
+}
+static void msn_chat_cerrar(void)
+{
+    if (g_diagnostico && g_msn_chat[0]) apuntar("  (diag) messenger: conversación con %s cerrada (el Messenger sigue)", msn_u8(g_msn_chat));
+    g_msn_chat[0] = 0;
+}
+/* el EDIT para escribir: sólo con una conversación abierta (hilo de la ventana) */
+static void msn_ajustar_edit(HWND v)
+{
+    if (!g_msn_texto_e) return;
+    int ver = g_msn_chat[0] != 0, visible = IsWindowVisible(g_msn_texto_e) != 0;
+    if (ver == visible) return;
+    ShowWindow(g_msn_texto_e, ver ? SW_SHOW : SW_HIDE);
+    if (!ver && GetFocus() == g_msn_texto_e) SetFocus(v);
 }
 static void msn_enviar(void)
 {
     WCHAR t[160], cmd[176];
-    if (!g_msn_sel[0]) { msn_avisar(L"Elige un amigo de la lista."); return; }
+    if (!g_msn_chat[0]) { msn_avisar(L"Abre una conversación con CHAT."); return; }
     msn_texto_de(g_msn_texto_e, t, 140);
     if (!t[0]) return;
-    wsprintfW(cmd, L"/m %s %s", g_msn_sel, t);
+    wsprintfW(cmd, L"/m %s %s", g_msn_chat, t);
     msn_encolar(cmd);
     SetWindowTextW(g_msn_texto_e, L"");
 }
 static void msn_elegir(int i)
 {
     EnterCriticalSection(&g_msn_cs);
-    if (i >= 0 && i < g_msn_nam) {
-        lstrcpynW(g_msn_sel, g_msn_am[i].cuenta, 24);
-        g_msn_am[i].sin_leer = 0;
-        g_msn_scroll_chat = 0;
-    }
+    if (i >= 0 && i < g_msn_nam) lstrcpynW(g_msn_sel, g_msn_am[i].cuenta, 24);
     LeaveCriticalSection(&g_msn_cs);
 }
 
@@ -421,7 +499,7 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         }
         break;
     case WM_ERASEBKGND: return 1;
-    case WM_APP + 7: InvalidateRect(v, NULL, FALSE); return 0;
+    case WM_APP + 7: msn_ajustar_edit(v); InvalidateRect(v, NULL, FALSE); return 0;
     case WM_CTLCOLOREDIT: {
         if (!g_msn_pincel) g_msn_pincel = G.solido(RGB(0, 0, 0));
         G.color_texto((HDC)w, CR(TEXTO));
@@ -465,13 +543,19 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         case M_PESTANA: g_msn_pestana = c.id; g_msn_scroll = 0; break;
         case M_FILA:
             msn_elegir(c.id);
-            if (m == WM_LBUTTONDBLCLK && g_msn_texto_e) SetFocus(g_msn_texto_e);
+            if (m == WM_LBUTTONDBLCLK) msn_chat_abrir();
             break;
         case M_ADD: msn_agregar(); break;
-        case M_CHAT: if (g_msn_sel[0] && g_msn_texto_e) SetFocus(g_msn_texto_e); else msn_avisar(L"Elige un amigo."); break;
+        case M_CHAT: msn_chat_abrir(); break;
         case M_DEL: msn_quitar(); break;
+        case M_SI: msn_quitar_si(); break;
+        case M_NO: msn_quitar_no(); break;
+        case M_CERRAR_CHAT: msn_chat_cerrar(); break;
         case M_ENVIAR: msn_enviar(); break;
         }
+        msn_ajustar_edit(v);
+        if (g_msn_chat[0] && g_msn_texto_e && (c.tipo == M_CHAT || (c.tipo == M_FILA && m == WM_LBUTTONDBLCLK)))
+            SetFocus(g_msn_texto_e);
         InvalidateRect(v, NULL, FALSE);
         return 0;
     }
@@ -531,7 +615,8 @@ static DWORD WINAPI msn_hilo(LPVOID nada)
     if (!v) { InterlockedExchange(&g_msn_abriendo, 0); apuntar("  [mazino] messenger: ⚠ no se pudo crear la ventana (%lu)", GetLastError()); return 0; }
     g_msn_nick_e = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
                                    ML0 + 9, MENTRADA_Y + 6, ML1 - 62 - ML0 - 18, 16, v, NULL, yo, NULL);
-    g_msn_texto_e = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+    g_msn_chat[0] = g_msn_confirmar[0] = 0;                   /* (se abre con la lista; la conversación, con CHAT) */
+    g_msn_texto_e = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL,
                                     MR0 + 6, MCHAT1 + 11, MR1 - 44 - MR0 - 12, 16, v, NULL, yo, NULL);
     if (g_msn_nick_e) { SendMessageW(g_msn_nick_e, WM_SETFONT, (WPARAM)F_NORMAL, 0); SendMessageW(g_msn_nick_e, EM_LIMITTEXT, 22, 0); }
     if (g_msn_texto_e) { SendMessageW(g_msn_texto_e, WM_SETFONT, (WPARAM)F_NORMAL, 0); SendMessageW(g_msn_texto_e, EM_LIMITTEXT, 140, 0); }
@@ -563,7 +648,11 @@ static DWORD WINAPI msn_hilo(LPVOID nada)
             int repetida = (mm.lParam & (1L << 30)) != 0;
             if (mm.wParam == VK_F11) { if (!repetida) atajo(1, "Messenger al frente"); continue; }
             if (mm.wParam == VK_F10) { if (!repetida) atajo(0, "Messenger al frente"); continue; }
-            if (mm.wParam == VK_ESCAPE) { DestroyWindow(v); continue; }
+            if (mm.wParam == VK_ESCAPE) {                     /* (con DELETE preguntando, Esc es «no») */
+                if (g_msn_confirmar[0]) { msn_quitar_no(); InvalidateRect(v, NULL, FALSE); }
+                else DestroyWindow(v);
+                continue;
+            }
             if (mm.wParam == VK_RETURN && mm.hwnd == g_msn_texto_e) { msn_enviar(); continue; }
             if (mm.wParam == VK_RETURN && mm.hwnd == g_msn_nick_e) { msn_agregar(); continue; }
         }
