@@ -1041,6 +1041,7 @@ static void __attribute__((thiscall)) boton_opc(void *pantalla, void *ev)
     opciones_o_chat();
 }
 static BYTE g_delegados[3][0x18];
+static void msn_saludar(void);
 
 static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int control, void *delegado)
 {
@@ -1053,6 +1054,7 @@ static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int
         JUEGO(J_UNIR, 0x4DF900)(lobby, 3, 3 + i, g_delegados[i]);
     }
     apuntar("  [mazino] lobby: Clan, Messenger y Options unidos");
+    msn_saludar();                                   /* (Punto 2: el server sabe que esta dll tiene el Messenger) */
 }
 
 /* cambiar el destino de un `call rel32` del exe (sólo si apunta adonde se espera) */

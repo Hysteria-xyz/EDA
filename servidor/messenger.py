@@ -26,7 +26,16 @@ from servidor.cuentas import NOMBRES, leer, guardar, nivel, nombre_visible, ruta
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO
 
 COMANDOS = ("amigos", "amigo", "agregar", "quitar", "borrar", "m", "w", "mp", "susurro", "messenger", "clan",
-            "opciones", "msn")
+            "opciones", "msn", "aceptar", "rechazar")
+
+# ★ (17-nov, PUNTO 2) AMISTAD CON ACEPTACIÓN. Se sigue guardando lo mismo que antes (`amigos` del personaje activo,
+#   nombres de CUENTA), sin migrar ni borrar nada: «A es amigo de B» = cada uno está en la lista del otro; si sólo
+#   A tiene a B, eso ES la solicitud de A a B (pendiente, queda guardada aunque B esté desconectado). Así las
+#   amistades de un solo lado que ya existían se ven como solicitudes enviadas, y basta con que el otro acepte.
+#     ADD (/amigo X)  → la solicitud (o, si X ya me la había mandado, la amistad)
+#     /aceptar X      → X pasa a mi lista: amigos los dos
+#     /rechazar X     → se saca mi nombre de la lista de X (la solicitud desaparece)
+#     DELETE (/quitar X) → fuera de las DOS listas (también cancela una solicitud enviada)
 
 
 def aviso(texto, destino, tipo=3):
@@ -56,11 +65,19 @@ def _limpio(x):
 
 
 def lista_msn(cuentas, yo):
-    """El texto L/A de la cuenta `yo` (con el estado() de todas)."""
+    """El texto L/A/R/E de la cuenta `yo` (con el estado() de todas): A = amigos (de los dos lados), R = solicitudes
+    recibidas, E = solicitudes enviadas pendientes. (Una dll vieja sólo lee L y A.)"""
     d = cuentas.get(yo, {})
     lineas = ["L\t%s\t%s\t%s\t%s\t%s" % (yo, _limpio(d.get("nick", yo)), d.get("nivel", 0), d.get("clase", 1),
                                             _limpio(d.get("donde", "")))]
-    for a in d.get("amigos", [])[:MSN_AMIGOS_MAX]:
+    mios = d.get("amigos", [])
+    mutuos = [a for a in mios if yo in cuentas.get(a, {}).get("amigos", [])]
+    for a in [a for a in mios if a not in mutuos][:MSN_AMIGOS_MAX]:
+        lineas.append("E\t%s\t%s" % (a, _limpio(cuentas.get(a, {}).get("nick", a))))
+    for a, x in cuentas.items():
+        if a != yo and yo in x.get("amigos", []) and a not in mios:
+            lineas.append("R\t%s\t%s" % (a, _limpio(x.get("nick", a))))
+    for a in mutuos[:MSN_AMIGOS_MAX]:
         x = cuentas.get(a, {})
         lineas.append("A\t%s\t%s\t%s\t%s\t%d\t%s" % (a, _limpio(x.get("nick", a)), x.get("nivel", 0), x.get("clase", 1),
                                                        1 if x.get("conectado") else 0, _limpio(x.get("donde", ""))))
@@ -98,6 +115,56 @@ def historia_msn(yo, cuantos=30):
     mios = [m for m in mensajes_sesion() if yo in m["para"]][-cuantos:]
     return ["h\t%s\t%s\t%s\t%s" % (m.get("de"), m.get("a"), m.get("hora", ""), _limpio(m.get("texto", "")))
             for m in mios]                                  # (h = de la historia: la dll no lo cuenta como nuevo)
+
+
+def amigos_de(nombre):
+    """La lista guardada de `nombre` (conectado o no)."""
+    c = _cuenta_por_nombre(nombre)
+    return list(c.get("amigos", [])) if c else []
+
+
+def son_amigos(a, b):
+    return b in amigos_de(a) and a in amigos_de(b)
+
+
+def cambiar_amigos(nombre, quitar=None, poner=None):
+    """Saca / agrega `quitar` / `poner` en la lista de `nombre`, esté conectado o no (sin tocar nada más)."""
+    from servidor.cuentas import escribir
+    n = conexion_de(nombre)
+    if n is not None:
+        c = leer(n)
+        lista = c.setdefault("amigos", [])
+    else:
+        try:
+            crudo = json.load(open(ruta_cuenta(nombre), encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        pjs = crudo.get("pjs")
+        destino = pjs[min(crudo.get("activo", 0), len(pjs) - 1)] if pjs else crudo
+        if "amigos" not in destino:                         # (como _cuenta_por_nombre: la de la cuenta vieja)
+            destino["amigos"] = list(crudo.get("amigos", []))
+        lista = destino["amigos"]
+    if quitar in lista:
+        lista.remove(quitar)
+    if poner and poner not in lista:
+        lista.append(poner)
+    if n is not None:
+        guardar(c)
+    else:
+        escribir(nombre, crudo)
+    return True
+
+
+def listas_ya(*nombres):
+    """La lista nueva, ya, a los Messenger de la dll de esas cuentas (no esperar al tick)."""
+    activos = msn_dll()
+    cuentas = estado()["cuentas"]
+    r = []
+    for n in list(activos):
+        if ASIGNADAS.get(n) in nombres:
+            activos[n] = lista_msn(cuentas, ASIGNADAS[n])
+            r.append(dato_msn(activos[n], n))
+    return r
 
 
 def msn_abrir(conexion, c):
@@ -150,8 +217,9 @@ def donde_esta(n):
 
 def avisar_amigos(nombre, texto):
     """`texto` a los conectados que tienen a `nombre` entre sus amigos."""
+    suyos = amigos_de(nombre)
     return [aviso(texto, n) for n, otro in list(ASIGNADAS.items())
-            if otro != nombre and nombre in leer(n).get("amigos", [])]
+            if otro != nombre and otro in suyos and nombre in leer(n).get("amigos", [])]
 
 
 def comando(texto, conexion, c):
@@ -178,21 +246,54 @@ def comando(texto, conexion, c):
         if not otro or otro == c["nombre"]:
             return [aviso("No existe el jugador %s." % partes[1], conexion)]
         amigos = c.setdefault("amigos", [])
-        if otro in amigos:
+        suyos = amigos_de(otro)
+        if otro in amigos and c["nombre"] in suyos:
             return [aviso("%s ya es tu amigo." % partes[1], conexion)]
+        if otro in amigos:
+            return [aviso("Ya le enviaste una solicitud a %s (pendiente)." % partes[1], conexion)]
         amigos.append(otro)
         guardar(c)
-        r = [aviso("%s agregado a tus amigos." % partes[1], conexion)]
-        if n:
-            r.append(aviso("%s te agregó como amigo." % yo, n))
-        return r
+        if c["nombre"] in suyos:                            # (el otro ya me la había mandado: amigos los dos)
+            r = [aviso("%s y tú ahora son amigos." % partes[1], conexion)]
+            if n:
+                r.append(aviso("%s aceptó: ahora son amigos." % yo, n))
+        else:
+            r = [aviso("Solicitud de amistad enviada a %s." % partes[1], conexion)]
+            if n:
+                r.append(aviso("%s te envió una solicitud de amistad (Messenger → Requests)." % yo, n))
+        return r + listas_ya(c["nombre"], otro)
+    if sub in ("aceptar", "rechazar"):
+        otro = buscar(partes[1])[0] if len(partes) >= 2 else None
+        if not otro or c["nombre"] not in amigos_de(otro) or otro in c.get("amigos", []):
+            return [aviso("No tienes una solicitud de %s." % (partes[1] if len(partes) >= 2 else "nadie"), conexion)]
+        n = conexion_de(otro)
+        if sub == "aceptar":
+            c.setdefault("amigos", []).append(otro)
+            guardar(c)
+            r = [aviso("%s y tú ahora son amigos." % partes[1], conexion)]
+            if n:
+                r.append(aviso("%s aceptó tu solicitud: ahora son amigos." % yo, n))
+        else:
+            cambiar_amigos(otro, quitar=c["nombre"])
+            r = [aviso("Rechazaste la solicitud de %s." % partes[1], conexion)]
+            if n:
+                r.append(aviso("%s rechazó tu solicitud de amistad." % yo, n))
+        return r + listas_ya(c["nombre"], otro)
     if sub in ("quitar", "borrar"):
         otro = buscar(partes[1])[0] if len(partes) >= 2 else None
-        if not otro or otro not in c.get("amigos", []):
+        mio = otro in c.get("amigos", [])
+        if not otro or not (mio or c["nombre"] in amigos_de(otro)):
             return [aviso("Uso: /quitar <nick de un amigo>", conexion)]
-        c["amigos"].remove(otro)
-        guardar(c)
-        return [aviso("%s quitado de tus amigos." % partes[1], conexion)]
+        era_amigo = mio and c["nombre"] in amigos_de(otro)
+        if mio:
+            c["amigos"].remove(otro)
+            guardar(c)
+        cambiar_amigos(otro, quitar=c["nombre"])            # (la amistad, de los DOS lados)
+        n = conexion_de(otro)
+        r = [aviso(("%s quitado de tus amigos." if era_amigo else "Solicitud con %s cancelada.") % partes[1], conexion)]
+        if n and era_amigo:
+            r.append(aviso("%s te quitó de sus amigos." % yo, n))
+        return r + listas_ya(c["nombre"], otro)
     if sub in ("m", "w", "mp", "susurro"):
         if len(partes) < 3:
             return [aviso("Uso: /m <nick> <mensaje>", conexion)]
@@ -203,19 +304,30 @@ def comando(texto, conexion, c):
                 return [aviso("%s no está conectado: el mensaje no se envió (las conversaciones duran sólo la sesión)."
                               % partes[1], conexion)]
             return [aviso("%s no está conectado." % partes[1], conexion)]
-        if otro and otro != c["nombre"]:
+        # ★ (17-nov) entre AMIGOS (de los dos lados) el mensaje es del Messenger: en memoria (la sesión) y como H a
+        #   cada lado que tiene la dll; a ese lado NO va además al chat del juego (antes llegaba dos veces). Entre
+        #   no amigos, o a un cliente sin la dll, el mensaje privado del chat de siempre (compatibilidad).
+        dll = msn_dll()
+        if otro and otro != c["nombre"] and son_amigos(c["nombre"], otro):
             registrar_mensaje(c["nombre"], otro, partes[2])  # ★ la conversación del Messenger (F11), en memoria
             h = "H\t%s\t%s\t%s\t%s" % (c["nombre"], otro, time.strftime("%H:%M"), _limpio(partes[2]))
-            al_msn = [dato_msn(h, x) for x in (conexion, n) if x is not None and x in msn_dll()]
+            al_msn = [dato_msn(h, x) for x in (conexion, n) if x is not None and x in dll]
         b = partes[2].encode("utf-16-le")
 
         def privado(nombre, destino):
             nom = nombre.encode("utf-16-le")[:24].ljust(26, b"\0")
             return (0x1005, struct.pack("<HBII", 0, 1, 0xFFFFFFFF, 0) + nom + struct.pack("<I", len(b)) + b,
                     0, destino)
-        return al_msn + [privado("[de %s]" % yo, n), privado("[a %s]" % partes[1], conexion)]
+        r = list(al_msn)
+        if not al_msn or n not in dll:
+            r.append(privado("[de %s]" % yo, n))
+        if not al_msn or conexion not in dll:
+            r.append(privado("[a %s]" % partes[1], conexion))
+        return r
     if sub == "msn":                                        # ★ el Messenger de la dll (no lo escribe una persona)
-        return msn_abrir(conexion, c) if len(partes) >= 2 and partes[1].lower() == "abrir" else []
+        # «hola»: la dll avisa al entrar al lobby que está (así los mensajes y las solicitudes le llegan aunque el
+        #   Messenger no se haya abierto todavía); «abrir»: al abrir la ventana. Las dos: la lista (y la historia).
+        return msn_abrir(conexion, c) if len(partes) >= 2 and partes[1].lower() in ("abrir", "hola") else []
     ayuda = aviso("Messenger: /amigos · /amigo <nick> · /quitar <nick> · /m <nick> <mensaje>", conexion)
     if sub == "clan":                                       # ★ el botón Clan del lobby
         return [aviso("Clan: en la beta de 2009 no existía (el cliente no trae sus pantallas). "

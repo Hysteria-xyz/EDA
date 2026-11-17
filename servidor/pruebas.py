@@ -1457,10 +1457,32 @@ def pruebas_messenger(chequear):
     chequear("messenger: /amigos sin amigos → un aviso sólo al que pregunta",
              textos(r, 301) and not textos(r, 302))
     r = responder(0x100D, chat_("/amigo %s" % nom_b), 301)
-    chequear("/amigo %s → guardado, y al otro le llega el aviso" % nom_b,
-             leer(301).get("amigos") == [nom_b] and any("te agregó como amigo" in t for t in textos(r, 302)))
+    chequear("/amigo %s → la SOLICITUD (guardada), y al otro le llega el aviso" % nom_b,
+             leer(301).get("amigos") == [nom_b] and any("solicitud de amistad" in t for t in textos(r, 302)))
     chequear("★ el revés: /amigo de alguien que no existe no agrega",
              responder(0x100D, chat_("/amigo nadie_xyz"), 301) and leer(301)["amigos"] == [nom_b])
+    # ★ (17-nov) solicitudes con aceptación
+    from servidor import messenger as _m
+    cu = _m.estado()["cuentas"]
+    chequear("solicitud: el que la mandó la ve como E, el otro como R; ninguno como A",
+             ("\nE\t%s\t" % nom_b) in _m.lista_msn(cu, nom_a) and ("\nR\t%s\t" % nom_a) in _m.lista_msn(cu, nom_b)
+             and "\nA\t" not in _m.lista_msn(cu, nom_a) + _m.lista_msn(cu, nom_b))
+    r = responder(0x100D, chat_("/amigo %s" % nom_b), 301)
+    chequear("★ el revés: la misma solicitud otra vez → «pendiente», sin duplicar",
+             any("pendiente" in t for t in textos(r, 301)) and leer(301)["amigos"] == [nom_b])
+    r = responder(0x100D, chat_("/amigo %s" % nom_a), 301)
+    chequear("★ el revés: agregarse a uno mismo no se puede", leer(301)["amigos"] == [nom_b])
+    r = responder(0x100D, chat_("/rechazar %s" % nom_a), 302)
+    chequear("/rechazar → la solicitud desaparece (de la lista del que la mandó) y le llega el aviso",
+             leer(301).get("amigos") == [] and any("rechazó" in t for t in textos(r, 301)))
+    responder(0x100D, chat_("/amigo %s" % nom_b), 301)
+    r = responder(0x100D, chat_("/aceptar %s" % nom_a), 302)
+    cu = _m.estado()["cuentas"]
+    chequear("/aceptar → amigos los DOS (A en las dos listas) y al que la mandó le llega el aviso",
+             leer(302).get("amigos") == [nom_a] and ("\nA\t%s\t" % nom_b) in _m.lista_msn(cu, nom_a)
+             and ("\nA\t%s\t" % nom_a) in _m.lista_msn(cu, nom_b) and any("aceptó" in t for t in textos(r, 301)))
+    chequear("★ el revés: aceptar una solicitud que no existe → aviso, nada cambia",
+             responder(0x100D, chat_("/aceptar %s" % nom_a), 302) and leer(302)["amigos"] == [nom_a])
     r = responder(0x100D, chat_("/amigos"), 301)
     chequear("/amigos → conectado, en el lobby", any("conectado, en el lobby" in t for t in textos(r, 301)),
              textos(r, 301))
@@ -1486,6 +1508,13 @@ def pruebas_messenger(chequear):
     chequear("dll: un /m llega como H al que tiene la dll (y el chat sigue igual)",
              [x.split("\t")[4] for x in msn(r, 301)] == ["otra vez"] and textos(r, 302)[-1] == "otra vez")
     chequear("dll: sin cambios, el tick no manda la lista otra vez", not msn(tick([301, 302]), 301))
+    r = responder(0x100D, chat_("/msn hola"), 302)
+    chequear("dll: «/msn hola» (al entrar al lobby) → la lista, sin abrir la ventana",
+             msn(r, 302) and msn(r, 302)[0].startswith("L\t%s\t" % nom_b))
+    r = responder(0x100D, chat_("/m %s con las dos dll" % nom_b), 301)
+    chequear("★ entre amigos con la dll: el mensaje SÓLO por el Messenger (H a los dos), nada duplicado en el chat",
+             [x.split("\t")[4] for x in msn(r, 302)] == ["con las dos dll"] and not textos(r, 302)
+             and [x.split("\t")[4] for x in msn(r, 301)] == ["con las dos dll"] and not textos(r, 301))
     r = responder(0x100D, chat_("/clan"), 301)
     chequear("botón Clan (/clan) → un aviso", any(t.startswith("Clan:") for t in textos(r, 301)))
     r = responder(0x100D, chat_("/opciones"), 301)
@@ -1509,19 +1538,21 @@ def pruebas_messenger(chequear):
     chequear("sesión: nada se escribe en messenger_chat.jsonl", not os.path.exists(messenger.ruta_chat()))
     chequear("sesión: el que se fue ya no ve la conversación; el que sigue, sí",
              not messenger.historia_msn(nom_b)
-             and [x.split("\t")[4] for x in messenger.historia_msn(nom_a)] == ["hola amigo", "otra vez"],
+             and [x.split("\t")[4] for x in messenger.historia_msn(nom_a)] == ["hola amigo", "otra vez", "con las dos dll"],
              messenger.historia_msn(nom_a))
     # ★ el PANEL (EDA-Messenger.py): estado y pedidos por archivo; el otro vuelve a conectarse
     from servidor import messenger
     responder(0x1017, b"", 302)
     responder(0x100D, chat_("/quitar %s" % nom_b), 301)
+    chequear("DELETE (/quitar) saca la amistad de las DOS listas (también la del otro)",
+             nom_b not in leer(301).get("amigos", []) and nom_a not in leer(302).get("amigos", []))
     with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
         f.write(json.dumps({"de": nom_a, "accion": "amigo", "nick": nom_b}) + "\n")
         f.write(json.dumps({"de": nom_a, "accion": "mensaje", "nick": nom_b, "texto": "hola desde el panel"}) + "\n")
         f.write("esto no es json\n")
     t = tick([301, 302])
-    chequear("panel: el pedido «amigo» agrega y avisa al otro",
-             leer(301).get("amigos") == [nom_b] and any("te agregó" in x for x in textos(t, 302)))
+    chequear("panel: el pedido «amigo» manda la solicitud y avisa al otro",
+             leer(301).get("amigos") == [nom_b] and any("solicitud" in x for x in textos(t, 302)))
     chequear("panel: el pedido «mensaje» le llega al otro", "hola desde el panel" in textos(t, 302))
     chequear("panel: los pedidos se consumen", not os.path.exists(messenger.ruta_pedidos()))
     est = json.load(open(messenger.ruta_estado(), encoding="utf-8"))["cuentas"]

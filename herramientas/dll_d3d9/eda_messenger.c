@@ -22,6 +22,11 @@
 
 typedef struct { WCHAR cuenta[24], nick[24], donde[48]; int nivel, clase, conectado, sin_leer; } MSN_AMIGO;
 typedef struct { WCHAR de[24], a[24], hora[8], texto[160]; } MSN_MSG;
+/* ★ (17-nov) las solicitudes de amistad (del server, en la misma lista: R = recibidas, E = enviadas pendientes) */
+#define MSN_SOLS 12
+typedef struct { WCHAR cuenta[24], nick[24]; } MSN_SOL;
+static MSN_SOL g_msn_rec[MSN_SOLS], g_msn_env[MSN_SOLS];
+static int g_msn_nrec, g_msn_nenv;
 
 static CRITICAL_SECTION g_msn_cs;
 static int g_msn_cs_lista;
@@ -120,7 +125,7 @@ static void msn_recibir(WCHAR *t)
             MSN_AMIGO viejos[MSN_AMIGOS];
             int nv = g_msn_nam;
             memcpy(viejos, g_msn_am, sizeof(viejos));
-            g_msn_nam = 0;
+            g_msn_nam = g_msn_nrec = g_msn_nenv = 0;
             lstrcpynW(g_msn_yo, f[1], 24);
             lstrcpynW(g_msn_yo_nick, f[2], 24);
             g_msn_yo_nivel = _wtoi(f[3]);
@@ -133,7 +138,12 @@ static void msn_recibir(WCHAR *t)
                 WCHAR *sig2 = *fin2 ? fin2 + 1 : NULL;
                 *fin2 = 0;
                 WCHAR *a[7];
-                if (msn_campos(l2, a, 7) >= 7 && a[0][0] == L'A' && g_msn_nam < MSN_AMIGOS) {
+                int na = msn_campos(l2, a, 7);
+                if (na >= 3 && (a[0][0] == L'R' || a[0][0] == L'E')) {     /* una solicitud: cuenta, nick */
+                    MSN_SOL *q = a[0][0] == L'R' ? (g_msn_nrec < MSN_SOLS ? &g_msn_rec[g_msn_nrec++] : NULL)
+                                                 : (g_msn_nenv < MSN_SOLS ? &g_msn_env[g_msn_nenv++] : NULL);
+                    if (q) { lstrcpynW(q->cuenta, a[1], 24); lstrcpynW(q->nick, a[2], 24); }
+                } else if (na >= 7 && a[0][0] == L'A' && g_msn_nam < MSN_AMIGOS) {
                     MSN_AMIGO *x = &g_msn_am[g_msn_nam++];
                     lstrcpynW(x->cuenta, a[1], 24);
                     lstrcpynW(x->nick, a[2], 24);
@@ -176,7 +186,8 @@ static void msn_recibir(WCHAR *t)
 }
 
 /* ════════════════════════════════ LA VENTANA ════════════════════════════════ */
-enum { M_X = 1, M_PESTANA, M_FILA, M_ADD, M_CHAT, M_DEL, M_ENVIAR, M_CERRAR_CHAT, M_SI, M_NO };
+enum { M_X = 1, M_PESTANA, M_FILA, M_ADD, M_CHAT, M_DEL, M_ENVIAR, M_CERRAR_CHAT, M_SI, M_NO, M_ACEPTAR, M_RECHAZAR,
+       M_CANCELAR };
 typedef struct { RECT r; int tipo, id; } MCTL;
 static MCTL g_mctl[48];
 static int g_nmctl, g_mencima = -1;
@@ -273,18 +284,40 @@ static void msn_pintar(HDC d)
     wsprintfW(donde, L"%s · %s", m_clase(g_msn_yo_clase), g_msn_yo_donde[0] ? g_msn_yo_donde : L"en línea");
     texto(d, ML0 + 8, MT0 + 37, g_msn_hay_lista ? donde : L"pidiendo la lista al server…", CIAN, F_CHICA, 0);
     /* las pestañas y el contador */
-    m_pestana(d, ML0, MT0 + 62, 90, 24, L"Friends", g_msn_pestana == 0, 0);
-    m_pestana(d, ML0 + 91, MT0 + 62, 90, 24, L"Online", g_msn_pestana == 1, 1);
+    /* (17-nov) tres pestañas: Friends · Online (cuántos) · Requests (las solicitudes; punto rojo si hay recibidas) */
     int conectados = 0;
     for (int i = 0; i < g_msn_nam; i++) conectados += g_msn_am[i].conectado != 0;
-    WCHAR cont[24];
-    wsprintfW(cont, L"%d / %d", conectados, g_msn_nam);
-    texto(d, ML1 - 4 - 40, MT0 + 67, cont, GRIS, F_CHICA, 0);
+    WCHAR on[24], rq[24];
+    wsprintfW(on, L"Online %d", conectados);
+    wsprintfW(rq, g_msn_nrec ? L"Requests %d" : L"Requests", g_msn_nrec);
+    m_pestana(d, ML0, MT0 + 62, 70, 24, L"Friends", g_msn_pestana == 0, 0);
+    m_pestana(d, ML0 + 71, MT0 + 62, 72, 24, on, g_msn_pestana == 1, 1);
+    m_pestana(d, ML0 + 144, MT0 + 62, ML1 - ML0 - 144, 24, rq, g_msn_pestana == 2, 2);
+    if (g_msn_nrec) ovalo(d, ML1 - 9, MT0 + 64, ML1 - 3, MT0 + 70, 0xd21f1f, 0xffffff);
     /* la lista (conectados primero) */
     caja(d, ML0, MLISTA0 - 4, ML1, MLISTA1, ACERO);
     caja(d, ML0 + 1, MLISTA0 - 3, ML1 - 1, MLISTA1 - 1, PANEL);
     int y = MLISTA0, mostrados = 0, saltar = g_msn_scroll;
-    for (int pasada = 0; pasada < 2; pasada++)
+    if (g_msn_pestana == 2) {                                     /* ★ las solicitudes */
+        for (int i = 0; i < g_msn_nrec && y + 36 <= MLISTA1 - 2; i++, y += 38, mostrados++) {
+            caja(d, ML0 + 4, y, ML1 - 4, y + 36, 0x14100a);
+            borde(d, ML0 + 4, y, ML1 - 5, y + 35, ORO);
+            WCHAR t[64];
+            wsprintfW(t, L"%s te envió una solicitud", g_msn_rec[i].nick);
+            texto(d, ML0 + 10, y + 3, t, TEXTO, F_CHICA, 0);
+            m_boton(d, ML0 + 10, y + 17, 84, 17, L"ACEPTAR", TEAL, M_ACEPTAR, i);
+            m_boton(d, ML0 + 100, y + 17, 90, 17, L"RECHAZAR", GRANATE, M_RECHAZAR, i);
+        }
+        if (g_msn_nenv && y + 18 <= MLISTA1 - 2) { texto(d, ML0 + 8, y + 2, L"Enviadas (pendientes):", GRIS, F_CHICA, 0); y += 18; }
+        for (int i = 0; i < g_msn_nenv && y + 24 <= MLISTA1 - 2; i++, y += 26, mostrados++) {
+            caja(d, ML0 + 4, y, ML1 - 4, y + 24, 0x0b0c0e);
+            borde(d, ML0 + 4, y, ML1 - 5, y + 23, ACERO_OSCURO);
+            texto(d, ML0 + 10, y + 5, g_msn_env[i].nick, GRIS, F_BOLD, 0);
+            texto(d, ML0 + 96, y + 6, L"esperando…", 0x55595f, F_CHICA, 0);
+            m_boton(d, ML1 - 4 - 60, y + 3, 56, 18, L"CANCEL", ACERO_E, M_CANCELAR, i);
+        }
+    }
+    for (int pasada = 0; pasada < 2 && g_msn_pestana != 2; pasada++)
         for (int i = 0; i < g_msn_nam; i++) {
             MSN_AMIGO *a = &g_msn_am[i];
             if ((pasada == 0) != (a->conectado != 0)) continue;
@@ -319,7 +352,8 @@ static void msn_pintar(HDC d)
     if (!mostrados && !g_msn_scroll)
         parrafo(d, ML0 + 14, MLISTA0 + 16, ML1 - ML0 - 28,
                 !g_msn_hay_lista ? L"Esperando la lista del server…"
-                : g_msn_pestana == 0 ? L"Sin amigos todavía.\nEscribe un nick y pulsa ADD." : L"Nadie conectado.",
+                : g_msn_pestana == 0 ? L"Sin amigos todavía.\nEscribe un nick y pulsa ADD (le llega una solicitud)."
+                : g_msn_pestana == 1 ? L"Nadie conectado." : L"No hay solicitudes.",
                 GRIS, F_CHICA);
     /* agregar / chat / quitar */
     caja(d, ML0 + 4, MENTRADA_Y, ML1 - 4 - 62, MENTRADA_Y + 26, ACERO);
@@ -408,6 +442,33 @@ static void msn_agregar(void)
     WCHAR a[80];
     wsprintfW(a, L"Pedido: agregar a %s", nick);
     msn_avisar(a);
+}
+/* ★ (17-nov) las solicitudes: ACEPTAR / RECHAZAR (recibidas) y CANCEL (enviadas) → el server; la lista nueva llega
+ *   sola (el server la manda enseguida a los dos) */
+static void msn_solicitud(int tipo, int i)
+{
+    WCHAR cmd[64], av[96], q[24], nk[24];
+    EnterCriticalSection(&g_msn_cs);
+    MSN_SOL *s = tipo == M_CANCELAR ? (i < g_msn_nenv ? &g_msn_env[i] : NULL) : (i < g_msn_nrec ? &g_msn_rec[i] : NULL);
+    q[0] = 0;
+    if (s) { lstrcpynW(q, s->cuenta, 24); lstrcpynW(nk, s->nick, 24); }
+    LeaveCriticalSection(&g_msn_cs);
+    if (!q[0]) return;
+    wsprintfW(cmd, tipo == M_ACEPTAR ? L"/aceptar %s" : tipo == M_RECHAZAR ? L"/rechazar %s" : L"/quitar %s", q);
+    msn_encolar(cmd);
+    wsprintfW(av, tipo == M_ACEPTAR ? L"Aceptando a %s…" : tipo == M_RECHAZAR ? L"Rechazando a %s…" : L"Cancelando la solicitud a %s…", nk);
+    msn_avisar(av);
+    if (g_diagnostico) apuntar("  (diag) messenger: solicitud de %s → %s", msn_u8(q),
+                               tipo == M_ACEPTAR ? "ACEPTAR" : tipo == M_RECHAZAR ? "RECHAZAR" : "CANCEL");
+}
+/* al entrar al lobby (mi_unir_lobby, hilo del juego): «estoy» → el server manda la lista y, desde ahí, los mensajes
+ *   y las solicitudes le llegan a la dll aunque el Messenger no se haya abierto (los no leídos se cuentan) */
+static void msn_saludar(void)
+{
+    if (!g_mz_messenger) return;
+    msn_listo();
+    msn_encolar(L"/msn hola");
+    if (g_diagnostico) apuntar("  (diag) messenger: al lobby → «/msn hola» (la dll recibe mensajes y solicitudes)");
 }
 /* DELETE: primero la pregunta (msn_quitar); SÍ manda el pedido (msn_quitar_si); NO / Esc no toca nada */
 static void msn_quitar(void)
@@ -557,6 +618,7 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         case M_SI: msn_quitar_si(); break;
         case M_NO: msn_quitar_no(); break;
         case M_CERRAR_CHAT: msn_chat_cerrar(); break;
+        case M_ACEPTAR: case M_RECHAZAR: case M_CANCELAR: msn_solicitud(c.tipo, c.id); break;
         case M_ENVIAR: msn_enviar(); break;
         }
         msn_ajustar_edit(v);
