@@ -1950,6 +1950,10 @@ def pruebas_salida_stage(chequear):
     responder(0x1074, b"\0", 702)                     # el invitado abandona; el anfitrión sigue
     chequear("★ salida: abandona el invitado y el anfitrión sigue → la sala sigue «Playing» (no se entra)",
              SALAS[num].get("jugando") is True)
+    from servidor.juego import tick
+    lista = [x for x in tick([701, 702]) if x[0] == 0x101C and x[3] == 702]
+    chequear("salida: el lobby la ve «Playing» (estado 2) con 1 jugador (como el 12:54:17 medido)",
+             lista and lista[0][1][4 + 4 + 0x2D] == 2 and lista[0][1][4 + 4 + 0x2E] == 1)
     r = responder(0x101F, struct.pack("<IH", 0, num) + bytes(20), 702)
     chequear("★ salida: el que se fue NO puede volver a entrar mientras el otro juega (sin 0x1059 al que juega)",
              r[0][0] == 0x1020 and r[0][1][:2] == b"\0\0" and not any(len(x) > 3 and x[3] == 701 for x in r)
@@ -1962,7 +1966,15 @@ def pruebas_salida_stage(chequear):
     responder(0x1064, b"", 701)
     chequear("salida: termina el último que jugaba → la sala vuelve a «Waiting» con él solo",
              SALAS[num].get("jugando") is False and SALAS[num]["miembros"] == [701])
+    lista = [x for x in tick([701, 702]) if x[0] == 0x101C and x[3] == 702]
+    chequear("★ salida: el lobby RECIBE la lista nueva (0x101C) con la sala en «Waiting» (estado 1) y 1 jugador",
+             lista and lista[0][1][4 + 4 + 0x2D] == 1 and lista[0][1][4 + 4 + 0x2E] == 1,
+             lista[0][1][4 + 4 + 0x2D:4 + 4 + 0x2F].hex() if lista else "sin 0x101C")
+    r = responder(0x1025, b"", 702)
+    chequear("salida: con la sala en «Waiting», Quick Join sí entra", struct.unpack_from("<HH", r[0][1]) == (1, num))
     chequear("salida: … y como anfitrión solo puede largar (F9)", any(x[0] == 0x104F for x in responder(0x104E, b"", 701)))
+    from servidor.salas import lista_salas
+    chequear("salida: tras largar, la lista dice «Playing» (estado 2)", lista_salas()[4 + 4 + 0x2D] == 2)
     responder(0x1074, b"\0", 701)
     # «Cancel» al revivir (0x106A con 0) → 0x1075: también sale de la sala
     responder(0x101D, b"\0\0\0\0" + bytes(sala), 703)

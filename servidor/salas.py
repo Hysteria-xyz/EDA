@@ -6,7 +6,7 @@ import struct
 from servidor import config
 from servidor.config import P
 from servidor.registro import maneja
-from servidor.estado import ASIGNADAS, SALAS, partida, numero, dar_numero, de_numero
+from servidor.estado import ASIGNADAS, SALAS, VIVO, partida, numero, dar_numero, de_numero
 from servidor.cuentas import leer, nivel, nombre_visible, guardar, EXPS, INICIO
 from servidor.objetos import equipo_tipos, obj_habilidad, personaje_obj
 from servidor import relay
@@ -226,8 +226,9 @@ def _sacar_de_sala(s, num, conexion):
     s.get("listos", set()).discard(conexion)
     if "en_stage" in s:                                 # (Punto 3: si era el último en la stage, se reabre)
         s["en_stage"].discard(conexion)
-        if not s["en_stage"]:
+        if not s["en_stage"] and s.get("jugando"):
             s["jugando"] = False
+            VIVO.LISTA_CAMBIO = True                    # (que el lobby la vea «Waiting»)
     if not s["miembros"]:
         del SALAS[num]
         return []

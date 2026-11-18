@@ -83,6 +83,12 @@ def termino_su_stage(s, conexion):
         return
     s.setdefault("en_stage", set()).discard(conexion)
     if not (s["en_stage"] & set(s["miembros"])):
+        if s.get("jugando"):
+            # ★ (Punto 3, 18-nov 12:58) el lobby se ENTERA de que vuelve a «Waiting» (con el próximo tick, como
+            #   cualquier cambio de la lista). Antes el server la reabría pero no mandaba la lista: el lobby
+            #   la siguió viendo «Playing» (última lista 12:54:17, la stage terminó 12:58:03, nada hasta 12:58:42)
+            from servidor.estado import VIVO
+            VIVO.LISTA_CAMBIO = True
         s["jugando"] = False
         s.setdefault("cargados", set()).clear()
 
