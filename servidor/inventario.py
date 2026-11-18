@@ -4,7 +4,7 @@ pociones) y el reparto de estadísticas, que manda todo junto al irse de la pant
 import struct
 
 from servidor.registro import maneja
-from servidor.estado import ASIGNADAS, SALAS
+from servidor.estado import ASIGNADAS, SALAS, numero
 from servidor.cuentas import guardar, leer
 from servidor.objetos import inventario, obj_equipo, obj_stats, stats_de
 from servidor.salas import miembro
@@ -93,15 +93,25 @@ def guardar_inventario(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if s and conexion in s["miembros"]:
         # ★ vino de la SALA (0x104C): MODO 9 (`0x54D096`) = los 0x63 B del 0x1020 sin su u16
-        #   (u8 +0x705 · u8 +0x706 · u8 · vt · u8 · u8 · la sala · u8 N) + N miembros de 0x32C
-        #   (🟡 todos, el propio incluido: `0x61C9E0` vacía la lista antes) → pantalla 5
-        yo = s["miembros"].index(conexion)
+        #   (u8 +0x705 · u8 +0x706 · u8 +0x29D anfitrión · vt · u8 +0x2DE · u8 +0x2DF · la sala · u8 N)
+        #   + N miembros de 0x32C → pantalla 5. `0x61C9E0` vacía la lista y `0x61D0B0` agrega los N
+        #   SIN saltear al propio.
+        # ⛔ (Punto 3, 18-nov) antes iban TODOS, el propio incluido: el jugador quedaba en su propia lista
+        #   de «los otros» con +0x322 = 0, y al volver del inventario el anfitrión —aunque estuviera
+        #   SOLO— no podía largar: `0x61C170` pide listo a cada uno de esa lista → cartel 0x191 «All users
+        #   must be ready to start the game». Medido en los diagnósticos: 7 de 7 veces que salió este
+        #   0x102E de 1010 B (un miembro = él mismo) no hubo largada después (salió de la sala, 0x1045).
+        #   Ahora, como el 0x1020: sólo los OTROS, con su listo, y el anfitrión con su número.
+        yo = numero(s, conexion)
+        otros = [n for n in s["miembros"] if n != conexion]
+        listos = s.get("listos", set())
         sala = bytearray(s["sala"])
         sala[0x2D], sala[0x2E] = 1, len(s["miembros"])
-        datos = (struct.pack("<BBBIBB", yo, yo, 0, 0x89A3B8, 0, 0) + bytes(sala)
-                 + bytes([len(s["miembros"])])
-                 + b"".join(miembro(leer(n), s["miembros"].index(n), conexion=n, para=conexion)
-                            for n in s["miembros"]))
+        datos = (struct.pack("<BBBIBB", yo, yo, numero(s, s["anfitrion"]), 0x89A3B8,
+                             1 if conexion in listos else 0, 0) + bytes(sala)
+                 + bytes([len(otros)])
+                 + b"".join(miembro(leer(n), numero(s, n), conexion=n, para=conexion, listo=n in listos)
+                            for n in otros))
         r = [(0x102E, struct.pack("<HB", 1, 9) + datos + cola, 0)]
         from servidor.salas import aviso_equipo_105b
         msg_5b = aviso_equipo_105b(c, yo)

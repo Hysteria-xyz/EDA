@@ -9,7 +9,7 @@ import time
 
 from servidor import config
 from servidor.registro import maneja
-from servidor.estado import SALAS, partida
+from servidor.estado import SALAS, partida, numero
 from servidor.cuentas import guardar, nivel
 from servidor.datos import ESCENARIOS, NADA, PRECIOS, RANKRATE, puntos_de, tabla_premios
 from servidor.objetos import inventario, libre_en_bolsa, registro_item, serial_nuevo
@@ -91,7 +91,7 @@ def game_over(c, p, conexion):
 def numero_jugador(conexion):
     """El número de jugador en su sala (el que el cliente tiene en cuenta+0x705); solo = 0."""
     s = SALAS.get(partida(conexion).get("sala"))
-    return s["miembros"].index(conexion) if s and conexion in s["miembros"] else 0
+    return numero(s, conexion) if s and conexion in s["miembros"] else 0
 
 
 def cuerpo_1072(conexion, p):
@@ -99,7 +99,7 @@ def cuerpo_1072(conexion, p):
     (u8 jugador · u8 1 = «cobra el premio de la stage»). Con [0, 0] (lo de antes) el cliente
     mostraba Gold 0 / Exp 0. Cada jugador de la sala con su 1."""
     s = SALAS.get(p.get("sala"))
-    jugadores = (range(len(s["miembros"])) if s and conexion in s["miembros"]
+    jugadores = ([numero(s, n) for n in s["miembros"]] if s and conexion in s["miembros"]
                  else [numero_jugador(conexion)])
     return struct.pack("<IB", p.get("escenario", 0), len(jugadores)) + b"".join(
         struct.pack("<BB", j, 1) for j in jugadores)
@@ -121,16 +121,16 @@ def termino_de_cargar(cmd, cuerpo, conexion, c, p):
     def activar(destinos, total):
         if not os.path.exists(os.path.join(config.ESTADO, "con_106c")):
             return []
-        return [(0x106C, struct.pack("<BB", i, i), 0, n) for n in destinos for i in range(total)]
+        return [(0x106C, struct.pack("<BB", i, i), 0, n) for n in destinos for i in total]
     # ★ con varios: la largada (0x105E) recién cuando cargaron TODOS, y a todos juntos
     s = SALAS.get(p.get("sala"))
     if s and len(s["miembros"]) > 1:
         s.setdefault("cargados", set()).add(conexion)
         if set(s["miembros"]) <= s["cargados"]:
             return ([(0x105E, struct.pack("<HI", 1, 600), 0, n) for n in s["miembros"]]
-                    + activar(s["miembros"], len(s["miembros"])))
+                    + activar(s["miembros"], [numero(s, m) for m in s["miembros"]]))
         return []
-    return [(0x105E, struct.pack("<HI", 1, 600), 0)] + activar([conexion], 1)
+    return [(0x105E, struct.pack("<HI", 1, 600), 0)] + activar([conexion], [numero_jugador(conexion)])
 
 
 @maneja(0x1061)
@@ -164,7 +164,7 @@ def le_pegaron(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     r = []
     if s and conexion in s["miembros"] and len(s["miembros"]) > 1:
-        yo = s["miembros"].index(conexion)
+        yo = numero(s, conexion)
         # 0x1062 (16 B, 0x547440): u32 jugador_id · u32 0 · u16 HP · u8 0 · u32 MP · u8 buffs
         hp = struct.unpack_from("<H", cuerpo, 1)[0] if len(cuerpo) >= 3 else 1000
         msg_62 = struct.pack("<IIHBI B", yo, 0, hp, 0, 100, 0)
@@ -209,7 +209,7 @@ def interactuar_objeto(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"]:
         return []
-    yo = s["miembros"].index(conexion)
+    yo = numero(s, conexion)
     msg = struct.pack("<BIB", yo, obj_id, 1)
     return [(0x1066, msg, 0, m) for m in s["miembros"]]
 
@@ -303,7 +303,7 @@ def usar_moneda(cmd, cuerpo, conexion, c, p):
     r = [(0x106B, struct.pack("<HBHB", 1, 1 if si else 0, c["monedas"], 0), 0)]
     s = SALAS.get(p.get("sala"))
     if si and s and conexion in s["miembros"] and len(s["miembros"]) > 1:
-        yo = s["miembros"].index(conexion)
+        yo = numero(s, conexion)
         msg_otro = struct.pack("<HBHB", 1, 2, c["monedas"], yo)
         for m in s["miembros"]:
             if m != conexion:

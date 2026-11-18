@@ -31,7 +31,7 @@ if __package__ in (None, ""):                              # `py servidor\juego.
 from servidor import config                                  # noqa: E402
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO, partida   # noqa: E402
 from servidor.cuentas import NOMBRES, leer, ruta_cuenta, nivel   # noqa: E402
-from servidor.salas import avisar_lista, avisar_usuarios     # noqa: E402
+from servidor.salas import avisar_lista, avisar_usuarios, _sacar_de_sala     # noqa: E402
 from servidor.partida import cerrar_por_bajas, cuerpo_1072, fin_de_stage, game_over  # noqa: E402
 from servidor.registro import MANEJADORES                    # noqa: E402
 from servidor.relay import escribir_relay                    # noqa: E402
@@ -93,6 +93,8 @@ def tick(conexiones):
     if os.path.exists(forzar):
         os.remove(forzar)
         VIVO.LISTA_CAMBIO = True
+    avisos, VIVO.AVISOS_SALA = getattr(VIVO, "AVISOS_SALA", []), []
+    r += [x for x in avisos if x[3] in conexiones]          # (el «se fue» de los desconectados, ver `cerrada`)
     if getattr(VIVO, "LISTA_CAMBIO", False):
         VIVO.LISTA_CAMBIO = False
         r += avisar_lista() + avisar_usuarios()
@@ -123,14 +125,12 @@ def cerrada(conexion):
     nombre = ASIGNADAS.pop(conexion, None)
     if nombre:                                              # el aviso a sus amigos, con el tick
         messenger.al_salir(nombre)
+    # ★ (Punto 3) los que quedan en la sala se ENTERAN (0x1058 tipo 3, con el nuevo anfitrión), con el
+    #   próximo tick. Antes se lo sacaba sólo en el server: el cliente de los demás lo seguía teniendo en
+    #   la lista, «no listo», y el anfitrión —solo de verdad— no podía largar (cartel 0x191)
     for k in list(SALAS.keys()):
-        s = SALAS[k]
-        if conexion in s["miembros"]:
-            s["miembros"].remove(conexion)
-            if not s["miembros"]:
-                del SALAS[k]
-            elif s["anfitrion"] == conexion:
-                s["anfitrion"] = s["miembros"][0]
+        if conexion in SALAS[k]["miembros"]:
+            VIVO.AVISOS_SALA = getattr(VIVO, "AVISOS_SALA", []) + _sacar_de_sala(SALAS[k], k, conexion)
     escribir_relay()
     VIVO.LISTA_CAMBIO = True                               # salas y usuarios: uno menos
 

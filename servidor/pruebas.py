@@ -768,6 +768,7 @@ def control():
     SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301, 302]}
     partida(301)["sala"] = 55
     partida(302)["sala"] = 55
+    responder(0x1047, b"\1\1", 302)                    # (Punto 3: con varios, el invitado listo antes)
     r = responder(0x104E, b"", 301)
     chequear("0x104E como anfitrión emite 0x104F de inicio de partida",
              any(x[0] == 0x104F for x in r))
@@ -832,6 +833,7 @@ def control():
     responder(0x104B, struct.pack("<HI", 1, 1012), 301)
     chequear("actualizar_ajustes_sala tipo 1 sincroniza escenario en todos los miembros",
              partida(301).get("escenario") == 1012 and partida(302).get("escenario") == 1012)
+    responder(0x1047, b"\1\1", 302)                    # (Punto 3: con varios, el invitado listo antes)
     responder(0x104E, b"", 301)
     chequear("largar marca s['jugando'] = True", SALAS[55].get("jugando") is True)
     r = responder(0x104E, b"", 301)
@@ -961,6 +963,7 @@ def control():
                  struct.unpack_from("<H", r[0][1], 7)[0] == 1 and r[0][1][-13:] == obj_habilidad(d["habilidades"][0]))
     pruebas_inventario(chequear)
     pruebas_salir_stage(chequear)
+    pruebas_ready(chequear)
     pruebas_lista_servidores(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
@@ -1666,3 +1669,196 @@ def pruebas_messenger(chequear):
         f.write(json.dumps({"de": nom_a, "accion": "aviso", "texto": "Clan: reservado (F12)."}) + "\n")
     t = tick([301, 302])
     chequear("pedido «aviso» (F12) → una línea en el chat", textos(t, 301) == ["Clan: reservado (F12)."])
+
+
+class _ClienteSala:
+    """(Punto 3) Lo que el CLIENTE recuerda de su sala, como lo hace el exe (EDA_limpio 0799387e), para
+    probar el «All users must be ready» sin el juego: +0x706 = mi número · +0x29D = el del anfitrión ·
+    la lista de «los otros» (cuenta+0x240, de a 0x36F; cada uno por su número +4, con +0x322 listo y
+    +0x323). Quién la toca: 0x101E crear (`0x543500`: vacía) · 0x1020 entrar (`0x543640`: vacía y agrega
+    los N) · 0x1057 uno nuevo (`0x54F020`) · 0x1058 (`0x54FC80`: tipo 1 listo, tipo 2 +0x323, tipo 3 se
+    fue + nuevo anfitrión) · 0x102E modo 9 vuelta del inventario (`0x54D096`: vacía y agrega los N,
+    sin saltear a nadie) · 0x1073 resultado (`0x548AF0` → `0x61C200`: todos no listos) · 0x1075 y 0x1046
+    (vacían). F9 del anfitrión (`0x534B20`): larga sólo si `0x61C170` = todos listos y +0x323 en 0;
+    si no, el cartel 0x191 «All users must be ready to start the game»."""
+
+    def __init__(self):
+        self.yo = self.anfitrion = 0
+        self.otros = {}
+
+    def _miembro(self, m):
+        self.otros[m[4]] = [m[0x322], m[0x323]]
+
+    def recibe(self, cmd, b):
+        if cmd == 0x101E:
+            self.otros, self.yo, self.anfitrion = {}, b[3], b[4]
+        elif cmd == 0x1020:
+            self.otros, self.yo, self.anfitrion = {}, b[3], b[4]
+            n = b[2 + 9 + 0x59]
+            for k in range(n):
+                self._miembro(b[2 + 9 + 0x59 + 1 + 0x32C * k:])
+        elif cmd == 0x1057:
+            self._miembro(b[8:])
+        elif cmd == 0x1058:
+            ident, tipo, valor = struct.unpack_from("<BHB", b)
+            if tipo == 1 and ident in self.otros:
+                self.otros[ident][0] = valor
+            elif tipo == 2 and ident in self.otros:
+                self.otros[ident][1] = valor
+            elif tipo == 3:
+                self.otros.pop(ident, None)
+                self.anfitrion = valor
+        elif cmd == 0x102E and b[2] == 9:
+            h = b[3:]
+            self.yo, self.anfitrion, self.otros = h[1], h[2], {}
+            n = h[9 + 0x59]
+            for k in range(n):
+                self._miembro(h[9 + 0x59 + 1 + 0x32C * k:])
+        elif cmd == 0x1073:
+            for v in self.otros.values():
+                v[0] = v[1] = 0
+        elif cmd in (0x1075, 0x1046, 0x1054):
+            self.otros = {}
+
+    def f9(self):
+        """Lo que pasa al apretar F9: 'larga' (manda 0x104E), 'cartel' (0x191) o 'listo' (no es anfitrión)."""
+        if self.yo != self.anfitrion:
+            return "listo"
+        return "larga" if all(v == [1, 0] for v in self.otros.values()) else "cartel"
+
+
+def pruebas_ready(chequear):
+    """★ (Punto 3) «All users must be ready to start the game» con el cliente de arriba (sus reglas, del exe)."""
+    from servidor.juego import responder, cerrada, tick
+    from servidor.estado import SALAS, partida
+    clientes = {}
+
+    def mandar(cmd, cuerpo, conexion):
+        r = responder(cmd, cuerpo, conexion) or []
+        for x in r:
+            clientes.setdefault(x[3] if len(x) > 3 else conexion, _ClienteSala()).recibe(x[0], x[1])
+        return r
+
+    def f9(conexion):
+        """F9: si el cliente larga, el 0x104E al server; → (lo del cliente, lo que contestó el server)."""
+        que = clientes[conexion].f9()
+        r = mandar(0x104E, b"", conexion) if que == "larga" else []
+        if any(x[0] == 0x1050 for x in r):
+            que = "cartel (server 0x1050)"
+        return que, r
+
+    def limpiar(*conexiones):
+        for n in conexiones:
+            partida(n).pop("sala", None)
+            clientes.pop(n, None)
+
+    def reparto():                              # un 0x102D del inventario (sin cambios de verdad)
+        return b"\0" * 4 + struct.pack("<I6H", 0x89A368, 0, 0, 0, 0, 0, 0) + struct.pack("<HHH", 0, 0, 0)
+    sala = bytearray(0x59)
+    struct.pack_into("<H", sala, 4, 0xFFFF)
+    struct.pack_into("<I", sala, 0x28, 1011)
+    sala[0x2F] = 3
+    crear = b"\0\0\0\0" + bytes(sala)
+    entrar = lambda num: struct.pack("<IH", 0, num) + bytes(20)
+    for n in list(SALAS):
+        del SALAS[n]
+
+    # 1) SOLO: crear, al inventario, cambiar algo (0x102D → 0x102E modo 9), volver y F9
+    mandar(0x101D, crear, 601)
+    num = partida(601)["sala"]
+    chequear("ready: solo, recién creada → F9 larga", clientes[601].f9() == "larga")
+    mandar(0x104C, b"\0", 601)
+    r = mandar(0x102D, reparto(), 601)
+    m9 = next(x for x in r if x[0] == 0x102E)
+    chequear("★ ready: el 0x102E modo 9 de la vuelta del inventario NO trae al propio (N = 0 estando solo)",
+             m9[1][2] == 9 and m9[1][3 + 9 + 0x59] == 0, len(m9[1]))
+    que, r = f9(601)
+    chequear("★ ready: solo, después del inventario → F9 larga (antes: cartel «All users must be ready»)",
+             que == "larga" and any(x[0] == 0x104F for x in r), que)
+    for n in list(SALAS):
+        del SALAS[n]
+    limpiar(601)
+
+    # 2) DOS: el invitado no listo → cartel; listo → larga; tras el inventario del ANFITRIÓN, el listo del otro sigue
+    mandar(0x101D, crear, 601)
+    num = partida(601)["sala"]
+    mandar(0x101F, entrar(num), 602)
+    chequear("ready: dos, el invitado sin F9 → el anfitrión ve el cartel", f9(601)[0] == "cartel")
+    chequear("★ el revés: y el server tampoco larga si el cliente lo intentara (0x1050)",
+             any(x[0] == 0x1050 for x in responder(0x104E, b"", 601)))
+    mandar(0x1047, bytes([clientes[602].yo, 1]), 602)
+    mandar(0x104C, b"\0", 601)
+    mandar(0x102D, reparto(), 601)
+    chequear("ready: el anfitrión vuelve del inventario y el invitado sigue LISTO en su lista",
+             clientes[601].otros == {clientes[602].yo: [1, 0]}, clientes[601].otros)
+    # el invitado se va al inventario: se le apaga el listo y el anfitrión se entera
+    mandar(0x104C, b"\0", 602)
+    chequear("★ ready: el invitado al inventario → el anfitrión lo ve NO listo (cartel, no larga sin él)",
+             f9(601)[0] == "cartel")
+    mandar(0x102D, reparto(), 602)
+    mandar(0x1047, bytes([clientes[602].yo, 1]), 602)
+    que, r = f9(601)
+    chequear("ready: los dos listos → larga, y el 0x104F a los dos",
+             que == "larga" and sorted(x[3] for x in r if x[0] == 0x104F) == [601, 602], que)
+    chequear("ready: al largar, el server olvida los listos (la próxima vuelta, todos de nuevo)",
+             SALAS[num]["listos"] == set())
+    for n in list(SALAS):
+        del SALAS[n]
+    limpiar(601, 602)
+
+    # 3) DOS: el invitado se DESCONECTA → el anfitrión, solo, larga (antes quedaba un fantasma «no listo»)
+    mandar(0x101D, crear, 601)
+    num = partida(601)["sala"]
+    mandar(0x101F, entrar(num), 602)
+    cerrada(602)
+    for x in tick([601]):
+        clientes[601].recibe(x[0], x[1])
+    chequear("★ ready: el invitado se desconecta → sale de la lista del anfitrión (sin fantasma)",
+             clientes[601].otros == {} and SALAS[num]["miembros"] == [601], clientes[601].otros)
+    chequear("ready: … y el anfitrión, solo, larga", f9(601)[0] == "larga")
+    for n in list(SALAS):
+        del SALAS[n]
+    limpiar(601, 602)
+
+    # 4) DOS: se va el ANFITRIÓN → el que queda es anfitrión EN SU CLIENTE y larga solo
+    mandar(0x101D, crear, 601)
+    num = partida(601)["sala"]
+    mandar(0x101F, entrar(num), 602)
+    mandar(0x1045, b"", 601)
+    chequear("★ ready: se va el anfitrión → el otro queda anfitrión en su cliente (+0x29D = su +0x706)",
+             clientes[602].anfitrion == clientes[602].yo == 1, (clientes[602].anfitrion, clientes[602].yo))
+    chequear("ready: … y larga solo", f9(602)[0] == "larga")
+    for n in list(SALAS):
+        del SALAS[n]
+    limpiar(601, 602)
+
+    # 5) TRES: se va el del medio, después el último → el anfitrión no queda con un fantasma
+    mandar(0x101D, crear, 601)
+    num = partida(601)["sala"]
+    mandar(0x101F, entrar(num), 602)
+    mandar(0x101F, entrar(num), 603)
+    mandar(0x1045, b"", 602)
+    mandar(0x1047, bytes([clientes[603].yo, 1]), 603)
+    chequear("★ ready: tres, se fue el del medio: el «listo» del último le llega al anfitrión",
+             clientes[601].otros == {2: [1, 0]}, clientes[601].otros)
+    mandar(0x1045, b"", 603)
+    chequear("★ ready: … y cuando se va el último, la lista queda vacía (sin fantasma) y larga solo",
+             clientes[601].otros == {} and clientes[601].f9() == "larga", clientes[601].otros)
+    mandar(0x101F, entrar(num), 604)
+    chequear("ready: el que entra después toma el número libre más bajo y ve al anfitrión con su número",
+             clientes[604].yo == 1 and clientes[604].anfitrion == 0 and set(clientes[604].otros) == {0},
+             (clientes[604].yo, clientes[604].anfitrion, clientes[604].otros))
+    for n in list(SALAS):
+        del SALAS[n]
+    limpiar(601, 602, 603, 604)
+
+    # 6) SOLO, varias vueltas: crear → largar → volver (0x1074/0x1075) → crear otra → largar
+    for vuelta in range(3):
+        mandar(0x101D, crear, 601)
+        que, r = f9(601)
+        mandar(0x1074, b"\0", 601)
+        chequear("ready: solo, vuelta %d: larga y vuelve al lobby sin arrastrar listos" % (vuelta + 1),
+                 que == "larga" and clientes[601].otros == {}, que)
+    for n in list(SALAS):
+        del SALAS[n]
+    limpiar(601)
