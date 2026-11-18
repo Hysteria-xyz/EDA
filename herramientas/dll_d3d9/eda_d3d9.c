@@ -938,6 +938,16 @@ static int g_mz_botones, g_mz_seleccion, g_mz_foco;
  *   «/opciones» y el server abría EDA-Opciones.py: sólo andaba con el server en la misma PC). Ver más abajo. */
 static int g_mz_opciones, g_mz_atajos;
 static const char *g_opc_por = "?";                /* (diagnóstico) qué abrió Options: F10, botón, barra */
+static HWND g_msn_ventana;                          /* (Punto 2) la ventana del Messenger de la dll */
+static const char *g_msn_por = "?";                 /* (diagnóstico) qué abrió el Messenger */
+static int g_mz_messenger = 1;                      /* [mazino] messenger=0: F11 / botón mandan /messenger como antes */
+/* ★ (17-nov, PUNTO 2) LOS DOS PANELES, UN SOLO MANEJO (un panel a la vez): pedir uno con el otro abierto cierra el
+ *   otro y deja anotado éste; se abre recién cuando el hilo del otro TERMINÓ (si no, su final — compuerta en 0,
+ *   foco al juego — pisaría al nuevo). Lo revisa el bombeo del juego con una comparación, sin hilos ni timers. */
+static volatile LONG g_panel_siguiente;             /* 1 = Options · 2 = Messenger (lo que se abre después) */
+static DWORD g_panel_siguiente_desde;
+static volatile LONG g_paneles_hilos;               /* hilos de Options / Messenger vivos */
+static volatile LONG g_msn_abriendo;                /* (el Messenger se está abriendo: eda_messenger.c) */
 static void alternar_opciones(void);
 
 /* las funciones del juego que se usan para armar y mandar un paquete (las mismas que usa él) */
@@ -995,10 +1005,30 @@ static void chat(const char *texto)
     mandar_paquete(0x100D, c, 13 + 2 * n);
     apuntar("  [mazino] botón → «%s»", texto);
 }
+/* (Punto 2) un comando de chat con acentos y más largo (el Messenger: /amigo, /quitar, /m) — hilo del juego */
+static void chat_w(const WCHAR *texto)
+{
+    BYTE c[13 + 2 * 176];
+    int n = lstrlenW(texto);
+    if (n > 176) n = 176;
+    if (!g_mz_paquetes_ok) return;
+    c[0] = 1;
+    *(DWORD *)(c + 1) = 0xFFFFFFFF;
+    *(DWORD *)(c + 5) = 0;
+    *(DWORD *)(c + 9) = (DWORD)(2 * n);
+    memcpy(c + 13, texto, 2 * n);
+    mandar_paquete(0x100D, c, 13 + 2 * n);
+    char cmd[16];
+    int k = 0;
+    while (k < 15 && texto[k] && texto[k] != L' ') { cmd[k] = (char)texto[k]; k++; }
+    cmd[k] = 0;
+    apuntar("  [mazino] messenger → server: «%s …»", cmd);
+}
 
 /* ── botones del lobby ── */
 static void __attribute__((thiscall)) boton_clan(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/clan"); }
-static void __attribute__((thiscall)) boton_msn(void *pantalla, void *ev) { (void)pantalla; (void)ev; chat("/messenger"); }
+static void msn_pedido(const char *por);
+static void __attribute__((thiscall)) boton_msn(void *pantalla, void *ev) { (void)pantalla; (void)ev; msn_pedido("botón del lobby"); }
 static void opciones_o_chat(void)
 {
     if (g_mz_opciones) alternar_opciones();
@@ -1011,6 +1041,7 @@ static void __attribute__((thiscall)) boton_opc(void *pantalla, void *ev)
     opciones_o_chat();
 }
 static BYTE g_delegados[3][0x18];
+static void msn_saludar(void);
 
 static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int control, void *delegado)
 {
@@ -1023,6 +1054,7 @@ static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int
         JUEGO(J_UNIR, 0x4DF900)(lobby, 3, 3 + i, g_delegados[i]);
     }
     apuntar("  [mazino] lobby: Clan, Messenger y Options unidos");
+    msn_saludar();                                   /* (Punto 2: el server sabe que esta dll tiene el Messenger) */
 }
 
 /* cambiar el destino de un `call rel32` del exe (sólo si apunta adonde se espera) */
@@ -1055,6 +1087,19 @@ static BYTE *leer_ptr(const void *p) { return legible(p, 4) ? *(BYTE *const *)p 
 
 /* la pantalla del costado: 4 / 5 / 6 = Shop / Inventory / Refinery (con la bolsa), 7 = Skill */
 static int pantalla_costado(BYTE *esc) { return esc && legible(esc + 0xDC, 4) ? *(int *)(esc + 0xDC) : -1; }
+
+/* ★ (16-nov, PUNTO 2) MESSENGER: el origen de CADA pedido (F11, botón del lobby, barra del costado), con la escena,
+ *   como en Options. Por ahora el pedido sigue siendo el de siempre: «/messenger» al server. */
+static void msn_alternar(void);
+static void msn_pedido(const char *por)
+{
+    BYTE *esc = leer_ptr((void *)0x934554);
+    apuntar("  [mazino] messenger: pedido por %s · escena 0x%08lX · pantalla %d · Messenger %s", por,
+            (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL), pantalla_costado(esc), g_msn_ventana ? "abierto" : "cerrado");
+    if (!g_mz_messenger) { chat("/messenger"); return; }     /* (como antes: el panel de Python, sólo en local) */
+    g_msn_por = por;
+    msn_alternar();
+}
 
 static BYTE *grilla(int *k_out)
 {
@@ -1242,8 +1287,21 @@ static void barra_xy(HWND h, int x, int y, const char *por, int ya800)
      *   Options abierta llegaban acá y no hacían nada (el juego no tiene la entrada mientras Options está abierta,
      *   a propósito). Nada se le pasa al juego: es nuestro interruptor, el mismo de F10. Clan/Messenger, quietos. */
     if (g_panel_abierto) {
-        int lugar = vt == 0x00899670 || vt == 0x00899740 || (pc >= 4 && pc <= 7);   /* (la sala NO: ver abajo) */
-        if (lugar && y >= 8 && y <= 64 && x >= 544 && x <= 621) { g_opc_por = "botón Options (para cerrar)"; opciones_o_chat(); }
+        /* ★ (17-nov, PUNTO 2) CADA PANTALLA CON SUS BOTONES. Medido 23:30:50–53 y 23:31:06–08: con el Messenger
+         *   abierto, clics en el botón Messenger DEL LOBBY (x 486–512) no hacían nada: acá sólo estaban los de la barra
+         *   del inventario (Messenger 629–703). En el lobby (controles 4 y 5 del juego, medidos con el cursor del
+         *   juego): Messenger 468–546 · Options 547–621. En Shop/Inventory/Refinery/Skill: Options 544–621 ·
+         *   Messenger 629–703. Los dos van al MISMO interruptor que F10 / F11 (un panel a la vez). */
+        int lobby = vt == 0x00899670 || vt == 0x00899740, costado = pc >= 4 && pc <= 7;   /* (la sala NO: ver abajo) */
+        int o0 = lobby ? 547 : 544, m0 = lobby ? 468 : 629, m1 = lobby ? 546 : 703;
+        int boton = 0;                                   /* 1 = Options · 2 = Messenger */
+        if ((lobby || costado) && y >= 8 && y <= 64) boton = x >= o0 && x <= 621 ? 1 : x >= m0 && x <= m1 ? 2 : 0;
+        if (g_diagnostico)
+            apuntar("  (diag) clic con un panel abierto (%s): x %d · y %d → %s", lobby ? "lobby" : costado ? "barra del costado" : "otra escena", x, y,
+                    boton == 1 ? "botón Options → interruptor de Options" : boton == 2 ? "botón Messenger → interruptor del Messenger"
+                                                                        : "nada (fuera de los botones; el juego no lo ve)");
+        if (boton == 1) { g_opc_por = "botón Options (con un panel abierto)"; opciones_o_chat(); }
+        else if (boton == 2) msn_pedido("botón Messenger (con un panel abierto)");
         return;
     }
     /* ★ (16-nov) LA SALA (0x0089A268) YA NO SE TOCA. Medido 13:39:10 y 13:39:15: al volver de la stage, en la sala,
@@ -1261,7 +1319,7 @@ static void barra_xy(HWND h, int x, int y, const char *por, int ya800)
     if (y < 8 || y > 64) return;                     /* (la placa llega a y 61: medido en la captura de 23:42) */
     if (x >= 465 && x <= 539) chat("/clan");
     else if (x >= 547 && x <= 621) { g_opc_por = "barra de arriba"; opciones_o_chat(); }
-    else if (x >= 629 && x <= 703) chat("/messenger");
+    else if (x >= 629 && x <= 703) msn_pedido("barra del costado");
 }
 
 /* ── el foco ── */
@@ -1338,6 +1396,33 @@ static int cursor_del_juego(int *x, int *y)
     *y = (int)fy * 600 / hh;
     return 1;
 }
+/* ★ (17-nov, PUNTO 2) UN SOLO CURSOR A LA VEZ. Medido en el exe: el cursor de EDA es un dibujo del juego que
+ *   cada cuadro se pone donde dice el objeto de entrada (0x519BE0: ILTInput+0x158 → 0x780B80, que lee +0x27DC /
+ *   +0x27E0, y el dibujo va a esa posición menos su punta). Con un panel abierto el juego no recibe el mouse y ese
+ *   dibujo quedaba QUIETO en la imagen, al lado de la flecha de Windows: dos cursores. Al abrir un panel se lleva
+ *   la posición fuera de la pantalla (el dibujo no se ve); no se toca el dibujado, ni el HUD, ni nada más. Al
+ *   cerrar, el WM_MOUSEMOVE de siempre (opc_avisar_posicion) la vuelve a poner donde está el mouse (el juego la
+ *   recorta a su pantalla). Una escritura al abrir, nada por cuadro. */
+static void cursor_juego_esconder(const char *quien)
+{
+    int x, y;
+    BYTE *o = leer_ptr((void *)0x94952C);
+    if (!cursor_del_juego(&x, &y)) {                     /* (ya fuera de la pantalla, o no se pudo leer) */
+        if (g_diagnostico) apuntar("  (diag) %s: el cursor de EDA ya estaba escondido (o no se pudo leer)", quien);
+        return;
+    }
+    /* ★ (17-nov) la flecha de Windows aparece DONDE SE VEÍA el cursor de EDA (antes se la llevaba al centro del
+     *   panel: el salto que se veía al abrir). En pantalla completa el juego tiene el mouse de Windows en SU 800×600
+     *   (sin escalar) y el dibujo estirado: se lo pone en el punto estirado ANTES de que la flecha se vea. */
+    RECT r;
+    if (g_ventana_juego && GetClientRect(g_ventana_juego, &r) && r.right > 0 && r.bottom > 0) {
+        POINT s = {x * r.right / 800, y * r.bottom / 600};
+        if (ClientToScreen(g_ventana_juego, &s)) SetCursorPos(s.x, s.y);
+    }
+    *(float *)(o + 0x27DC) = -4096.0f;
+    *(float *)(o + 0x27E0) = -4096.0f;
+    if (g_diagnostico) apuntar("  (diag) %s: cursor de EDA escondido (estaba en %d, %d de 800x600): sólo la flecha de Windows", quien, x, y);
+}
 /* la pantalla del juego (+0x330 × +0x334): para hablarle en SUS coordenadas */
 static int pantalla_del_juego(int *w, int *hh)
 {
@@ -1402,7 +1487,23 @@ static void atajo(int cual, const char *por)                  /* 0 = F10 · 1 = 
     g_atajo_ultimo[cual] = ahora;
     apuntar("  [mazino] %s detectado (%s)", NOMBRE[cual], por);
     if (cual == 0) { g_opc_por = "F10"; opciones_o_chat(); }
-    else chat(cual == 1 ? "/messenger" : "/clan");
+    else if (cual == 1) msn_pedido("F11");
+    else chat("/clan");
+}
+/* ★ (17-nov, PUNTO 2) (diagnóstico) QUIÉN RECIBE CADA TECLA DE ATAJO: el juego (mi_peek), Options o el Messenger.
+ *   Medido 23:29–23:37: F10 no apareció NI UNA vez en ninguna de las tres vías (F11 sí, 38). Sólo F1–F12, Esc y
+ *   Enter (nada de lo que se escribe), con su código de teclado (scan), sin las repeticiones. */
+static void diag_tecla(const char *quien, UINT msg, WPARAM vk, LPARAM lp, int tapada)
+{
+    if (!g_diagnostico || (lp & (1L << 30))) return;
+    char nom[8];
+    if (vk >= VK_F1 && vk <= VK_F12) { int f = (int)(vk - VK_F1) + 1; nom[0] = 'F'; nom[1] = (char)(f >= 10 ? '1' : '0' + f);
+                                       nom[2] = f >= 10 ? (char)('0' + f - 10) : 0; nom[3] = 0; }
+    else if (vk == VK_ESCAPE) lstrcpyA(nom, "Esc");
+    else if (vk == VK_RETURN) lstrcpyA(nom, "Enter");
+    else return;
+    apuntar("  (diag) tecla %s (VK 0x%02X · scan 0x%02X · %s) → %s%s", nom, (unsigned)vk, (unsigned)((lp >> 16) & 0xFF),
+            msg == WM_SYSKEYDOWN ? "SYSKEYDOWN" : "KEYDOWN", quien, tapada ? " (el juego no la ve: hay un panel abierto)" : "");
 }
 /* DIK_F10 = 0x44 · DIK_F11 = 0x57 · DIK_F12 = 0x58 */
 static const BYTE DIK_ATAJO[3] = {0x44, 0x57, 0x58};
@@ -1417,7 +1518,9 @@ static void dik_cambio(BYTE dik, int apretada, const char *por)
             if (apretada && !g_dik_antes[i]) {
                 static const int VK[3] = {VK_F10, VK_F11, VK_F12};
                 if (g_async_real && !(g_async_real(VK[i]) & 0x8000)) {
-                    if (g_diagnostico) apuntar("  (diag) tecla del juego con código 0x%02X que NO es %s (se ignora)", dik, i ? (i == 1 ? "F11" : "F12") : "F10");
+                    if (g_diagnostico) apuntar("  (diag) tecla del juego con código 0x%02X que NO es %s (se ignora) · de verdad: F10 %s · A %s", dik,
+                                               i ? (i == 1 ? "F11" : "F12") : "F10", (g_async_real(VK_F10) & 0x8000) ? "abajo" : "arriba",
+                                               (g_async_real('A') & 0x8000) ? "abajo" : "arriba");
                     continue;                                /* (antes queda en 0: no es esta tecla) */
                 }
                 atajo(i, por);
@@ -1483,11 +1586,54 @@ static BOOL WINAPI mi_clip(const RECT *r) { return g_clip_real(juego_al_frente()
 /* ── ★ LAS OPTIONS, EN LA DLL: el panel de paneles/EDA-Opciones.py, con su mismo diseño (eda_opciones.c) ── */
 #include "eda_opciones.c"
 
+/* ── ★ EL MESSENGER, EN LA DLL (Punto 2): eda_messenger.c, con el dibujo y el manejo de ventana de Options ── */
+#include "eda_messenger.c"
+
+/* ★ (17-nov, PUNTO 2) el panel pedido con el otro abierto: se abre en el hilo del juego cuando el otro terminó */
+static void panel_siguiente_tick(void)
+{
+    if (g_paneles_hilos || g_opc_ventana || g_msn_ventana || g_opc_abriendo || g_msn_abriendo) {
+        if (GetTickCount() - g_panel_siguiente_desde > 3000 && InterlockedExchange(&g_panel_siguiente, 0)) {
+            apuntar("  [mazino] paneles: ⚠ el otro panel no terminó de cerrarse en 3 s → no se abre el pedido");
+            if (!g_opc_ventana && !g_msn_ventana) panel_al_cerrar("cambio de panel");   /* (el juego, de vuelta) */
+        }
+        return;
+    }
+    LONG c = InterlockedExchange(&g_panel_siguiente, 0);
+    apuntar("  [mazino] paneles: el otro ya se cerró → se abre %s", c == 1 ? "Options" : "el Messenger");
+    if (c == 1) opc_abrir();
+    else if (c == 2) msn_abrir();
+    /* (en el cambio la compuerta quedó cerrada: si el nuevo panel no pudo arrancar, se le devuelve el juego) */
+    if (!g_paneles_hilos && !g_opc_abriendo && !g_msn_abriendo) panel_al_cerrar("cambio de panel");
+}
+
 /* ── el bombeo de mensajes del juego (PeekMessageA, su hilo principal) ── */
 typedef BOOL (WINAPI *M_PEEK)(LPMSG, HWND, UINT, UINT, UINT);
 static M_PEEK g_peek_real;
 static DWORD g_hilo_juego;
 static long g_vueltas;
+
+/* ★★ (17-nov, PUNTO 2) F10 CUANDO OTRO PROGRAMA LA TIENE COMO ATAJO GLOBAL. Medido 00:17–00:23: F10 no llegó
+ *   NI UNA VEZ a ninguna ventana de EDA (juego, Options, Messenger; F11, Esc y Enter sí), y EDA-Probar-F10 00:27:
+ *   «F10 sola: OCUPADA por otro programa» (RegisterHotKey; también Alt+F10; F11 libre). Windows le entrega esa
+ *   tecla SÓLO a ese programa: ningún mensaje WM_KEYDOWN / WM_SYSKEYDOWN para EDA, por eso dejó de andar en todas
+ *   las escenas a la vez y no era la dll (el camino de F10 es el mismo de 330f830). Pero el ESTADO de la tecla sí
+ *   se actualiza (medido: F10 «marcada apretada»). Acá, en el bombeo del juego que ya corre (sin hilos, ganchos ni
+ *   timers): F10 recién apretada + una ventana de EDA al frente (juego, Options o Messenger) → el mismo atajo().
+ *   Si el mensaje también llega (nadie la tiene tomada), atajo() deja una sola pulsación (300 ms). */
+static void f10_por_estado(void)
+{
+    static int antes;
+    int abajo = g_async_real ? (g_async_real(VK_F10) & 0x8000) != 0 : (GetAsyncKeyState(VK_F10) & 0x8000) != 0;
+    if (abajo && !antes) {
+        HWND f = GetForegroundWindow();
+        DWORD pid = 0;
+        if (f) GetWindowThreadProcessId(f, &pid);
+        if (pid == GetCurrentProcessId()) atajo(0, "estado del teclado");
+        else if (g_diagnostico) apuntar("  (diag) F10 apretada con otro programa al frente: no es para EDA");
+    }
+    antes = abajo;
+}
 
 static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
 {
@@ -1512,6 +1658,7 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
         if (g_mz_botones && m->message == WM_LBUTTONDOWN) clic_abajo();             /* (apretado EN el juego) */
         /* ★ F10 Options · F11 Messenger · F12 Clan (antes EDA-Atajos.py, sólo en la PC con Python); F10 llega
          *   como tecla de sistema. Sin repetición (bit 30 = ya estaba apretada). */
+        if (m->message == WM_KEYDOWN || m->message == WM_SYSKEYDOWN) diag_tecla("el juego (mi_peek)", m->message, m->wParam, m->lParam, tapar);
         if (g_mz_atajos && (m->message == WM_KEYDOWN || m->message == WM_SYSKEYDOWN) && !(m->lParam & (1L << 30))) {
             if (m->wParam == VK_F10) atajo(0, "mensaje");
             else if (m->wParam == VK_F11) atajo(1, "mensaje");
@@ -1527,12 +1674,79 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
         if (tapar) { m->message = WM_NULL; g_entrada_tapada++; }       /* (el juego no ve nada mientras Options está) */
     }
     ++g_vueltas;
+    if (g_mz_atajos && (g_vueltas & 3) == 0) f10_por_estado();   /* (una lectura del teclado: nada más) */
     if (g_mz_foco && g_ventana_juego && (g_vueltas & 255) == 1) vigilar_wndproc(g_ventana_juego);
     if (g_mz_seleccion && (g_pendiente || g_simple || (g_vueltas & 3) == 0)) revisar_inventario();
     opc_correr_cola_desde_dibujo();                  /* (la cola de Options y el volumen pendiente) */
+    msn_correr_cola();                               /* (lo que el Messenger le pide al server) */
+    if (g_panel_siguiente) panel_siguiente_tick();   /* (un panel a la vez: el que se pidió con el otro abierto) */
     if (g_ubicar && (g_vueltas & 127) == 0) opc_ubicar_tick();
     if ((g_pantalla_pedida >= 0 || g_sin_bordes) && (g_vueltas & 63) == 0) opc_pantalla_tick();
     return hay;
+}
+
+/* ★ (16-nov, PUNTO 2 — MEDIR) LO QUE EL SERVER LE MANDA AL CHAT (0x1005), en TODAS las escenas. Medido en el exe:
+ *   el bucle de red (0x4E56B0) pasa los comandos 0x1003..0x100B a la escena (+0x34 → 0x4DB6F0; la stage salta ahí
+ *   mismo), y 0x4DB6F0 elige por una tabla: 0x1005 → 0x4DB735 (entrada 0x4DB7BC). Esa entrada apunta ahora a un
+ *   puente de 20 bytes que llama a msn_chat_llega(escena, mensaje) y sigue SIEMPRE al original: sólo mira.
+ *   Es el canal por el que el Messenger de la dll va a recibir la lista de amigos y los mensajes. */
+static DWORD g_chat_vistos;
+static WCHAR g_msn_llegado[2050];                            /* (hilo del juego: una copia para leerlo) */
+static int __cdecl msn_chat_llega(void *escena, void *msg)
+{
+    (void)escena;
+    g_chat_vistos++;
+    if (!msg || !legible((BYTE *)msg + 0x1010, 8)) return 0;
+    BYTE *datos = *(BYTE **)((BYTE *)msg + 0x1010);
+    WORD pos = *(WORD *)((BYTE *)msg + 0x1014), largo = *(WORD *)((BYTE *)msg + 0x1016);
+    if (!datos || largo < pos + 41 || !legible(datos + pos, largo - pos)) return 0;
+    BYTE *b = datos + pos;                                   /* H B I I · nombre 26 B (UTF-16) · u32 largo · texto */
+    WCHAR nombre[14] = {0};
+    memcpy(nombre, b + 11, 26);
+    nombre[13] = 0;
+    DWORD n = *(DWORD *)(b + 37);
+    if (n > (DWORD)(largo - pos - 41)) n = largo - pos - 41;
+    if (n > 2 * 2048) n = 2 * 2048;
+    memcpy(g_msn_llegado, b + 41, n);
+    g_msn_llegado[n / 2] = 0;
+    int msn = !lstrcmpW(nombre, L"[MSN]");
+    if (g_diagnostico) {
+        char nom8[64], tex8[200];
+        WCHAR corto[90];
+        lstrcpynW(corto, g_msn_llegado, 90);
+        for (WCHAR *p = corto; *p; p++) if (*p == L'\t' || *p == L'\n') *p = L'|';
+        WideCharToMultiByte(CP_UTF8, 0, nombre, -1, nom8, sizeof(nom8), NULL, NULL);
+        WideCharToMultiByte(CP_UTF8, 0, corto, -1, tex8, sizeof(tex8), NULL, NULL);
+        BYTE *esc = leer_ptr((void *)0x934554);
+        apuntar("  (diag) chat del server: tipo %d · «%s» · %s · escena 0x%08lX%s", b[2], nom8, tex8,
+                (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL), msn ? " → Messenger de la dll (no se muestra)" : "");
+    }
+    if (!g_mz_messenger) return 0;
+    if (msn) { msn_recibir(g_msn_llegado); return 1; }      /* ★ los datos del Messenger: el juego no los muestra */
+    if (!lstrcmpW(nombre, L"[Messenger]")) msn_avisar(g_msn_llegado);   /* (la respuesta a ADD / DELETE: a la línea de estado) */
+    return 0;
+}
+static void poner_puente_chat(void)
+{
+    DWORD *entrada = (DWORD *)0x4DB7BC, prot;
+    if (!firma(0x4DB721, "ff 24 85 b4 b7 4d 00") || !legible(entrada, 4) || *entrada != 0x4DB735) {
+        apuntar("  [mazino] messenger: ⚠ la tabla de mensajes no está como en EDA_limpio.exe: no se toca");
+        return;
+    }
+    BYTE *p = (BYTE *)VirtualAlloc(NULL, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!p) return;
+    BYTE c[] = {0x57, 0x56,                                  /* push edi (mensaje) · push esi (escena) */
+                0xB8, 0, 0, 0, 0, 0xFF, 0xD0,                /* mov eax, msn_chat_llega · call eax */
+                0x83, 0xC4, 0x08, 0x85, 0xC0, 0x75, 0x07,    /* add esp, 8 · test eax, eax · jnz se_queda */
+                0xB8, 0x35, 0xB7, 0x4D, 0x00, 0xFF, 0xE0,    /* mov eax, 0x4DB735 · jmp eax (lo de siempre) */
+                0x5F, 0x5E, 0xC2, 0x04, 0x00};               /* se_queda: pop edi · pop esi · ret 4 */
+    *(DWORD *)(c + 3) = (DWORD)(ULONG_PTR)msn_chat_llega;
+    memcpy(p, c, sizeof(c));
+    FlushInstructionCache(GetCurrentProcess(), p, sizeof(c));
+    if (!VirtualProtect(entrada, 4, PAGE_EXECUTE_READWRITE, &prot)) return;
+    *entrada = (DWORD)(ULONG_PTR)p;
+    VirtualProtect(entrada, 4, prot, &prot);
+    apuntar("  [mazino] messenger: el chat del server (0x1005) pasa por la dll (se queda sólo con «[MSN]»)");
 }
 
 static void poner_mazino(void)
@@ -1546,6 +1760,8 @@ static void poner_mazino(void)
         apuntar("  [mazino] ⚠ las funciones del juego no están donde en EDA_limpio.exe: botones y selección apagados");
         g_mz_botones = g_mz_seleccion = 0;
     }
+    msn_listo();
+    if (g_mz_paquetes_ok && (g_mz_messenger || g_diagnostico)) poner_puente_chat();   /* (Punto 2: el canal del Messenger) */
     if (g_mz_botones && desviar_llamada(0x4F6061, 0x4DF900, (void *)mi_unir_lobby, "botones"))
         apuntar("  [mazino] botones: enganchado el lobby (0x4F6061) y las pantallas del costado");
     if (g_mz_seleccion && desviar_llamada(0x51A12B, 0x54A990, (void *)mi_vender, "seleccion_multiple"))
@@ -1944,6 +2160,7 @@ static void leer_ajustes(HMODULE self)
     g_mz_foco = g_mazino ? GetPrivateProfileIntA("mazino", "foco", 1, ini) : 0;
     g_mz_opciones = g_mazino ? GetPrivateProfileIntA("mazino", "opciones", 1, ini) : 0;
     g_mz_atajos = g_mazino ? GetPrivateProfileIntA("mazino", "atajos", 1, ini) : 0;
+    g_mz_messenger = g_mazino ? GetPrivateProfileIntA("mazino", "messenger", 1, ini) : 0;
     g_mz_entrada = g_mazino ? GetPrivateProfileIntA("mazino", "entrada", 1, ini) : 0;
     /* ★ P2P: que los juegos se encuentren (MEDICIONES §52). Prendido por defecto: sólo arregla lo que
      *   el juego manda roto, y un .ini viejo (el launcher no lo pisa) sin este bloque lo tiene igual */

@@ -968,6 +968,7 @@ def control():
     PARTIDAS.clear()
     ASIGNADAS.clear()
     pruebas_messenger(chequear)
+    pruebas_messenger_cuentas_reales(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
     pruebas_login(chequear)
@@ -1438,6 +1439,70 @@ def preparar(nombre, clase, nivel_pedido):
     return c
 
 
+def pruebas_messenger_cuentas_reales(chequear):
+    """★ (18-nov) el Messenger con las cuentas del login «pase» (r2b_<uid>), no sólo rui/kai/mio/ren: el
+    identificador es la cuenta, el nick es lo que se ve; búsqueda de desconectados, solicitudes y DELETE."""
+    from servidor import messenger as m
+
+    def chat_(texto):
+        t = texto.encode("utf-16-le")
+        return struct.pack("<BIII", 1, 0xFFFFFFFF, 0, len(t)) + t
+
+    def textos(r, destino):
+        return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino
+                and x[1][11:37].decode("utf-16-le").rstrip("\0") != "[MSN]"]
+    a, b, c = "r2b_9001", "r2b_9002", "r2b_9003"
+    for conexion, cuenta, nick in ((401, a, "Alfa"), (402, b, "Beta"), (403, c, "kai")):
+        ASIGNADAS[conexion] = cuenta
+        x = leer(conexion)
+        x["nick"] = nick
+        x["amigos"] = []
+        guardar(x)
+    cerrada(403)                                            # (c queda guardada, desconectada)
+    chequear("cuentas reales: la lista de cuentas incluye r2b_<uid> (no sólo rui/kai/mio/ren)",
+             {a, b, c} <= set(m.nombres_de_cuentas()), m.nombres_de_cuentas())
+    chequear("★ el revés: otros .json de la carpeta (inventarios, relay, punch) no son cuentas",
+             not {"inv_kai", "relay", "punch"} & set(m.nombres_de_cuentas()), m.nombres_de_cuentas())
+    chequear("cuentas reales: buscar por nick → la cuenta (conectada)", m.buscar("beta") == (b, 402))
+    chequear("cuentas reales: buscar por nick a un DESCONECTADO → la cuenta", m.buscar("KAI")[0] in ("kai", c))
+    chequear("★ identificador antes que nick: «kai» es la cuenta kai, no el personaje «kai» de r2b_9003",
+             m.buscar("kai")[0] == "kai" and m.buscar(c) == (c, None))
+    r = responder(0x100D, chat_("/amigo Beta"), 401)
+    chequear("cuentas reales: ADD por nick → solicitud guardada con el IDENTIFICADOR (no el nick)",
+             leer(401)["amigos"] == [b] and any("solicitud de amistad" in t for t in textos(r, 402)))
+    cu = m.estado()["cuentas"]
+    chequear("cuentas reales: la lista R/E con identificador y nick",
+             ("\nE\t%s\tBeta" % b) in m.lista_msn(cu, a) and ("\nR\t%s\tAlfa" % a) in m.lista_msn(cu, b))
+    r = responder(0x100D, chat_("/aceptar %s" % a), 402)
+    chequear("★ cuentas reales: los avisos dicen el NICK aunque la dll mande el identificador",
+             any("Alfa y tú ahora son amigos" in t for t in textos(r, 402))
+             and not any(a in t for t in textos(r, 402) + textos(r, 401)), textos(r, 402))
+    cu = m.estado()["cuentas"]
+    chequear("cuentas reales: /aceptar con el identificador → amigos los dos (A con nick)",
+             ("\nA\t%s\tBeta\t" % b) in m.lista_msn(cu, a) and ("\nA\t%s\tAlfa\t" % a) in m.lista_msn(cu, b))
+    responder(0x100D, chat_("/msn hola"), 401)
+    responder(0x100D, chat_("/msn hola"), 402)
+    r = responder(0x100D, chat_("/m %s hola real" % b), 401)
+    chequear("cuentas reales: /m entre amigos → sólo el Messenger (H), nada al chat",
+             any(x[0] == 0x1005 and x[3] == 402 and "hola real" in x[1][41:].decode("utf-16-le") for x in r)
+             and not textos(r, 402))
+    responder(0x100D, chat_("/amigo %s" % c), 401)
+    chequear("cuentas reales: ADD a un desconectado (por identificador) → la solicitud queda guardada",
+             c in leer(401)["amigos"] and ("\nR\t%s\t" % a) in m.lista_msn(m.estado()["cuentas"], c))
+    ASIGNADAS[403] = c
+    responder(0x100D, chat_("/aceptar Alfa"), 403)
+    cerrada(403)
+    r = responder(0x100D, chat_("/quitar %s" % c), 401)
+    chequear("★ cuentas reales: DELETE de un desconectado → el aviso con su nick (kai), no el identificador",
+             any(t.startswith("kai quitado") or "kai quitado" in t for t in textos(r, 401))
+             and not any(c in t for t in textos(r, 401)), textos(r, 401))
+    chequear("cuentas reales: DELETE a un desconectado → fuera de las DOS listas (su archivo también)",
+             c not in leer(401)["amigos"] and a not in m.amigos_de(c) and m.amigos_de(b) == [a], m.amigos_de(c))
+    for conexion in (401, 402):
+        cerrada(conexion)
+    chequear("cuentas reales: al irse, sus mensajes de la sesión no quedan", not m.historia_msn(a) and not m.historia_msn(b))
+
+
 def pruebas_messenger(chequear):
     """★ el MESSENGER por chat (servidor/messenger.py): dos conectados, rui = 301 y kai = 302."""
     from servidor.juego import tick
@@ -1446,8 +1511,9 @@ def pruebas_messenger(chequear):
         t = texto.encode("utf-16-le")
         return struct.pack("<BIII", 1, 0xFFFFFFFF, 0, len(t)) + t
 
-    def textos(r, destino):
-        return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino]
+    def textos(r, destino):                     # (lo que se VE en el chat: los «[MSN]» se los queda la dll)
+        return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino
+                and x[1][11:37].decode("utf-16-le").rstrip("\0") != "[MSN]"]
     from servidor import messenger
     responder(0x1017, b"", 301)
     responder(0x1017, b"", 302)
@@ -1456,10 +1522,32 @@ def pruebas_messenger(chequear):
     chequear("messenger: /amigos sin amigos → un aviso sólo al que pregunta",
              textos(r, 301) and not textos(r, 302))
     r = responder(0x100D, chat_("/amigo %s" % nom_b), 301)
-    chequear("/amigo %s → guardado, y al otro le llega el aviso" % nom_b,
-             leer(301).get("amigos") == [nom_b] and any("te agregó como amigo" in t for t in textos(r, 302)))
+    chequear("/amigo %s → la SOLICITUD (guardada), y al otro le llega el aviso" % nom_b,
+             leer(301).get("amigos") == [nom_b] and any("solicitud de amistad" in t for t in textos(r, 302)))
     chequear("★ el revés: /amigo de alguien que no existe no agrega",
              responder(0x100D, chat_("/amigo nadie_xyz"), 301) and leer(301)["amigos"] == [nom_b])
+    # ★ (17-nov) solicitudes con aceptación
+    from servidor import messenger as _m
+    cu = _m.estado()["cuentas"]
+    chequear("solicitud: el que la mandó la ve como E, el otro como R; ninguno como A",
+             ("\nE\t%s\t" % nom_b) in _m.lista_msn(cu, nom_a) and ("\nR\t%s\t" % nom_a) in _m.lista_msn(cu, nom_b)
+             and "\nA\t" not in _m.lista_msn(cu, nom_a) + _m.lista_msn(cu, nom_b))
+    r = responder(0x100D, chat_("/amigo %s" % nom_b), 301)
+    chequear("★ el revés: la misma solicitud otra vez → «pendiente», sin duplicar",
+             any("pendiente" in t for t in textos(r, 301)) and leer(301)["amigos"] == [nom_b])
+    r = responder(0x100D, chat_("/amigo %s" % nom_a), 301)
+    chequear("★ el revés: agregarse a uno mismo no se puede", leer(301)["amigos"] == [nom_b])
+    r = responder(0x100D, chat_("/rechazar %s" % nom_a), 302)
+    chequear("/rechazar → la solicitud desaparece (de la lista del que la mandó) y le llega el aviso",
+             leer(301).get("amigos") == [] and any("rechazó" in t for t in textos(r, 301)))
+    responder(0x100D, chat_("/amigo %s" % nom_b), 301)
+    r = responder(0x100D, chat_("/aceptar %s" % nom_a), 302)
+    cu = _m.estado()["cuentas"]
+    chequear("/aceptar → amigos los DOS (A en las dos listas) y al que la mandó le llega el aviso",
+             leer(302).get("amigos") == [nom_a] and ("\nA\t%s\t" % nom_b) in _m.lista_msn(cu, nom_a)
+             and ("\nA\t%s\t" % nom_a) in _m.lista_msn(cu, nom_b) and any("aceptó" in t for t in textos(r, 301)))
+    chequear("★ el revés: aceptar una solicitud que no existe → aviso, nada cambia",
+             responder(0x100D, chat_("/aceptar %s" % nom_a), 302) and leer(302)["amigos"] == [nom_a])
     r = responder(0x100D, chat_("/amigos"), 301)
     chequear("/amigos → conectado, en el lobby", any("conectado, en el lobby" in t for t in textos(r, 301)),
              textos(r, 301))
@@ -1468,6 +1556,30 @@ def pruebas_messenger(chequear):
              textos(r, 302) == ["hola amigo"] and textos(r, 301) == ["hola amigo"])
     r = responder(0x100D, chat_("/messenger"), 301)
     chequear("botón Messenger (/messenger) → los amigos y la ayuda", len(textos(r, 301)) == 2)
+    # ★ (16-nov) el Messenger de la DLL: «/msn abrir» → la lista y la historia por «[MSN]» (la dll se los queda)
+    def msn(r, destino):
+        return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino
+                and x[1][11:37].decode("utf-16-le").rstrip("\0") == "[MSN]"]
+    r = responder(0x100D, chat_("/msn abrir"), 301)
+    lista = msn(r, 301)
+    chequear("dll: /msn abrir → la lista: yo y el amigo conectado, y la historia",
+             lista and lista[0].startswith("L\t%s\t" % nom_a) and ("\nA\t%s\t" % nom_b) in lista[0]
+             and "\t1\ten el lobby" in lista[0] and any(x == "h\t%s\t%s\t%s\thola amigo" % (nom_a, nom_b, x.split("\t")[3])
+                                                       for x in lista[1:]), lista)
+    chequear("★ el revés: el otro (sin la dll) no recibe nada de [MSN]", not msn(r, 302))
+    r = responder(0x100D, chat_("/msn abrir"), 301)
+    chequear("dll: al reabrir, la lista sin repetir la historia", len(msn(r, 301)) == 1)
+    r = responder(0x100D, chat_("/m %s otra vez" % nom_b), 301)
+    chequear("dll: un /m llega como H al que tiene la dll (y el chat sigue igual)",
+             [x.split("\t")[4] for x in msn(r, 301)] == ["otra vez"] and textos(r, 302)[-1] == "otra vez")
+    chequear("dll: sin cambios, el tick no manda la lista otra vez", not msn(tick([301, 302]), 301))
+    r = responder(0x100D, chat_("/msn hola"), 302)
+    chequear("dll: «/msn hola» (al entrar al lobby) → la lista, sin abrir la ventana",
+             msn(r, 302) and msn(r, 302)[0].startswith("L\t%s\t" % nom_b))
+    r = responder(0x100D, chat_("/m %s con las dos dll" % nom_b), 301)
+    chequear("★ entre amigos con la dll: el mensaje SÓLO por el Messenger (H a los dos), nada duplicado en el chat",
+             [x.split("\t")[4] for x in msn(r, 302)] == ["con las dos dll"] and not textos(r, 302)
+             and [x.split("\t")[4] for x in msn(r, 301)] == ["con las dos dll"] and not textos(r, 301))
     r = responder(0x100D, chat_("/clan"), 301)
     chequear("botón Clan (/clan) → un aviso", any(t.startswith("Clan:") for t in textos(r, 301)))
     r = responder(0x100D, chat_("/opciones"), 301)
@@ -1481,25 +1593,31 @@ def pruebas_messenger(chequear):
     cerrada(302)
     t = tick([301])
     chequear("el amigo se va → con el tick, «se desconectó»", any("se desconectó" in x for x in textos(t, 301)))
+    chequear("dll: el amigo se va → el tick manda la lista nueva (desconectado)",
+             any(("\nA\t%s\t" % nom_b) in x and "\t0\t" in x for x in msn(t, 301)), msn(t, 301))
     r = responder(0x100D, chat_("/m %s sigues?" % nom_b), 301)
-    chequear("★ el revés: /m a un desconectado → aviso (lo leerá al volver), sin mensaje al chat",
-             len(textos(r, 301)) == 1 and textos(r, 301)[0].startswith("%s no está conectado: lo leerá" % nom_b)
-             and not textos(r, 302), textos(r, 301))
-    chats = [json.loads(x) for x in open(messenger.ruta_chat(), encoding="utf-8")]
-    chequear("la conversación queda en messenger_chat.jsonl (también la de un desconectado)",
-             [(m["de"], m["a"], m["texto"]) for m in chats] == [(nom_a, nom_b, "hola amigo"),
-                                                               (nom_a, nom_b, "sigues?")], chats)
+    chequear("★ el revés: /m a un desconectado → aviso (no se envía ni se guarda), sin mensaje al chat ni H",
+             len(textos(r, 301)) == 1 and textos(r, 301)[0].startswith("%s no está conectado: el mensaje no se envió" % nom_b)
+             and not textos(r, 302) and not msn(r, 301), textos(r, 301))
+    # ★ (17-nov) las conversaciones duran sólo la sesión: en memoria, nada en messenger_chat.jsonl
+    chequear("sesión: nada se escribe en messenger_chat.jsonl", not os.path.exists(messenger.ruta_chat()))
+    chequear("sesión: el que se fue ya no ve la conversación; el que sigue, sí",
+             not messenger.historia_msn(nom_b)
+             and [x.split("\t")[4] for x in messenger.historia_msn(nom_a)] == ["hola amigo", "otra vez", "con las dos dll"],
+             messenger.historia_msn(nom_a))
     # ★ el PANEL (EDA-Messenger.py): estado y pedidos por archivo; el otro vuelve a conectarse
     from servidor import messenger
     responder(0x1017, b"", 302)
     responder(0x100D, chat_("/quitar %s" % nom_b), 301)
+    chequear("DELETE (/quitar) saca la amistad de las DOS listas (también la del otro)",
+             nom_b not in leer(301).get("amigos", []) and nom_a not in leer(302).get("amigos", []))
     with open(messenger.ruta_pedidos(), "w", encoding="utf-8") as f:
         f.write(json.dumps({"de": nom_a, "accion": "amigo", "nick": nom_b}) + "\n")
         f.write(json.dumps({"de": nom_a, "accion": "mensaje", "nick": nom_b, "texto": "hola desde el panel"}) + "\n")
         f.write("esto no es json\n")
     t = tick([301, 302])
-    chequear("panel: el pedido «amigo» agrega y avisa al otro",
-             leer(301).get("amigos") == [nom_b] and any("te agregó" in x for x in textos(t, 302)))
+    chequear("panel: el pedido «amigo» manda la solicitud y avisa al otro",
+             leer(301).get("amigos") == [nom_b] and any("solicitud" in x for x in textos(t, 302)))
     chequear("panel: el pedido «mensaje» le llega al otro", "hola desde el panel" in textos(t, 302))
     chequear("panel: los pedidos se consumen", not os.path.exists(messenger.ruta_pedidos()))
     est = json.load(open(messenger.ruta_estado(), encoding="utf-8"))["cuentas"]

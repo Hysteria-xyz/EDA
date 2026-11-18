@@ -118,6 +118,9 @@ seleccion_multiple=1
 foco=1
 ; 1 = el botón Options abre la ventana de opciones de la dll (anda igual en local y en multijugador)
 opciones=1
+; 1 = F11 y el botón Messenger abren el Messenger de la dll (amigos y mensajes; local y multijugador, sin Python).
+;     0 = como antes: mandan /messenger al server (el panel de Python, sólo con el server en la misma PC)
+messenger=1
 """
 
 
@@ -129,7 +132,7 @@ def compilar():
     if not os.path.isfile(ZIG):
         raise SystemExit("⛔ no encuentro Zig 0.16.0: %s (se puede indicar con la variable ZIG)" % ZIG)
     os.makedirs(SALIDA, exist_ok=True)
-    for f in ("eda_d3d9.c", "eda_opciones.c", "d3d9.def"):
+    for f in ("eda_d3d9.c", "eda_opciones.c", "eda_messenger.c", "d3d9.def"):
         shutil.copy(os.path.join(AQUI, f), SALIDA)
     dll = os.path.join(SALIDA, "d3d9.dll")
     if os.path.exists(dll):
