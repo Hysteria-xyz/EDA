@@ -224,6 +224,10 @@ def _sacar_de_sala(s, num, conexion):
     s["miembros"].remove(conexion)
     s.get("numeros", {}).pop(conexion, None)
     s.get("listos", set()).discard(conexion)
+    if "en_stage" in s:                                 # (Punto 3: si era el último en la stage, se reabre)
+        s["en_stage"].discard(conexion)
+        if not s["en_stage"]:
+            s["jugando"] = False
     if not s["miembros"]:
         del SALAS[num]
         return []
@@ -640,6 +644,7 @@ def largar(cmd, cuerpo, conexion, c, p):
         return [(0x1050, struct.pack("<H", 0x138A), 0)]
     if s:
         s["jugando"], s["cargados"] = True, set()
+        s["en_stage"] = set(miembros)                   # (Punto 3: «jugando» hasta que salgan TODOS)
         s["listos"] = set()                             # (al volver de la stage, todos «no listo»: `0x548AF0`)
     #   ⛔ probado (21:15) llenarlos con las habilidades de los atajos: NO las hace lanzar
     #   (el MP no baja con F1). Son de los OTROS (`0x61C230` los copia a su miembro). En cero.

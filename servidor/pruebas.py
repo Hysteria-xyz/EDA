@@ -840,7 +840,11 @@ def control():
     chequear("★ el revés: segundo 0x104E con partida en curso rechaza con 0x1050",
              len(r) == 1 and r[0][0] == 0x1050 and struct.unpack_from("<H", r[0][1])[0] == 0x138A)
     responder(0x1074, b"\x00", 301)
-    chequear("salir_de_stage restablece s['jugando'] = False", SALAS[55].get("jugando") is False)
+    chequear("★ (Punto 3) salir_de_stage con 302 todavía jugando: la sala sigue «jugando» (no se puede entrar)",
+             SALAS[55].get("jugando") is True and SALAS[55]["miembros"] == [302])
+    responder(0x1074, b"\x00", 302)
+    chequear("salir de la stage el último: la sala ya no queda (ni «jugando» ni fantasma)", 55 not in SALAS)
+    SALAS[55] = {"sala": bytes(sala_raw), "anfitrion": 302, "miembros": [302]}
     partida(301).pop("sala", None)
     partida(302).pop("sala", None)
     del SALAS[55]
@@ -964,6 +968,7 @@ def control():
     pruebas_inventario(chequear)
     pruebas_salir_stage(chequear)
     pruebas_ready(chequear)
+    pruebas_salida_stage(chequear)
     pruebas_lista_servidores(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
@@ -1925,3 +1930,48 @@ def pruebas_ready(chequear):
     limpiar(601, 602, 603)
     for n in list(SALAS):
         del SALAS[n]
+
+
+def pruebas_salida_stage(chequear):
+    """★ (Punto 3, 18-nov 11:48) con uno todavía en la stage, la sala no se reabre; y el 0x1075 de «no revivir»."""
+    from servidor.juego import responder
+    from servidor.estado import SALAS, partida
+    sala = bytearray(0x59)
+    struct.pack_into("<H", sala, 4, 0xFFFF)
+    struct.pack_into("<I", sala, 0x28, 1011)
+    sala[0x2F] = 3
+    for n in list(SALAS):
+        del SALAS[n]
+    responder(0x101D, b"\0\0\0\0" + bytes(sala), 701)
+    num = partida(701)["sala"]
+    responder(0x101F, struct.pack("<IH", 0, num) + bytes(20), 702)
+    responder(0x1047, b"\1\1", 702)
+    responder(0x104E, b"", 701)
+    responder(0x1074, b"\0", 702)                     # el invitado abandona; el anfitrión sigue
+    chequear("★ salida: abandona el invitado y el anfitrión sigue → la sala sigue «Playing» (no se entra)",
+             SALAS[num].get("jugando") is True)
+    r = responder(0x101F, struct.pack("<IH", 0, num) + bytes(20), 702)
+    chequear("★ salida: el que se fue NO puede volver a entrar mientras el otro juega (sin 0x1059 al que juega)",
+             r[0][0] == 0x1020 and r[0][1][:2] == b"\0\0" and not any(len(x) > 3 and x[3] == 701 for x in r)
+             and SALAS[num]["miembros"] == [701], r[:2])
+    r = responder(0x1025, b"", 702)
+    chequear("salida: tampoco por Quick Join", struct.unpack_from("<H", r[0][1])[0] != 1)
+    # el que terminó la stage (0x1064) vuelve a la sala; si es el último, la sala se reabre
+    p = partida(701)
+    p.update(inicio=__import__("time").time() - 30, resultado_guardado=False)
+    responder(0x1064, b"", 701)
+    chequear("salida: termina el último que jugaba → la sala vuelve a «Waiting» con él solo",
+             SALAS[num].get("jugando") is False and SALAS[num]["miembros"] == [701])
+    chequear("salida: … y como anfitrión solo puede largar (F9)", any(x[0] == 0x104F for x in responder(0x104E, b"", 701)))
+    responder(0x1074, b"\0", 701)
+    # «Cancel» al revivir (0x106A con 0) → 0x1075: también sale de la sala
+    responder(0x101D, b"\0\0\0\0" + bytes(sala), 703)
+    num = partida(703)["sala"]
+    responder(0x104E, b"", 703)
+    r = responder(0x106A, b"\0\0", 703)
+    chequear("★ salida: «no revivir» (0x106A) → 0x1075 y sale de la sala (sin sala fantasma)",
+             any(x[0] == 0x1075 for x in r) and num not in SALAS and partida(703).get("sala") is None)
+    for n in list(SALAS):
+        del SALAS[n]
+    for n in (701, 702, 703):
+        partida(n).pop("sala", None)

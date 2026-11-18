@@ -72,6 +72,21 @@ def cerrar_por_bajas(p, conexion):
     return fin_de_stage(0x1064, b"", conexion, leer(conexion), p)
 
 
+def termino_su_stage(s, conexion):
+    """★ (Punto 3, 18-nov) La sala vuelve a «Waiting» (se puede entrar) recién cuando NINGUNO sigue en la
+    stage. Antes bastaba con que uno terminara o abandonara: con el otro todavía jugando, la sala quedaba
+    abierta en el lobby, el que había salido volvía a entrar, y el server le mandaba al que jugaba el
+    0x1059 (direcciones P2P: su juego volvía a conectarse con el que se fue, medido 12:06:01 en plena
+    stage: el personaje «fantasma») y al que entraba lo de la stage del otro (0x105D en la sala: el juego
+    se cerró, 11:56:59.947)."""
+    if not s:
+        return
+    s.setdefault("en_stage", set()).discard(conexion)
+    if not (s["en_stage"] & set(s["miembros"])):
+        s["jugando"] = False
+        s.setdefault("cargados", set()).clear()
+
+
 def dejar_la_sala(p, conexion):
     """★ (Punto 3, 18-nov) Con el 0x1075 el CLIENTE ya dejó la sala: `0x546F40` vacía su lista de
     jugadores y va al LOBBY (pantalla 3). El server lo dejaba adentro, y entonces:
@@ -100,10 +115,7 @@ def game_over(c, p, conexion):
     p["game_over_en"] = None
     c["partidas"] += 1
     guardar(c)
-    s = SALAS.get(p.get("sala"))
-    if s:
-        s["jugando"] = False
-        s.setdefault("cargados", set()).clear()
+    termino_su_stage(SALAS.get(p.get("sala")), conexion)
     salida = struct.pack("<HHIBIHB", 1, c["monedas"], c["abandonos"], nivel(c["exp"]),
                          c["exp"], 0, 0)
     return [(0x1069, b"\x00", 0, conexion), (0x1075, salida, 6000, conexion)] + dejar_la_sala(p, conexion)
@@ -252,7 +264,10 @@ def evento_guion_escenario(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"] or len(s["miembros"]) <= 1:
         return []
-    return [(0x105D, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+    # ★ (Punto 3) sólo a los que SIGUEN en la stage: el 0x105D fuera de la stage cierra el juego (medido
+    #   dos veces el 18-nov: 10:19:37 en el lobby y 11:56:59 en la sala)
+    en_stage = s.get("en_stage", s["miembros"])
+    return [(0x105D, cuerpo, 0, m) for m in s["miembros"] if m != conexion and m in en_stage]
 
 
 @maneja(0x105D)
@@ -336,6 +351,8 @@ def usar_moneda(cmd, cuerpo, conexion, c, p):
         guardar(c)
         r.append((0x1075, struct.pack("<HHIBIHB", 1, c["monedas"], c["abandonos"],
                                       nivel(c["exp"]), c["exp"], 0, 0), 6000))
+        termino_su_stage(SALAS.get(p.get("sala")), conexion)
+        r += dejar_la_sala(p, conexion)             # ★ (Punto 3) también este 0x1075 lo saca de la sala
     return r
 
 
@@ -391,10 +408,7 @@ def fin_de_stage(cmd, cuerpo, conexion, c, p):
     p["cartas_hasta"] = time.time() + 8 + 60 + 2          # 0x106F a los 8 s + 60 s + margen
     p["exp_cartas"] = 0
     p["cartas_elegidas"] = set()
-    s = SALAS.get(p.get("sala"))
-    if s:
-        s["jugando"] = False
-        s.setdefault("cargados", set()).clear()
+    termino_su_stage(SALAS.get(p.get("sala")), conexion)
     if n > antes:
         print("sube de nivel", antes, "→", n)
     # ★ el resultado y las cartas ESPACIADOS (juntos, las cartas tapaban el resultado)
@@ -468,10 +482,7 @@ def salir_de_stage(cmd, cuerpo, conexion, c, p):
     c["abandonos"] += 1
     c["partidas"] += 1
     guardar(c)
-    s = SALAS.get(p.get("sala"))
-    if s:
-        s["jugando"] = False
-        s.setdefault("cargados", set()).clear()
+    termino_su_stage(SALAS.get(p.get("sala")), conexion)
     salida = struct.pack("<HHIBIHB", 1, c["monedas"], c["abandonos"], nivel(c["exp"]),
                          c["exp"], 0, 0)
     return [(0x1075, salida, 0)] + dejar_la_sala(p, conexion)
