@@ -9,7 +9,7 @@ import time
 
 from servidor import config
 from servidor.registro import maneja
-from servidor.estado import SALAS, partida
+from servidor.estado import SALAS, partida, numero
 from servidor.cuentas import guardar, nivel
 from servidor.datos import ESCENARIOS, NADA, PRECIOS, RANKRATE, puntos_de, tabla_premios
 from servidor.objetos import inventario, libre_en_bolsa, registro_item, serial_nuevo
@@ -72,6 +72,48 @@ def cerrar_por_bajas(p, conexion):
     return fin_de_stage(0x1064, b"", conexion, leer(conexion), p)
 
 
+def termino_su_stage(s, conexion):
+    """★ (Punto 3, 18-nov) La sala vuelve a «Waiting» (se puede entrar) recién cuando NINGUNO sigue en la
+    stage. Antes bastaba con que uno terminara o abandonara: con el otro todavía jugando, la sala quedaba
+    abierta en el lobby, el que había salido volvía a entrar, y el server le mandaba al que jugaba el
+    0x1059 (direcciones P2P: su juego volvía a conectarse con el que se fue, medido 12:06:01 en plena
+    stage: el personaje «fantasma») y al que entraba lo de la stage del otro (0x105D en la sala: el juego
+    se cerró, 11:56:59.947)."""
+    if not s:
+        return
+    s.setdefault("en_stage", set()).discard(conexion)
+    if not (s["en_stage"] & set(s["miembros"])):
+        if s.get("jugando"):
+            # ★ (Punto 3, 18-nov 12:58) el lobby se ENTERA de que vuelve a «Waiting» (con el próximo tick, como
+            #   cualquier cambio de la lista). Antes el server la reabría pero no mandaba la lista: el lobby
+            #   la siguió viendo «Playing» (última lista 12:54:17, la stage terminó 12:58:03, nada hasta 12:58:42)
+            from servidor.estado import VIVO
+            VIVO.LISTA_CAMBIO = True
+        s["jugando"] = False
+        s.setdefault("cargados", set()).clear()
+
+
+def dejar_la_sala(p, conexion):
+    """★ (Punto 3, 18-nov) Con el 0x1075 el CLIENTE ya dejó la sala: `0x546F40` vacía su lista de
+    jugadores y va al LOBBY (pantalla 3). El server lo dejaba adentro, y entonces:
+      · le seguía reenviando lo de la stage de los demás (0x105D…) estando en el lobby → el juego se
+        cerraba (medido 18-nov 10:19:37: EXCEPCION 0xC0000005 manejando 0x105D, 4 s después de
+        abandonar el anfitrión con el invitado todavía jugando);
+      · al volver del inventario desde el lobby (0x102D) le contestaba la SALA vieja (modo 9): una sala
+        «fantasma» con datos viejos;
+      · los demás lo tenían en su lista (fantasma) y la sala seguía en la lista del lobby.
+    Ahora sale como con Leave Room: los que quedan reciben el 0x1058 tipo 3 (su número fijo y el nuevo
+    anfitrión; la stage lo atiende en `0x5482A0`, medido 10:18:04 sin problemas), y la sala vacía se borra."""
+    from servidor.salas import _sacar_de_sala
+    from servidor.estado import VIVO
+    num = p.pop("sala", None)
+    s = SALAS.get(num)
+    if not (s and conexion in s["miembros"]):
+        return []
+    VIVO.LISTA_CAMBIO = True                               # (la lista del lobby: uno menos o una sala menos)
+    return _sacar_de_sala(s, num, conexion)
+
+
 def game_over(c, p, conexion):
     """★ GAME OVER (medido 16:20–16:26): 0x1069 = modo espectador («<Jump Key> pushing allow
     viewing of other players», sin HUD); con todos muertos (acá: uno solo) no hay a quién mirar
@@ -79,19 +121,16 @@ def game_over(c, p, conexion):
     p["game_over_en"] = None
     c["partidas"] += 1
     guardar(c)
-    s = SALAS.get(p.get("sala"))
-    if s:
-        s["jugando"] = False
-        s.setdefault("cargados", set()).clear()
+    termino_su_stage(SALAS.get(p.get("sala")), conexion)
     salida = struct.pack("<HHIBIHB", 1, c["monedas"], c["abandonos"], nivel(c["exp"]),
                          c["exp"], 0, 0)
-    return [(0x1069, b"\x00", 0, conexion), (0x1075, salida, 6000, conexion)]
+    return [(0x1069, b"\x00", 0, conexion), (0x1075, salida, 6000, conexion)] + dejar_la_sala(p, conexion)
 
 
 def numero_jugador(conexion):
     """El número de jugador en su sala (el que el cliente tiene en cuenta+0x705); solo = 0."""
     s = SALAS.get(partida(conexion).get("sala"))
-    return s["miembros"].index(conexion) if s and conexion in s["miembros"] else 0
+    return numero(s, conexion) if s and conexion in s["miembros"] else 0
 
 
 def cuerpo_1072(conexion, p):
@@ -99,7 +138,7 @@ def cuerpo_1072(conexion, p):
     (u8 jugador · u8 1 = «cobra el premio de la stage»). Con [0, 0] (lo de antes) el cliente
     mostraba Gold 0 / Exp 0. Cada jugador de la sala con su 1."""
     s = SALAS.get(p.get("sala"))
-    jugadores = (range(len(s["miembros"])) if s and conexion in s["miembros"]
+    jugadores = ([numero(s, n) for n in s["miembros"]] if s and conexion in s["miembros"]
                  else [numero_jugador(conexion)])
     return struct.pack("<IB", p.get("escenario", 0), len(jugadores)) + b"".join(
         struct.pack("<BB", j, 1) for j in jugadores)
@@ -121,16 +160,16 @@ def termino_de_cargar(cmd, cuerpo, conexion, c, p):
     def activar(destinos, total):
         if not os.path.exists(os.path.join(config.ESTADO, "con_106c")):
             return []
-        return [(0x106C, struct.pack("<BB", i, i), 0, n) for n in destinos for i in range(total)]
+        return [(0x106C, struct.pack("<BB", i, i), 0, n) for n in destinos for i in total]
     # ★ con varios: la largada (0x105E) recién cuando cargaron TODOS, y a todos juntos
     s = SALAS.get(p.get("sala"))
     if s and len(s["miembros"]) > 1:
         s.setdefault("cargados", set()).add(conexion)
         if set(s["miembros"]) <= s["cargados"]:
             return ([(0x105E, struct.pack("<HI", 1, 600), 0, n) for n in s["miembros"]]
-                    + activar(s["miembros"], len(s["miembros"])))
+                    + activar(s["miembros"], [numero(s, m) for m in s["miembros"]]))
         return []
-    return [(0x105E, struct.pack("<HI", 1, 600), 0)] + activar([conexion], 1)
+    return [(0x105E, struct.pack("<HI", 1, 600), 0)] + activar([conexion], [numero_jugador(conexion)])
 
 
 @maneja(0x1061)
@@ -164,7 +203,7 @@ def le_pegaron(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     r = []
     if s and conexion in s["miembros"] and len(s["miembros"]) > 1:
-        yo = s["miembros"].index(conexion)
+        yo = numero(s, conexion)
         # 0x1062 (16 B, 0x547440): u32 jugador_id · u32 0 · u16 HP · u8 0 · u32 MP · u8 buffs
         hp = struct.unpack_from("<H", cuerpo, 1)[0] if len(cuerpo) >= 3 else 1000
         msg_62 = struct.pack("<IIHBI B", yo, 0, hp, 0, 100, 0)
@@ -209,7 +248,7 @@ def interactuar_objeto(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"]:
         return []
-    yo = s["miembros"].index(conexion)
+    yo = numero(s, conexion)
     msg = struct.pack("<BIB", yo, obj_id, 1)
     return [(0x1066, msg, 0, m) for m in s["miembros"]]
 
@@ -231,7 +270,10 @@ def evento_guion_escenario(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"] or len(s["miembros"]) <= 1:
         return []
-    return [(0x105D, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+    # ★ (Punto 3) sólo a los que SIGUEN en la stage: el 0x105D fuera de la stage cierra el juego (medido
+    #   dos veces el 18-nov: 10:19:37 en el lobby y 11:56:59 en la sala)
+    en_stage = s.get("en_stage", s["miembros"])
+    return [(0x105D, cuerpo, 0, m) for m in s["miembros"] if m != conexion and m in en_stage]
 
 
 @maneja(0x105D)
@@ -303,7 +345,7 @@ def usar_moneda(cmd, cuerpo, conexion, c, p):
     r = [(0x106B, struct.pack("<HBHB", 1, 1 if si else 0, c["monedas"], 0), 0)]
     s = SALAS.get(p.get("sala"))
     if si and s and conexion in s["miembros"] and len(s["miembros"]) > 1:
-        yo = s["miembros"].index(conexion)
+        yo = numero(s, conexion)
         msg_otro = struct.pack("<HBHB", 1, 2, c["monedas"], yo)
         for m in s["miembros"]:
             if m != conexion:
@@ -315,6 +357,8 @@ def usar_moneda(cmd, cuerpo, conexion, c, p):
         guardar(c)
         r.append((0x1075, struct.pack("<HHIBIHB", 1, c["monedas"], c["abandonos"],
                                       nivel(c["exp"]), c["exp"], 0, 0), 6000))
+        termino_su_stage(SALAS.get(p.get("sala")), conexion)
+        r += dejar_la_sala(p, conexion)             # ★ (Punto 3) también este 0x1075 lo saca de la sala
     return r
 
 
@@ -370,10 +414,7 @@ def fin_de_stage(cmd, cuerpo, conexion, c, p):
     p["cartas_hasta"] = time.time() + 8 + 60 + 2          # 0x106F a los 8 s + 60 s + margen
     p["exp_cartas"] = 0
     p["cartas_elegidas"] = set()
-    s = SALAS.get(p.get("sala"))
-    if s:
-        s["jugando"] = False
-        s.setdefault("cargados", set()).clear()
+    termino_su_stage(SALAS.get(p.get("sala")), conexion)
     if n > antes:
         print("sube de nivel", antes, "→", n)
     # ★ el resultado y las cartas ESPACIADOS (juntos, las cartas tapaban el resultado)
@@ -447,10 +488,7 @@ def salir_de_stage(cmd, cuerpo, conexion, c, p):
     c["abandonos"] += 1
     c["partidas"] += 1
     guardar(c)
-    s = SALAS.get(p.get("sala"))
-    if s:
-        s["jugando"] = False
-        s.setdefault("cargados", set()).clear()
+    termino_su_stage(SALAS.get(p.get("sala")), conexion)
     salida = struct.pack("<HHIBIHB", 1, c["monedas"], c["abandonos"], nivel(c["exp"]),
                          c["exp"], 0, 0)
-    return [(0x1075, salida, 0)]
+    return [(0x1075, salida, 0)] + dejar_la_sala(p, conexion)

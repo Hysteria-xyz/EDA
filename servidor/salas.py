@@ -6,7 +6,7 @@ import struct
 from servidor import config
 from servidor.config import P
 from servidor.registro import maneja
-from servidor.estado import ASIGNADAS, SALAS, partida
+from servidor.estado import ASIGNADAS, SALAS, VIVO, partida, numero, dar_numero, de_numero
 from servidor.cuentas import leer, nivel, nombre_visible, guardar, EXPS, INICIO
 from servidor.objetos import equipo_tipos, obj_habilidad, personaje_obj
 from servidor import relay
@@ -34,7 +34,7 @@ def lista_salas():
     return struct.pack("<BBH", 1, 0, len(regs)) + b"".join(regs)
 
 
-def miembro(c, indice, completo=False, conexion=None, para=None):
+def miembro(c, indice, completo=False, conexion=None, para=None, listo=False):
     """★ Un MIEMBRO de la sala, armado sobre los constructores del cliente (los bytes se leen
     ENCIMA del objeto: cada vtable va con el valor que pone su constructor):
       0x32C (`0x540980`, el del 0x1020): +0 vt 0x89A3BC · +4 u8 id · +5 u8 número de jugador ·
@@ -80,6 +80,10 @@ def miembro(c, indice, completo=False, conexion=None, para=None):
         struct.pack_into("<IH", m, 0xBA + 34 * k, 0x89A38C, tipos[k])
         struct.pack_into("<I", m, 0xBA + 34 * k + 6, 0x89A380)
     struct.pack_into("<I", m, 0x31E, 0x89A3B8)
+    # ★ (Punto 3) +0x322 = LISTO, como lo sabe el server: el anfitrión sólo larga si TODOS los de su
+    #   lista tienen 1 acá y 0 en +0x323 (`0x61C170`, F9 = `0x534B20`); si no, el cartel 0x191
+    #   «All users must be ready to start the game»
+    m[0x322] = 1 if listo else 0
     if completo:
         ext = bytearray(0x43)
         struct.pack_into("<I", ext, 0, 0x89A398)
@@ -101,7 +105,8 @@ def pares(s, espera=0):
     r = []
     for dest in s["miembros"]:
         regs = []
-        for i, n in enumerate(s["miembros"]):
+        for n in s["miembros"]:
+            i = numero(s, n)
             udp = dir_udp(n, dest)
             if udp and n != dest:
                 # ⚠ la IP y el puerto como ENTEROS (little-endian), igual que en el 0x1010: el
@@ -162,19 +167,21 @@ def entrar_sala(cmd, cuerpo, conexion, c, p):
         _sacar_de_sala(SALAS[vieja], vieja, conexion)
     if conexion not in s["miembros"]:
         s["miembros"].append(conexion)
+    yo = dar_numero(s, conexion)
+    s.setdefault("listos", set()).discard(conexion)     # (el que entra, todavía no está listo)
     p["sala"] = num
     p["escenario"] = struct.unpack_from("<H", s["sala"], 0x28)[0] if len(s["sala"]) >= 0x2A else 1011
-    yo = s["miembros"].index(conexion)
     sala = bytearray(s["sala"])
     sala[0x2D], sala[0x2E] = 1, len(s["miembros"])
     # 0x1020 (`0x543640`, 101 B + N × 0x32C): u16 1 · u8 → +0x705 · u8 → +0x706 (MI número
     #   de jugador) · u8 → +0x29D · vt 0x89A3B8 · u8 → +0x2DE · u8 → +0x2DF · la sala (89 B) ·
     #   u8 N · los OTROS miembros (🟡 el propio lo agrega el cliente, como el anfitrión)
     otros = [n for n in s["miembros"] if n != conexion]
-    cab = struct.pack("<HBBBIBB", 1, yo, yo, 0, 0x89A3B8, 0, 0)
+    # ★ (Punto 3) +0x29D = el número del ANFITRIÓN (antes 0 fijo: si el anfitrión no era el 0, nadie largaba)
+    cab = struct.pack("<HBBBIBB", 1, yo, yo, numero(s, s["anfitrion"]), 0x89A3B8, 0, 0)
     cuerpo20 = (cab + bytes(sala) + bytes([len(otros)])
-                + b"".join(miembro(leer(n), s["miembros"].index(n), conexion=n, para=conexion)
-                            for n in otros))
+                + b"".join(miembro(leer(n), numero(s, n), conexion=n, para=conexion,
+                                   listo=n in s["listos"]) for n in otros))
     # al anfitrión (y los demás de la sala): 0x1057 (`0x54F020`, 0x377 B) = u8 → +0x272 ·
     #   u8 → +0x271 (estado de la sala) · vt 0x89A3B8 · u8 → +0x2DE · u8 → +0x2DF · el
     #   miembro NUEVO completo (0x36F) — uno por destinatario (su dirección depende de quién la ve)
@@ -213,14 +220,22 @@ def _sacar_de_sala(s, num, conexion):
     avisos 0x1058 tipo 3 («se fue», con el número del NUEVO anfitrión) para los que quedan."""
     if conexion not in s["miembros"]:
         return []
-    yo = s["miembros"].index(conexion)
+    yo = numero(s, conexion)
     s["miembros"].remove(conexion)
+    s.get("numeros", {}).pop(conexion, None)
+    s.get("listos", set()).discard(conexion)
+    if "en_stage" in s:                                 # (Punto 3: si era el último en la stage, se reabre)
+        s["en_stage"].discard(conexion)
+        if not s["en_stage"] and s.get("jugando"):
+            s["jugando"] = False
+            VIVO.LISTA_CAMBIO = True                    # (que el lobby la vea «Waiting»)
     if not s["miembros"]:
         del SALAS[num]
         return []
     if s["anfitrion"] == conexion:
         s["anfitrion"] = s["miembros"][0]
-    nuevo = s["miembros"].index(s["anfitrion"])
+        s.get("listos", set()).discard(s["anfitrion"])  # (el anfitrión no «está listo»: larga)
+    nuevo = numero(s, s["anfitrion"])
     return [(0x1058, struct.pack("<BHB", yo, 3, nuevo), 0, n) for n in s["miembros"]]
 
 
@@ -246,9 +261,9 @@ def echar(cmd, cuerpo, conexion, c, p):
         return None
     num = p.get("sala")
     s = SALAS.get(num)
-    if not s or s["anfitrion"] != conexion or cuerpo[0] >= len(s["miembros"]):
+    echado = de_numero(s, cuerpo[0]) if s else None   # (cuerpo[0] = su NÚMERO de jugador)
+    if not s or s["anfitrion"] != conexion or echado is None:
         return [(0x1052, b"\0", 0)]
-    echado = s["miembros"][cuerpo[0]]
     if echado == conexion:
         return [(0x1052, b"\0", 0)]
     partida(echado).pop("sala", None)
@@ -272,7 +287,13 @@ def listo(cmd, cuerpo, conexion, c, p):
     estado = cuerpo[1] if len(cuerpo) >= 2 else cuerpo[0]
     r = [(0x1048, struct.pack("<HB", 1, estado), 0)]
     if s and conexion in s["miembros"]:
-        yo = s["miembros"].index(conexion)
+        yo = numero(s, conexion)
+        # ★ (Punto 3) el server RECUERDA quién está listo: lo usan el que entra después (0x1020), la
+        #   vuelta del inventario (0x102E modo 9) y la largada (0x104E)
+        if estado == 1 and conexion != s["anfitrion"]:
+            s.setdefault("listos", set()).add(conexion)
+        else:
+            s.setdefault("listos", set()).discard(conexion)
         r += [(0x1058, struct.pack("<BHB", yo, 1, estado), 0, n)
               for n in s["miembros"] if n != conexion]
     return r
@@ -473,7 +494,7 @@ def sincronizar_equipo_sala(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"]:
         return None
-    yo = s["miembros"].index(conexion)
+    yo = numero(s, conexion)
     msg = aviso_equipo_105b(c, yo)
     return [(0x105B, msg, 0, n) for n in s["miembros"] if n != conexion]
 
@@ -523,7 +544,15 @@ def sala_a_inventario(cmd, cuerpo, conexion, c, p):
     """sala → «Inventory» (u8)"""
     # ★ 0x104D (`0x54ECF0`): u16 1 · u8 → cuenta+0x2DE → pantalla 6 (medido 19:24: sin
     #   respuesta, «Waiting for Response from Server»)
-    return [(0x104D, struct.pack("<HB", 1, 0), 0)]
+    # ★ (Punto 3) ese u8 = 0 le APAGA su «listo» (+0x2DE): los demás lo tienen que saber (0x1058 tipo 1
+    #   en 0), si no el anfitrión lo seguía viendo listo y podía largar con él en el inventario
+    r = [(0x104D, struct.pack("<HB", 1, 0), 0)]
+    s = SALAS.get(p.get("sala"))
+    if s and conexion in s["miembros"] and conexion in s.get("listos", ()):
+        s["listos"].discard(conexion)
+        r += [(0x1058, struct.pack("<BHB", numero(s, conexion), 1, 0), 0, n)
+              for n in s["miembros"] if n != conexion]
+    return r
 
 
 @maneja(0x1017)
@@ -593,7 +622,8 @@ def crear_sala(cmd, cuerpo, conexion, c, p):
     vieja = p.get("sala")
     if vieja and vieja in SALAS and conexion in SALAS[vieja]["miembros"]:
         avisos_salida = _sacar_de_sala(SALAS[vieja], vieja, conexion)
-    SALAS[num] = {"sala": bytes(sala), "anfitrion": conexion, "miembros": [conexion]}
+    SALAS[num] = {"sala": bytes(sala), "anfitrion": conexion, "miembros": [conexion],
+                  "numeros": {conexion: 0}, "listos": set()}
     p["sala"] = num
     return (avisos_salida + [(0x101E, struct.pack("<HBBB", 1, 0, 0, 0) + bytes(sala), 0)]
             + avisar_lista(salvo=conexion))
@@ -609,11 +639,17 @@ def largar(cmd, cuerpo, conexion, c, p):
     if not s or s.get("anfitrion") != conexion or s.get("jugando"):
         return [(0x1050, struct.pack("<H", 0x138A), 0)]
     miembros = s["miembros"] if s else [conexion]
+    # ★ (Punto 3) con varios, TODOS los demás tienen que estar listos (lo mismo que mira el cliente,
+    #   `0x61C170`): si no, el mismo error, que el cliente muestra como «All users must be ready»
+    if any(n != conexion and n not in s.get("listos", ()) for n in miembros):
+        return [(0x1050, struct.pack("<H", 0x138A), 0)]
     if s:
         s["jugando"], s["cargados"] = True, set()
+        s["en_stage"] = set(miembros)                   # (Punto 3: «jugando» hasta que salgan TODOS)
+        s["listos"] = set()                             # (al volver de la stage, todos «no listo»: `0x548AF0`)
     #   ⛔ probado (21:15) llenarlos con las habilidades de los atajos: NO las hace lanzar
     #   (el MP no baja con F1). Son de los OTROS (`0x61C230` los copia a su miembro). En cero.
-    lista = b"".join(bytes([i]) + bytes(67) for i in range(len(miembros)))
+    lista = b"".join(bytes([numero(s, n)]) + bytes(67) for n in miembros)
     r = []
     for n in miembros:
         cn = leer(n)
