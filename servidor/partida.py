@@ -72,6 +72,27 @@ def cerrar_por_bajas(p, conexion):
     return fin_de_stage(0x1064, b"", conexion, leer(conexion), p)
 
 
+def dejar_la_sala(p, conexion):
+    """★ (Punto 3, 18-nov) Con el 0x1075 el CLIENTE ya dejó la sala: `0x546F40` vacía su lista de
+    jugadores y va al LOBBY (pantalla 3). El server lo dejaba adentro, y entonces:
+      · le seguía reenviando lo de la stage de los demás (0x105D…) estando en el lobby → el juego se
+        cerraba (medido 18-nov 10:19:37: EXCEPCION 0xC0000005 manejando 0x105D, 4 s después de
+        abandonar el anfitrión con el invitado todavía jugando);
+      · al volver del inventario desde el lobby (0x102D) le contestaba la SALA vieja (modo 9): una sala
+        «fantasma» con datos viejos;
+      · los demás lo tenían en su lista (fantasma) y la sala seguía en la lista del lobby.
+    Ahora sale como con Leave Room: los que quedan reciben el 0x1058 tipo 3 (su número fijo y el nuevo
+    anfitrión; la stage lo atiende en `0x5482A0`, medido 10:18:04 sin problemas), y la sala vacía se borra."""
+    from servidor.salas import _sacar_de_sala
+    from servidor.estado import VIVO
+    num = p.pop("sala", None)
+    s = SALAS.get(num)
+    if not (s and conexion in s["miembros"]):
+        return []
+    VIVO.LISTA_CAMBIO = True                               # (la lista del lobby: uno menos o una sala menos)
+    return _sacar_de_sala(s, num, conexion)
+
+
 def game_over(c, p, conexion):
     """★ GAME OVER (medido 16:20–16:26): 0x1069 = modo espectador («<Jump Key> pushing allow
     viewing of other players», sin HUD); con todos muertos (acá: uno solo) no hay a quién mirar
@@ -85,7 +106,7 @@ def game_over(c, p, conexion):
         s.setdefault("cargados", set()).clear()
     salida = struct.pack("<HHIBIHB", 1, c["monedas"], c["abandonos"], nivel(c["exp"]),
                          c["exp"], 0, 0)
-    return [(0x1069, b"\x00", 0, conexion), (0x1075, salida, 6000, conexion)]
+    return [(0x1069, b"\x00", 0, conexion), (0x1075, salida, 6000, conexion)] + dejar_la_sala(p, conexion)
 
 
 def numero_jugador(conexion):
@@ -453,4 +474,4 @@ def salir_de_stage(cmd, cuerpo, conexion, c, p):
         s.setdefault("cargados", set()).clear()
     salida = struct.pack("<HHIBIHB", 1, c["monedas"], c["abandonos"], nivel(c["exp"]),
                          c["exp"], 0, 0)
-    return [(0x1075, salida, 0)]
+    return [(0x1075, salida, 0)] + dejar_la_sala(p, conexion)

@@ -67,8 +67,8 @@ def responder(cmd, cuerpo, conexion):
     return r
 
 
-# crear, entrar, salir, echar: después de cada uno, el mapa del relay se reescribe con las salas
-CAMBIAN_SALAS = (0x101D, 0x101F, 0x1045, 0x1051)
+# crear, entrar, salir, echar, abandonar la stage: después de cada uno, el mapa del relay se reescribe con las salas
+CAMBIAN_SALAS = (0x101D, 0x101F, 0x1045, 0x1051, 0x1074)   # (0x1074: sale de la sala, Punto 3)
 
 
 def segundos_fin_rapido():

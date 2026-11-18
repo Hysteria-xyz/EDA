@@ -1862,3 +1862,66 @@ def pruebas_ready(chequear):
     for n in list(SALAS):
         del SALAS[n]
     limpiar(601)
+
+    # 7) DOS en la stage: el ANFITRIÓN abandona (0x1074) → sale de la sala; al invitado, que sigue jugando,
+    #    le llega el «se fue» (0x1058 tipo 3) y queda anfitrión; lo de su stage (0x105C) ya NO va al que se
+    #    fue (medido 18-nov 10:19:37: el 0x105D en el lobby cerró el juego del anfitrión)
+    mandar(0x101D, crear, 601)
+    num = partida(601)["sala"]
+    mandar(0x101F, entrar(num), 602)
+    mandar(0x1047, bytes([clientes[602].yo, 1]), 602)
+    chequear("abandono: los dos listos y larga", f9(601)[0] == "larga")
+    r = mandar(0x1074, b"\0", 601)
+    chequear("★ abandono del anfitrión: 0x1075 primero, y sale de la sala del server",
+             r[0][0] == 0x1075 and partida(601).get("sala") is None and SALAS[num]["miembros"] == [602])
+    chequear("★ abandono del anfitrión: el invitado recibe 0x1058 tipo 3 y queda anfitrión en su cliente",
+             clientes[602].anfitrion == clientes[602].yo and clientes[602].otros == {},
+             (clientes[602].anfitrion, clientes[602].yo, clientes[602].otros))
+    r = responder(0x105C, b"\1\2\3\4", 602)
+    chequear("★ abandono del anfitrión: lo de la stage del invitado (0x105D) ya no le llega al que se fue",
+             not any(len(x) > 3 and x[3] == 601 for x in r), r)
+    r = mandar(0x102D, reparto(), 601)
+    chequear("★ abandono: el inventario desde el lobby vuelve al LOBBY (modo 3), no a una sala fantasma (modo 9)",
+             any(x[0] == 0x102E and x[1][2] == 3 for x in r))
+    mandar(0x1074, b"\0", 602)
+    chequear("abandono: cuando sale el último, la sala desaparece (sin sala fantasma en el lobby)", num not in SALAS)
+    limpiar(601, 602)
+
+    # 8) TRES: el anfitrión se va de la SALA (0x1045) → el siguiente es anfitrión para todos
+    mandar(0x101D, crear, 601)
+    num = partida(601)["sala"]
+    mandar(0x101F, entrar(num), 602)
+    mandar(0x101F, entrar(num), 603)
+    mandar(0x1045, b"", 601)
+    chequear("★ tres, se va el anfitrión: 602 queda anfitrión en su cliente y 603 lo ve así",
+             clientes[602].anfitrion == clientes[602].yo == 1 and clientes[603].anfitrion == 1
+             and set(clientes[603].otros) == {1} and set(clientes[602].otros) == {2},
+             (clientes[602].anfitrion, clientes[602].yo, clientes[603].anfitrion, clientes[603].otros))
+    chequear("tres, se va el anfitrión: el nuevo no larga sin el «listo» del otro", clientes[602].f9() == "cartel")
+    mandar(0x1047, bytes([clientes[603].yo, 1]), 603)
+    chequear("tres, se va el anfitrión: con el listo del otro, larga", f9(602)[0] == "larga")
+    for x in (602, 603):
+        mandar(0x1074, b"\0", x)
+    chequear("tres: abandonan los dos → la sala desaparece", num not in SALAS)
+    limpiar(601, 602, 603)
+
+    # 9) TRES en la stage: el anfitrión abandona → los otros dos siguen; el nuevo anfitrión es el mismo para ambos
+    mandar(0x101D, crear, 601)
+    num = partida(601)["sala"]
+    mandar(0x101F, entrar(num), 602)
+    mandar(0x101F, entrar(num), 603)
+    for x in (602, 603):
+        mandar(0x1047, bytes([clientes[x].yo, 1]), x)
+    f9(601)
+    mandar(0x1074, b"\0", 601)
+    chequear("★ tres en la stage, abandona el anfitrión: los dos que quedan tienen el mismo anfitrión (602)",
+             clientes[602].anfitrion == clientes[603].anfitrion == clientes[602].yo
+             and 0 not in clientes[602].otros and 0 not in clientes[603].otros)
+    r = responder(0x105C, b"\1\2\3\4", 603)
+    chequear("tres en la stage: lo de la stage va sólo a los que siguen",
+             sorted(x[3] for x in r if x[0] == 0x105D) == [602], r)
+    for x in (602, 603):
+        mandar(0x1074, b"\0", x)
+    limpiar(601, 602, 603)
+    for n in list(SALAS):
+        del SALAS[n]
