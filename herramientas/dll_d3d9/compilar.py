@@ -132,7 +132,7 @@ def compilar():
     if not os.path.isfile(ZIG):
         raise SystemExit("⛔ no encuentro Zig 0.16.0: %s (se puede indicar con la variable ZIG)" % ZIG)
     os.makedirs(SALIDA, exist_ok=True)
-    for f in ("eda_d3d9.c", "eda_opciones.c", "eda_messenger.c", "d3d9.def"):
+    for f in ("eda_d3d9.c", "eda_opciones.c", "eda_teclas.c", "eda_messenger.c", "d3d9.def"):
         shutil.copy(os.path.join(AQUI, f), SALIDA)
     dll = os.path.join(SALIDA, "d3d9.dll")
     if os.path.exists(dll):
