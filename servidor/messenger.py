@@ -230,6 +230,13 @@ def conexion_de(nombre):
     return next((n for n, x in ASIGNADAS.items() if x == nombre), None)
 
 
+def visible(cuenta):
+    """★ (18-nov) El nick de una cuenta para los avisos: la dll manda la CUENTA (`r2b_<uid>` con «pase») en
+    /aceptar, /rechazar, /quitar y /m, y el aviso la repetía tal cual («r2b_123 y tú ahora son amigos»)."""
+    n = conexion_de(cuenta)
+    return nombre_visible(leer(n)) if n else _nick_guardado(cuenta)
+
+
 def donde_esta(n):
     p = PARTIDAS.get(n) or {}
     s = SALAS.get(p.get("sala"))
@@ -272,18 +279,19 @@ def comando(texto, conexion, c):
             return [aviso("No existe el jugador %s." % partes[1], conexion)]
         amigos = c.setdefault("amigos", [])
         suyos = amigos_de(otro)
+        quien = visible(otro)
         if otro in amigos and c["nombre"] in suyos:
-            return [aviso("%s ya es tu amigo." % partes[1], conexion)]
+            return [aviso("%s ya es tu amigo." % quien, conexion)]
         if otro in amigos:
-            return [aviso("Ya le enviaste una solicitud a %s (pendiente)." % partes[1], conexion)]
+            return [aviso("Ya le enviaste una solicitud a %s (pendiente)." % quien, conexion)]
         amigos.append(otro)
         guardar(c)
         if c["nombre"] in suyos:                            # (el otro ya me la había mandado: amigos los dos)
-            r = [aviso("%s y tú ahora son amigos." % partes[1], conexion)]
+            r = [aviso("%s y tú ahora son amigos." % quien, conexion)]
             if n:
                 r.append(aviso("%s aceptó: ahora son amigos." % yo, n))
         else:
-            r = [aviso("Solicitud de amistad enviada a %s." % partes[1], conexion)]
+            r = [aviso("Solicitud de amistad enviada a %s." % quien, conexion)]
             if n:
                 r.append(aviso("%s te envió una solicitud de amistad (Messenger → Requests)." % yo, n))
         return r + listas_ya(c["nombre"], otro)
@@ -291,16 +299,16 @@ def comando(texto, conexion, c):
         otro = buscar(partes[1])[0] if len(partes) >= 2 else None
         if not otro or c["nombre"] not in amigos_de(otro) or otro in c.get("amigos", []):
             return [aviso("No tienes una solicitud de %s." % (partes[1] if len(partes) >= 2 else "nadie"), conexion)]
-        n = conexion_de(otro)
+        n, quien = conexion_de(otro), visible(otro)
         if sub == "aceptar":
             c.setdefault("amigos", []).append(otro)
             guardar(c)
-            r = [aviso("%s y tú ahora son amigos." % partes[1], conexion)]
+            r = [aviso("%s y tú ahora son amigos." % quien, conexion)]
             if n:
                 r.append(aviso("%s aceptó tu solicitud: ahora son amigos." % yo, n))
         else:
             cambiar_amigos(otro, quitar=c["nombre"])
-            r = [aviso("Rechazaste la solicitud de %s." % partes[1], conexion)]
+            r = [aviso("Rechazaste la solicitud de %s." % quien, conexion)]
             if n:
                 r.append(aviso("%s rechazó tu solicitud de amistad." % yo, n))
         return r + listas_ya(c["nombre"], otro)
@@ -315,7 +323,8 @@ def comando(texto, conexion, c):
             guardar(c)
         cambiar_amigos(otro, quitar=c["nombre"])            # (la amistad, de los DOS lados)
         n = conexion_de(otro)
-        r = [aviso(("%s quitado de tus amigos." if era_amigo else "Solicitud con %s cancelada.") % partes[1], conexion)]
+        r = [aviso(("%s quitado de tus amigos." if era_amigo else "Solicitud con %s cancelada.") % visible(otro),
+                   conexion)]
         if n and era_amigo:
             r.append(aviso("%s te quitó de sus amigos." % yo, n))
         return r + listas_ya(c["nombre"], otro)
@@ -327,7 +336,7 @@ def comando(texto, conexion, c):
         if not n:                                           # ★ (17-nov) a un desconectado no se le guarda nada
             if otro and otro != c["nombre"]:
                 return [aviso("%s no está conectado: el mensaje no se envió (las conversaciones duran sólo la sesión)."
-                              % partes[1], conexion)]
+                              % visible(otro), conexion)]
             return [aviso("%s no está conectado." % partes[1], conexion)]
         # ★ (17-nov) entre AMIGOS (de los dos lados) el mensaje es del Messenger: en memoria (la sesión) y como H a
         #   cada lado que tiene la dll; a ese lado NO va además al chat del juego (antes llegaba dos veces). Entre
@@ -347,7 +356,7 @@ def comando(texto, conexion, c):
         if not al_msn or n not in dll:
             r.append(privado("[de %s]" % yo, n))
         if not al_msn or conexion not in dll:
-            r.append(privado("[a %s]" % partes[1], conexion))
+            r.append(privado("[a %s]" % (visible(otro) if otro else partes[1]), conexion))
         return r
     if sub == "msn":                                        # ★ el Messenger de la dll (no lo escribe una persona)
         # «hola»: la dll avisa al entrar al lobby que está (así los mensajes y las solicitudes le llegan aunque el

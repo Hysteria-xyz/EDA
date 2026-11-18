@@ -1473,7 +1473,10 @@ def pruebas_messenger_cuentas_reales(chequear):
     cu = m.estado()["cuentas"]
     chequear("cuentas reales: la lista R/E con identificador y nick",
              ("\nE\t%s\tBeta" % b) in m.lista_msn(cu, a) and ("\nR\t%s\tAlfa" % a) in m.lista_msn(cu, b))
-    responder(0x100D, chat_("/aceptar %s" % a), 402)
+    r = responder(0x100D, chat_("/aceptar %s" % a), 402)
+    chequear("★ cuentas reales: los avisos dicen el NICK aunque la dll mande el identificador",
+             any("Alfa y tú ahora son amigos" in t for t in textos(r, 402))
+             and not any(a in t for t in textos(r, 402) + textos(r, 401)), textos(r, 402))
     cu = m.estado()["cuentas"]
     chequear("cuentas reales: /aceptar con el identificador → amigos los dos (A con nick)",
              ("\nA\t%s\tBeta\t" % b) in m.lista_msn(cu, a) and ("\nA\t%s\tAlfa\t" % a) in m.lista_msn(cu, b))
@@ -1489,7 +1492,10 @@ def pruebas_messenger_cuentas_reales(chequear):
     ASIGNADAS[403] = c
     responder(0x100D, chat_("/aceptar Alfa"), 403)
     cerrada(403)
-    responder(0x100D, chat_("/quitar %s" % c), 401)
+    r = responder(0x100D, chat_("/quitar %s" % c), 401)
+    chequear("★ cuentas reales: DELETE de un desconectado → el aviso con su nick (kai), no el identificador",
+             any(t.startswith("kai quitado") or "kai quitado" in t for t in textos(r, 401))
+             and not any(c in t for t in textos(r, 401)), textos(r, 401))
     chequear("cuentas reales: DELETE a un desconectado → fuera de las DOS listas (su archivo también)",
              c not in leer(401)["amigos"] and a not in m.amigos_de(c) and m.amigos_de(b) == [a], m.amigos_de(c))
     for conexion in (401, 402):
