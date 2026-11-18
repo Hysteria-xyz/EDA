@@ -64,6 +64,19 @@ NAT_MAPA = os.path.join(ESTADO, "nat.json")       # huella del 0x3002 → [IP, p
 #               cuentas aprobadas para EDA. La cuenta pasa a ser `r2b_<uid de R2Beat>`.
 LOGIN = os.environ.get("EDA_LOGIN", "abierto")
 PORTERO_CLAVES = os.environ.get("EDA_PORTERO_CLAVES", "")   # el JWKS del portero: un archivo o una URL https
+# ★ (15-nov) la clave pública del servicio de cuentas dada DIRECTO por configuración (Ed25519: 32 bytes en
+#   base64url, o 64 dígitos hex). Si está, manda sobre EDA_PORTERO_CLAVES y el server no sale a buscar nada a
+#   la red para arrancar ni para comprobar un pase: es como reciben la clave las demás piezas del conjunto.
+CUENTAS_CLAVE_PUBLICA = (os.environ.get("EDA_CUENTAS_CLAVE_PUBLICA") or "").strip()
+# ★ (15-nov) el prefijo del nombre de la cuenta: `<prefijo><número de la cuenta>`. Con el pase de Cuenta Eñeños el
+#   número es el Eñeños ID (la persona), no un número de R2Beat. Hasta 4 letras, números o «_» (el nombre de un
+#   personaje sin bautizar es el de su cuenta, y tiene que entrar en 12).
+PREFIJO_CUENTA = os.environ.get("EDA_PREFIJO_CUENTA") or "r2b_"
+# ★ (15-nov) cómo nace la cuenta de quien entra con el pase por primera vez:
+#   "personaje" = como siempre: con el personaje de siempre ya hecho (y el apodo del pase lo bautiza)
+#   "vacia"     = SIN personajes: el pase lo deja entrar, y sus personajes los crea él en la pantalla del
+#                 juego (el cliente ya la muestra vacía: es lo que pasa cuando alguien los borra todos)
+CUENTA_NUEVA = os.environ.get("EDA_CUENTA_NUEVA") or "personaje"
 PORTERO_EMISOR = "r2beat-portero"
 PORTERO_AUDIENCIA = "eda"
 PORTERIA = os.path.join(ESTADO, "porteria.db")              # los tickets dados y los pases ya usados

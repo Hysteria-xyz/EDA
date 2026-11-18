@@ -99,7 +99,9 @@ def leer(conexion=None):
     except (OSError, ValueError):
         crudo = {}
     pjs, activo = personajes_de(crudo)
-    if not crudo:                                   # cuenta NUEVA: el personaje de siempre, en el lugar 0
+    if not crudo and config.LOGIN == "pase" and config.CUENTA_NUEVA == "vacia":
+        pjs = []                                    # ★ (15-nov) cuenta NUEVA con pase: nace vacía, crea los suyos
+    elif not crudo:                                 # cuenta NUEVA: el personaje de siempre, en el lugar 0
         pjs = [{k: v for k, v in INICIO.items() if k not in CUENTA_CLAVES}]
         pjs[0]["lugar"] = 0
     if not pjs:

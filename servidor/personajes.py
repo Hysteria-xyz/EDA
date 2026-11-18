@@ -106,6 +106,8 @@ def bautizar(cuenta, nick):
     except (OSError, ValueError):
         crudo = {}
     pjs, activo = personajes_de(crudo)
+    if not crudo and config.LOGIN == "pase" and config.CUENTA_NUEVA == "vacia":
+        return False                                 # ★ (15-nov) nace vacía: no hay a quién ponerle el nombre
     if not crudo:                                    # cuenta NUEVA: el personaje de siempre (= cuentas.leer)
         pjs = [{k: v for k, v in INICIO.items() if k not in CUENTA_CLAVES}]
         pjs[0]["lugar"] = 0

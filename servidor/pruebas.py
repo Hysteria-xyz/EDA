@@ -1313,6 +1313,10 @@ def pruebas_login(chequear):
             return e.codigo
 
     guardado = (config.LOGIN, config.PORTERO_CLAVES, config.PORTERIA)
+    guardado2 = (config.CUENTAS_CLAVE_PUBLICA, config.PREFIJO_CUENTA)
+    guardado3 = config.CUENTA_NUEVA
+    config.CUENTA_NUEVA = "personaje"
+    config.CUENTAS_CLAVE_PUBLICA, config.PREFIJO_CUENTA = "", "r2b_"
     clave, otra = ECC.generate(curve="Ed25519"), ECC.generate(curve="Ed25519")
     jwks = os.path.join(config.ESTADO, "control_jwks_%d.json" % os.getpid())
     json.dump({"keys": [{"kty": "OKP", "crv": "Ed25519", "kid": "k1",
@@ -1399,6 +1403,68 @@ def pruebas_login(chequear):
         responder(0x100F, cuerpo_100f("5151", otra_vez["ticket"]), 322)
         chequear("★ el revés: un personaje que ya tiene nombre no lo cambia por el del pase",
                  leer(322).get("nick") == "Espadachin")
+        # ★ (15-nov) la clave del servicio de cuentas dada DIRECTO por configuración, sin JWKS ni red
+        publica = clave.public_key().export_key(format="raw")
+        config.PORTERO_CLAVES, config.CUENTAS_CLAVE_PUBLICA = "", b64(publica)
+        chequear("clave por configuración (base64url): el pase entra sin JWKS, con cualquier kid",
+                 rechazo(firmar(clave, dict(datos, jti="j-20"), kid="el-que-sea"), ahora) is None)
+        chequear("★ el revés: firmado con OTRA clave → «firma»",
+                 rechazo(firmar(otra, dict(datos, jti="j-21")), ahora) == "firma")
+        config.CUENTAS_CLAVE_PUBLICA = publica.hex()
+        chequear("…y también en hex", rechazo(firmar(clave, dict(datos, jti="j-22")), ahora) is None)
+        config.CUENTAS_CLAVE_PUBLICA = "esto-no-es-una-clave"
+        chequear("★ el revés: una clave mal escrita no deja entrar a nadie → «clave»",
+                 rechazo(firmar(clave, dict(datos, jti="j-23")), ahora) == "clave")
+        config.CUENTAS_CLAVE_PUBLICA = b64(otra.public_key().export_key(format="raw"))
+        config.PORTERO_CLAVES = jwks
+        chequear("★ el revés: la clave por configuración MANDA sobre el JWKS (uno bueno al lado no la salva)",
+                 rechazo(firmar(clave, dict(datos, jti="j-24")), ahora) == "firma")
+        # ★ (15-nov) el prefijo de la cuenta: con Cuenta Eñeños el número es el Eñeños ID
+        config.CUENTAS_CLAVE_PUBLICA, config.PREFIJO_CUENTA = b64(publica), "en_"
+        t = porteria.canjear(firmar(clave, dict(datos, sub="10000570", jti="j-25")), ahora)
+        config.LOGIN = "pase"
+        rr = responder(0x100F, cuerpo_100f("10000570", t["ticket"]), 330)
+        chequear("prefijo «en_»: la cuenta es en_10000570 y su personaje sin bautizar se llama así (11 letras)",
+                 rr[0][1][:2] == b"\1\0" and ASIGNADAS.get(330) == "en_10000570")
+        rr = responder(0x1011, b"\1\0\0\0", 330)
+        chequear("…y su SELECT CHARACTER es el de esa cuenta", rr and rr[0][0] == 0x1012 and leer(330)["nombre"] == "en_10000570")
+        chequear("★ el revés: con el prefijo de siempre esa misma persona sería OTRA cuenta (r2b_…)",
+                 ASIGNADAS.get(330) != "r2b_10000570")
+        # ★ (15-nov) la cuenta NUEVA nace VACÍA: el pase deja entrar, los personajes los crea el jugador
+        config.CUENTA_NUEVA = "vacia"
+        from servidor.cuentas import ruta_cuenta
+        from servidor.objetos import cuerpo_cuenta
+        for viejo in ("en_10000900", "en_10000901"):
+            if os.path.exists(ruta_cuenta(viejo)):
+                os.remove(ruta_cuenta(viejo))
+        t = porteria.canjear(firmar(clave, dict(datos, sub="10000900", jti="j-30", nombre="Heredado")), ahora)
+        rr = responder(0x100F, cuerpo_100f("10000900", t["ticket"]), 340)
+        chequear("cuenta nueva VACÍA: el pase la deja entrar (0x1010 resultado 1) como en_10000900",
+                 rr[0][1][:2] == b"\1\0" and ASIGNADAS.get(340) == "en_10000900")
+        v = leer(340)
+        chequear("…y NO tiene personajes: su 0x1012 va con N3 = 0 y sin ítems",
+                 v["pjs"] == [] and cuerpo_cuenta(v, 340)[0x20] == 0 and len(cuerpo_cuenta(v, 340)) == 33)
+        chequear("★ el revés: el apodo del pase NO le fabrica un personaje (no hay archivo de la cuenta todavía)",
+                 not os.path.exists(ruta_cuenta("en_10000900")))
+        r = responder(0x1013, struct.pack("<IBB", 340, 2, 0) + "MiPrimero".encode("utf-16-le") + b"\0" * 4, 340)
+        d = leer(340)
+        chequear("crea el suyo (0x1013): queda como el único y activo, con el nombre y la clase que eligió",
+                 r[0][1][:2] == b"\1\0" and len(d["pjs"]) == 1 and d.get("nick") == "MiPrimero" and d["clase"] == 2,
+                 (len(d["pjs"]), d.get("nick")))
+        ASIGNADAS.pop(340, None)
+        t = porteria.canjear(firmar(clave, dict(datos, sub="10000900", jti="j-31", nombre="Heredado")), ahora)
+        responder(0x100F, cuerpo_100f("10000900", t["ticket"]), 342)
+        chequear("…y al volver a entrar sigue teniendo SU personaje (el pase no le cambia el nombre)",
+                 len(leer(342)["pjs"]) == 1 and leer(342).get("nick") == "MiPrimero")
+        config.CUENTA_NUEVA = "personaje"
+        t = porteria.canjear(firmar(clave, dict(datos, sub="10000901", jti="j-32")), ahora)
+        responder(0x100F, cuerpo_100f("10000901", t["ticket"]), 341)
+        chequear("★ el revés: con «personaje» (lo de siempre) una cuenta nueva nace con uno ya hecho",
+                 len(leer(341)["pjs"]) == 1)
+        for viejo in ("en_10000900", "en_10000901"):
+            if os.path.exists(ruta_cuenta(viejo)):
+                os.remove(ruta_cuenta(viejo))
+        config.CUENTAS_CLAVE_PUBLICA, config.PREFIJO_CUENTA, config.PORTERO_CLAVES = "", "r2b_", jwks
         config.LOGIN = "abierto"
         ASIGNADAS.clear()
         rr = responder(0x100F, cuerpo_100f(), 310)
@@ -1406,6 +1472,8 @@ def pruebas_login(chequear):
                  rr[0][1][:2] == b"\1\0" and cuenta_de(310) == "rui")
     finally:
         config.LOGIN, config.PORTERO_CLAVES, config.PORTERIA = guardado
+        config.CUENTAS_CLAVE_PUBLICA, config.PREFIJO_CUENTA = guardado2
+        config.CUENTA_NUEVA = guardado3
         ASIGNADAS.clear()
         for x in (jwks, os.path.join(config.ESTADO, "control_porteria.db")):
             if os.path.exists(x):
