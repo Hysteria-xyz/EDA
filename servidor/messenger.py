@@ -22,7 +22,7 @@ import struct
 import time
 
 from servidor import config
-from servidor.cuentas import NOMBRES, leer, guardar, nivel, nombre_visible, ruta_cuenta
+from servidor.cuentas import leer, guardar, nivel, nombre_visible, ruta_cuenta
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO
 
 COMANDOS = ("amigos", "amigo", "agregar", "quitar", "borrar", "m", "w", "mp", "susurro", "messenger", "clan",
@@ -189,15 +189,40 @@ def _nick_guardado(nombre):
     return (pjs[activo].get("nick") if pjs else None) or crudo.get("nick") or nombre
 
 
+# ★ (18-nov, PUNTO 2) LAS CUENTAS DE VERDAD. Antes el Messenger sólo conocía las 4 cuentas del login «abierto»
+#   (NOMBRES: rui, kai, mio, ren): con el login «pase» (prod) las cuentas son `r2b_<uid>` y no salían en la lista
+#   ni se podían buscar desconectadas. Ahora: TODAS las cuentas que existen (los archivos de config.CUENTAS, más
+#   las conectadas). El IDENTIFICADOR es siempre el nombre de la cuenta (lo que guarda `amigos` y lo que manda la
+#   dll en /aceptar, /rechazar, /quitar, /m); el nick es sólo para mostrar y para buscar con ADD.
+def nombres_de_cuentas():
+    """Todas las cuentas (abierto: rui/kai/…; pase: r2b_<uid>), sin las internas (`_…`)."""
+    try:
+        archivos = os.listdir(config.CUENTAS)
+    except OSError:
+        archivos = []
+    nombres = {f[:-5] for f in archivos if f.endswith(".json") and not f.startswith(("_", "."))}
+    nombres = {x for x in nombres if _cuenta_por_nombre(x) is not None}       # (sólo lo que ES una cuenta)
+    nombres.update(x for x in ASIGNADAS.values() if x and not x.startswith("_"))
+    return sorted(nombres)
+
+
 def buscar(texto):
-    """(nombre de la cuenta, conexión o None) del jugador con ese nick o nombre, o (None, None)."""
-    t = texto.lower()
-    for n, nombre in list(ASIGNADAS.items()):
-        if t in (nombre.lower(), nombre_visible(leer(n)).lower()):
-            return nombre, n
-    for nombre in NOMBRES:
-        if t in (nombre.lower(), _nick_guardado(nombre).lower()) and os.path.exists(ruta_cuenta(nombre)):
-            return nombre, None
+    """(nombre de la cuenta, conexión o None) de lo que escribió el jugador, o (None, None). Primero el
+    identificador EXACTO (la cuenta: lo que manda la dll), después el nick (único: lo controla el server al
+    crear el personaje); si dos nicks coincidieran, no se elige ninguno."""
+    t = texto.strip().lower()
+    if not t:
+        return None, None
+    for nombre in nombres_de_cuentas():
+        if nombre.lower() == t:
+            return nombre, conexion_de(nombre)
+    hallados = []
+    for nombre in nombres_de_cuentas():
+        c = _cuenta_por_nombre(nombre)
+        if c is not None and (c.get("nick") or "").lower() == t:
+            hallados.append(nombre)
+    if len(hallados) == 1:
+        return hallados[0], conexion_de(hallados[0])
     return None, None
 
 
@@ -487,20 +512,31 @@ def _cuenta_por_nombre(nombre):
     n = conexion_de(nombre)
     if n is not None:
         return leer(n)
-    if not os.path.exists(ruta_cuenta(nombre)):
-        return None
+    # (desconectada: del archivo, y sólo se vuelve a leer si cambió — el tick pide la lista de todas)
+    ruta = ruta_cuenta(nombre)
     try:
-        crudo = json.load(open(ruta_cuenta(nombre), encoding="utf-8"))
+        cuando = os.stat(ruta).st_mtime_ns
+    except OSError:
+        return None
+    guardadas = VIVO.__dict__.setdefault("MSN_GUARDADAS", {})
+    if nombre in guardadas and guardadas[nombre][0] == cuando:
+        return guardadas[nombre][1]
+    try:
+        crudo = json.load(open(ruta, encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    if not isinstance(crudo, dict) or not ("pjs" in crudo or "nombre" in crudo):
+        return None                                         # (otro .json que no es una cuenta)
     pjs = crudo.get("pjs") or [crudo]
     pj = pjs[min(crudo.get("activo", 0), len(pjs) - 1)] if pjs else {}
-    return dict(pj, nombre=nombre, amigos=pj.get("amigos", crudo.get("amigos", [])))
+    c = dict(pj, nombre=nombre, amigos=list(pj.get("amigos", crudo.get("amigos", []))))
+    guardadas[nombre] = (cuando, c)
+    return c
 
 
 def estado():
     cuentas = {}
-    for nombre in NOMBRES:
+    for nombre in nombres_de_cuentas():
         c = _cuenta_por_nombre(nombre)
         if c is None:
             continue

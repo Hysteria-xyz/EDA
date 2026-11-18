@@ -968,6 +968,7 @@ def control():
     PARTIDAS.clear()
     ASIGNADAS.clear()
     pruebas_messenger(chequear)
+    pruebas_messenger_cuentas_reales(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
     pruebas_login(chequear)
@@ -1436,6 +1437,64 @@ def preparar(nombre, clase, nivel_pedido):
     c["lugares_habilidad"] = max(12, len(habs))
     guardar(c)
     return c
+
+
+def pruebas_messenger_cuentas_reales(chequear):
+    """★ (18-nov) el Messenger con las cuentas del login «pase» (r2b_<uid>), no sólo rui/kai/mio/ren: el
+    identificador es la cuenta, el nick es lo que se ve; búsqueda de desconectados, solicitudes y DELETE."""
+    from servidor import messenger as m
+
+    def chat_(texto):
+        t = texto.encode("utf-16-le")
+        return struct.pack("<BIII", 1, 0xFFFFFFFF, 0, len(t)) + t
+
+    def textos(r, destino):
+        return [x[1][41:].decode("utf-16-le") for x in r if x[0] == 0x1005 and x[3] == destino
+                and x[1][11:37].decode("utf-16-le").rstrip("\0") != "[MSN]"]
+    a, b, c = "r2b_9001", "r2b_9002", "r2b_9003"
+    for conexion, cuenta, nick in ((401, a, "Alfa"), (402, b, "Beta"), (403, c, "kai")):
+        ASIGNADAS[conexion] = cuenta
+        x = leer(conexion)
+        x["nick"] = nick
+        x["amigos"] = []
+        guardar(x)
+    cerrada(403)                                            # (c queda guardada, desconectada)
+    chequear("cuentas reales: la lista de cuentas incluye r2b_<uid> (no sólo rui/kai/mio/ren)",
+             {a, b, c} <= set(m.nombres_de_cuentas()), m.nombres_de_cuentas())
+    chequear("★ el revés: otros .json de la carpeta (inventarios, relay, punch) no son cuentas",
+             not {"inv_kai", "relay", "punch"} & set(m.nombres_de_cuentas()), m.nombres_de_cuentas())
+    chequear("cuentas reales: buscar por nick → la cuenta (conectada)", m.buscar("beta") == (b, 402))
+    chequear("cuentas reales: buscar por nick a un DESCONECTADO → la cuenta", m.buscar("KAI")[0] in ("kai", c))
+    chequear("★ identificador antes que nick: «kai» es la cuenta kai, no el personaje «kai» de r2b_9003",
+             m.buscar("kai")[0] == "kai" and m.buscar(c) == (c, None))
+    r = responder(0x100D, chat_("/amigo Beta"), 401)
+    chequear("cuentas reales: ADD por nick → solicitud guardada con el IDENTIFICADOR (no el nick)",
+             leer(401)["amigos"] == [b] and any("solicitud de amistad" in t for t in textos(r, 402)))
+    cu = m.estado()["cuentas"]
+    chequear("cuentas reales: la lista R/E con identificador y nick",
+             ("\nE\t%s\tBeta" % b) in m.lista_msn(cu, a) and ("\nR\t%s\tAlfa" % a) in m.lista_msn(cu, b))
+    responder(0x100D, chat_("/aceptar %s" % a), 402)
+    cu = m.estado()["cuentas"]
+    chequear("cuentas reales: /aceptar con el identificador → amigos los dos (A con nick)",
+             ("\nA\t%s\tBeta\t" % b) in m.lista_msn(cu, a) and ("\nA\t%s\tAlfa\t" % a) in m.lista_msn(cu, b))
+    responder(0x100D, chat_("/msn hola"), 401)
+    responder(0x100D, chat_("/msn hola"), 402)
+    r = responder(0x100D, chat_("/m %s hola real" % b), 401)
+    chequear("cuentas reales: /m entre amigos → sólo el Messenger (H), nada al chat",
+             any(x[0] == 0x1005 and x[3] == 402 and "hola real" in x[1][41:].decode("utf-16-le") for x in r)
+             and not textos(r, 402))
+    responder(0x100D, chat_("/amigo %s" % c), 401)
+    chequear("cuentas reales: ADD a un desconectado (por identificador) → la solicitud queda guardada",
+             c in leer(401)["amigos"] and ("\nR\t%s\t" % a) in m.lista_msn(m.estado()["cuentas"], c))
+    ASIGNADAS[403] = c
+    responder(0x100D, chat_("/aceptar Alfa"), 403)
+    cerrada(403)
+    responder(0x100D, chat_("/quitar %s" % c), 401)
+    chequear("cuentas reales: DELETE a un desconectado → fuera de las DOS listas (su archivo también)",
+             c not in leer(401)["amigos"] and a not in m.amigos_de(c) and m.amigos_de(b) == [a], m.amigos_de(c))
+    for conexion in (401, 402):
+        cerrada(conexion)
+    chequear("cuentas reales: al irse, sus mensajes de la sesión no quedan", not m.historia_msn(a) and not m.historia_msn(b))
 
 
 def pruebas_messenger(chequear):
