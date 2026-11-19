@@ -60,6 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # ★ la identidad de la dll usa el último commit de herramientas/dll_d3d9 (version.py)
       - name: Zig 0.16.0
         run: |
           curl -sSfL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar -xJ
@@ -67,6 +69,8 @@ jobs:
       - name: compila la d3d9.dll
         run: |
           cd herramientas/dll_d3d9
+          python3 version.py --header eda_version.h | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 prueba_version.py
           zig cc -target x86-windows-gnu -shared -O2 -s -o d3d9.dll eda_d3d9.c d3d9.def \
             -lkernel32 -luser32 -lwinmm -lws2_32 -liphlpapi
           echo '```' >> "$GITHUB_STEP_SUMMARY"
