@@ -7,7 +7,7 @@
 #
 # ★ Si las pruebas del server fallan, la imagen NO se arma (el Dockerfile corre `juego.py control`) y
 #   el contenedor que andaba SIGUE andando: un PR roto en develop no tira el server de prueba.
-# ★ (13-nov) Prod se actualiza SOLO al fusionar en main (que pide 2 aprobaciones): antes, el RESPALDO de
+# ★ (13-nov) Prod se actualiza SOLO al fusionar en main (que pide 1 aprobación): antes, el RESPALDO de
 #   las cuentas (`/opt/eda/respaldos/`, quedan los últimos 30); después, la prueba de que contesta, y
 #   si no contesta, VUELVE al commit anterior y lo rearma.
 set -euo pipefail

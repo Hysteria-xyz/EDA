@@ -166,7 +166,7 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
   dos servers se actualizan solos a los pocos minutos de fusionar.
 - **Aprobaciones:**
   - para `develop`: pruebas en verde + 1 aprobación que no sea del autor;
-  - para `main`: pruebas en verde + 2 aprobaciones, o la de Rui.
+  - para `main`: pruebas en verde + 1 aprobación que no sea del autor (desde el 19-nov; antes 2), o Rui.
 - **Qué no se sube nunca:** `_trabajo/`, cuentas, logs, capturas, el cliente de Softnyx. Excepciones:
   `exe/EDA_limpio.exe` y `exe/d3d9.dll`.
 - **Publicar a jugadores** = con la orden de Rui, se suben los archivos al VPS y se firma el manifiesto
