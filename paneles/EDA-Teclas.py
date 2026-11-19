@@ -9,7 +9,8 @@ r"""EDA-Teclas -- CONTROLES: cambiar las teclas del juego (habilidades, ítems, 
 
 ★ 14-nov: con EDA abierto se aplican AL INSTANTE (el lanzador las manda al juego: «Bind» de su
 consola, ver herramientas/eda_original.py TECLAS_JS). El juego reescribe el autoexec.cfg AL SALIR con lo que tenía en memoria, así que lo que vale es
-EDA-teclas.json: EDA-Jugar.bat (EDA-Opciones --aplicar) lo vuelve a poner antes de cada partida.
+EDA-teclas.json: (18-nov) ya NO se vuelve a poner antes de cada partida: las teclas las maneja Options →
+CONTROLES de la d3d9.dll; esto queda para usarlo a mano (`--aplicar`).
 
     pythonw EDA-Teclas.py            la ventana
     python  EDA-Teclas.py --aplicar  sólo escribir el autoexec.cfg

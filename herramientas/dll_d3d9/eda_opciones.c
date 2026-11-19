@@ -1363,6 +1363,7 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         diag_tecla("Options (su ventana)", m, w, l, 1);
         /* ★ (Punto 4) esperando una tecla: su código DirectInput = el «scan code» de Windows (+0x80 si es
          *   extendida: flechas, Ctrl/Alt derechos, Num Enter…), el mismo número que va en «##n» */
+        if (w == VK_ESCAPE) esc_tragada("Options");                /* ★ (Punto 4) el juego no la ve al cerrar */
         if (g_tec_fila >= 0) {
             if (l & (1L << 30)) return 0;                            /* (repetición) */
             if (w == VK_ESCAPE) {                                   /* sólo cancela: Options sigue abierta */
@@ -1375,7 +1376,22 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
             InvalidateRect(v, NULL, FALSE);
             return 0;
         }
-        if (w == VK_ESCAPE) { DestroyWindow(v); return 0; }
+        /* ★ (Punto 4) con la pregunta DE FÁBRICA a la vista, Esc = NO (no se restaura nada, Options sigue abierta) */
+        if (w == VK_ESCAPE && g_tec_confirmar) {
+            if (l & (1L << 30)) return 0;
+            g_tec_confirmar = 0;
+            apuntar("  [mazino] teclas: Esc → DE FÁBRICA = NO (nada cambió), Options sigue abierta");
+            lstrcpyW(g_estado, L"Sin cambios.");
+            g_estado_color = GRIS;
+            InvalidateRect(v, NULL, FALSE);
+            return 0;
+        }
+        if (w == VK_ESCAPE) {
+            if (l & (1L << 30)) return 0;                            /* (una repetición no cierra) */
+            apuntar("  [mazino] opciones: Esc → se cierra Options");
+            DestroyWindow(v);
+            return 0;
+        }
         if (w == VK_F10) {                                   /* (A es «MoveLeft» del juego: no es atajo) */
             if (!(l & (1L << 30))) atajo(0, "Options al frente");
             return 0;
