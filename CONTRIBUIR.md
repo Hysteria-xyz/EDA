@@ -19,6 +19,11 @@ programás, también sirve un issue con una foto y lo que dice la consola.
 - **`develop`** es lo próximo, y es lo que corre el server de **prueba**. Los dos servers se
   actualizan **solos** a los ~5 minutos de cada cambio en su rama. Ahí se prueba jugando:
   `py jugar.py --server IP:35900`.
+- **El cliente de `develop`** (la `d3d9.dll` que sale de ese código) lo compila y lo publica GitHub
+  solo en cada fusión: queda en la release **`cliente-develop`** del repo, con su lista. Para probar
+  con él, como lo abre el launcher: `py herramientas\dll_d3d9\canal.py bajar` y después
+  `py jugar.py --server IP:35900 --como-launcher` (ver `herramientas/dll_d3d9/LEEME.md`). No toca
+  `main` ni lo que reciben los jugadores.
 - **Tu trabajo** va en una rama tuya (`tienda-cash`, `fix-sala-llena`…), con un **PR a `develop`**.
 - Cuando `develop` anduvo bien en prueba, alguien abre el PR `develop → main`: al fusionarlo, prod
   se actualiza solo (con respaldo de las cuentas antes).

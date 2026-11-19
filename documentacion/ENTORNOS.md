@@ -157,6 +157,11 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
   **Regla:** si una PR agrega una carpeta nueva en la raíz, o un tipo de archivo nuevo en una carpeta que
   ya existe, se dice en la descripción.
 - **Trampa 2:** el espejo exportaba en CRLF: de ahí vino la mezcla de §2.1. Arreglado en los dos lados: la herramienta ahora exporta en LF, y el `.gitattributes` lo ordena igual.
+- **Trampa 3 (19-nov, desde el versionado de la PR #55):** la identidad de la dll lleva el commit de
+  **este** repo, y el espejo tiene otros commits. Una dll compilada en el espejo no es la publicada (otro
+  commit, otro md5). **Regla:** la dll que se prueba o se publica es la que compiló el CI (release
+  `cliente-develop`, o el artefacto del trabajo `dll`), o una compilada en un clon limpio de este repo;
+  nunca la del espejo.
 
 ---
 
@@ -172,7 +177,10 @@ Hay que leerlo antes de tocar el repo y releerlo cuando algo «anda en mi máqui
 - **Publicar a jugadores** = con la orden de Rui, se suben los archivos al VPS y se firma el manifiesto
   con `firmar_manifiesto.py` (Ed25519). La clave en uso **solo** está en el VPS; hay una de reserva, fuera
   del VPS, en poder de Rui. El launcher acepta las dos.
-- **Una DLL nueva no llega a nadie por fusionar la PR:** llega con una release del cliente.
+- **Una DLL nueva no llega a nadie por fusionar la PR:** llega con una release del cliente. Lo que sí
+  pasa al fusionar en `develop` (desde el 19-nov): el CI la compila y la deja en la release
+  `cliente-develop` del repo, para **probar** contra el server de prueba
+  (`herramientas/dll_d3d9/LEEME.md`).
 - **Direcciones del exe:** las de `documentacion/` y `eda_d3d9.c` valen para los dos exes. Cada parche
   nuevo verifica sus bytes con `firma()` antes de escribir.
 

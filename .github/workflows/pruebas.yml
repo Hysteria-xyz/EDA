@@ -71,6 +71,7 @@ jobs:
           cd herramientas/dll_d3d9
           python3 version.py --header eda_version.h | tee -a "$GITHUB_STEP_SUMMARY"
           python3 prueba_version.py
+          python3 canal.py control
           zig cc -target x86-windows-gnu -shared -O2 -s -o d3d9.dll eda_d3d9.c d3d9.def \
             -lkernel32 -luser32 -lwinmm -lws2_32 -liphlpapi
           echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -80,6 +81,41 @@ jobs:
         with:
           name: d3d9.dll
           path: herramientas/dll_d3d9/d3d9.dll
+
+  cliente-develop:
+    # ★ EL CLIENTE DE DEVELOP (19-nov): en cada push a develop, la dll recién compilada (la del trabajo «dll»,
+    #   la misma que se revisó), su eda_d3d9.ini y la lista cliente-develop.json quedan en la release
+    #   «cliente-develop» de este repositorio. Así quien trabaja en develop prueba contra el server de prueba
+    #   (35900) con el cliente que sale de develop, sin tocar main ni el launcher de los jugadores.
+    #   Sólo en push a develop: un PR (ni el de un fork) nunca publica. Ver herramientas/dll_d3d9/canal.py
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: dll
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # crear la release y mover su etiqueta; el resto de los trabajos sigue en sólo lectura
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: d3d9.dll
+          path: salida
+      - name: la lista (md5 y sha256 de cada archivo, y la identidad de la dll)
+        run: |
+          python3 herramientas/dll_d3d9/canal.py armar salida/d3d9.dll salida \
+            --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: publica en la release «cliente-develop»
+        run: |
+          git tag -f cliente-develop "$GITHUB_SHA"
+          git push -f origin refs/tags/cliente-develop
+          gh release view cliente-develop > /dev/null 2>&1 || gh release create cliente-develop \
+            --prerelease --verify-tag --title "Cliente de develop (para probar)" --notes-file salida/notas.md
+          # la lista va última: mientras tanto, quien baja ve «no es lo de la lista» y reintenta
+          gh release upload cliente-develop salida/d3d9.dll salida/eda_d3d9.ini --clobber
+          gh release upload cliente-develop salida/cliente-develop.json --clobber
+          gh release edit cliente-develop --prerelease --notes-file salida/notas.md
 
   docker:
     runs-on: ubuntu-latest
