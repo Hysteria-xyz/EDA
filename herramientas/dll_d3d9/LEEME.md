@@ -50,8 +50,8 @@ Cada compilación dice sola qué es; nadie edita el código para eso.
 | dato | de dónde sale |
 |---|---|
 | versión | `VERSION` (lo único que se cambia a mano, al sacar una versión) |
-| commit | el **último commit que tocó `herramientas/dll_d3d9/`** (no HEAD): commitear `exe/d3d9.dll` después no lo cambia, y el CI recompila la misma dll |
-| sucio | cambios sin commitear (o archivos nuevos, o sin git) en esta carpeta → `-dirty`, compilación **LOCAL**: nunca pasa por publicada |
+| commit | el **último commit que tocó el código que se compila** (`.c`/`.h`/`.def`/`VERSION` de esta carpeta, sin las `prueba_*`), no HEAD: commitear `exe/d3d9.dll`, una prueba, un `.py` o este LEEME no lo cambia, y el CI recompila la misma dll |
+| sucio | cambios sin commitear (o archivos nuevos, o sin git) en ese código → `-dirty`, compilación **LOCAL**: nunca pasa por publicada |
 | fecha | limpia: la del commit (UTC), así es reproducible · sucia: la hora real |
 | build | `b` + 10 hex del sha256 del código (con LF): mismo código = mismo build en cualquier PC |
 | entorno | **en el juego**, del server al que va (`[red] server`, `EDA_SERVER` o el 3er argumento del launcher): host de la PC o de la casa → LOCAL · puerto 35900 → TEST · 25900 → PROD · otro → OTRO |

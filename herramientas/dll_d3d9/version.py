@@ -6,9 +6,10 @@ r"""version -- la IDENTIDAD de cada compilación de la d3d9.dll, calculada sola 
 Lo que entra en la dll (eda_version.h → eda_version.c):
   version  el número de VERSION (al lado de este archivo). Es lo ÚNICO que se cambia a mano, y sólo al
            sacar una versión nueva; todo lo demás sale solo.
-  commit   el ÚLTIMO commit que tocó herramientas/dll_d3d9/ (no HEAD). Así, commitear exe/d3d9.dll después
-           de compilarla no cambia el commit, y el CI recompila exactamente la misma dll (mismo md5).
-  sucio    1 si en herramientas/dll_d3d9/ hay cambios sin commitear (o archivos nuevos, o no hay git):
+  commit   el ÚLTIMO commit que tocó el CÓDIGO que se compila (los .c/.h/.def y VERSION de
+           herramientas/dll_d3d9/, sin las pruebas), no HEAD. Así, commitear exe/d3d9.dll después de compilarla,
+           o tocar una prueba, un .py o el LEEME, no cambia el commit: el CI recompila exactamente la misma dll.
+  sucio    1 si ese código tiene cambios sin commitear (o archivos nuevos, o no hay git):
            la compilación es LOCAL y nunca se confunde con una publicada.
   fecha    limpia: la fecha del commit (UTC) → la compilación es reproducible. Sucia: la hora real.
   build    «b» + 10 hex del sha256 del CÓDIGO que se compila (finales de línea normalizados): mismo código =
@@ -75,6 +76,12 @@ def huella_codigo(carpeta=AQUI):
     return "b" + h.hexdigest()[:10]
 
 
+def _codigo(rel):
+    """el código que entra en la dll, como pathspecs de git (lo mismo que huella_codigo)"""
+    return [":(glob)%s/*%s" % (rel, e) for e in EXT_CODIGO] + [":(glob)%s/VERSION" % rel,
+            ":(exclude,glob)%s/prueba_*" % rel] + [":(exclude)%s/%s" % (rel, n) for n in sorted(NO_ENTRA)]
+
+
 def identidad(raiz=RAIZ, carpeta=AQUI, ahora=None):
     """La identidad de una compilación hecha AHORA desde `carpeta` (dentro del repo `raiz`)."""
     ahora = ahora or datetime.datetime.now(datetime.timezone.utc)
@@ -86,13 +93,13 @@ def identidad(raiz=RAIZ, carpeta=AQUI, ahora=None):
     if not git or _correr(git, "rev-parse", "--is-inside-work-tree", raiz=raiz) != "true":
         ident["cambios"] = ["(no hay git: compilación LOCAL)"]
         return ident
-    largo = _correr(git, "log", "-1", "--format=%H", "--", rel, raiz=raiz)
+    largo = _correr(git, "log", "-1", "--format=%H", "--", *_codigo(rel), raiz=raiz)
     if not largo:
         ident["cambios"] = ["(la carpeta no tiene commits: compilación LOCAL)"]
         return ident
     ident["commit_largo"] = largo
     ident["commit"] = largo[:7]
-    estado = _correr(git, "status", "--porcelain", "--untracked-files=all", "--", rel, raiz=raiz) or ""
+    estado = _correr(git, "status", "--porcelain", "--untracked-files=all", "--", *_codigo(rel), raiz=raiz) or ""
     cambios = [l for l in estado.splitlines() if l.strip()
                and os.path.basename(l[3:].strip().strip('"')) not in NO_ENTRA]
     ident["cambios"] = cambios

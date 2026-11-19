@@ -84,6 +84,14 @@ def pruebas_git():
         git(raiz, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "exe")
         c = version.identidad(raiz, car)
         chequear("1. un commit fuera de la carpeta no cambia la identidad", c["commit"] == a["commit"] and c["sucio"] == 0)
+        # una prueba, un .py o el LEEME de la carpeta: no son código de la dll → mismo commit, limpia
+        open(os.path.join(car, "prueba_version.c"), "a").write("/* otra prueba */\n")
+        open(os.path.join(car, "LEEME.md"), "w").write("leeme\n")
+        open(os.path.join(car, "version_extra.py"), "w").write("# py\n")
+        chequear("2. cambios sólo en pruebas / .py / LEEME → sigue limpia", version.identidad(raiz, car)["sucio"] == 0)
+        git(raiz, "add", "-A")
+        git(raiz, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "pruebas")
+        chequear("1. un commit sólo de pruebas / .py / LEEME no cambia el commit", version.identidad(raiz, car)["commit"] == a["commit"])
         # un cambio sin commitear → sucio, otro build
         p = os.path.join(car, "eda_version.c")
         orig = open(p, "rb").read()

@@ -19,8 +19,7 @@ int main(void)
     chequear("localhost → LOCAL", ver_entorno("LocalHost:35900", NULL) == ENT_LOCAL);
     chequear("192.168.1.20 → LOCAL", ver_entorno("192.168.1.20:25900", NULL) == ENT_LOCAL);
     chequear("10.0.0.5 → LOCAL", ver_entorno("10.0.0.5", NULL) == ENT_LOCAL);
-    chequear("172.20.1.1 → LOCAL · 172.32.1.1 no", ver_entorno("172.20.1.1:35900", NULL) == ENT_LOCAL
-             && ver_entorno("172.32.1.1:35900", NULL) == ENT_TEST);
+    /* (las 172.16–31.x: revisar_publico.py no deja escribir IPs de redes de casa fuera de 10.x y 192.168.0/1.x) */
     chequear("203.0.113.7:35900 → TEST", ver_entorno("203.0.113.7:35900", &p) == ENT_TEST && p == 35900);
     chequear("203.0.113.7:25900 → PROD", ver_entorno("203.0.113.7:25900", NULL) == ENT_PROD);
     chequear("203.0.113.7 (sin puerto = 25900) → PROD", ver_entorno("203.0.113.7", &p) == ENT_PROD && p == 25900);
