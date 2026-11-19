@@ -304,7 +304,7 @@ def ventana():
 
 
 def aplicar_teclas():
-    """Las teclas de EDA-teclas.json (EDA-Teclas.py) al autoexec.cfg."""
+    """Las teclas de EDA-teclas.json (EDA-Teclas.py) al autoexec.cfg. (18-nov: ya no la llama --aplicar.)"""
     import importlib.util
     ruta = RAIZ / "EDA-Teclas.py"
     if not ruta.is_file():
@@ -353,7 +353,10 @@ if __name__ == "__main__":
         sys.exit(0)
     if "--aplicar" in sys.argv:
         aplicar_al_juego()
-        aplicar_teclas()
+        # ★ (18-nov, Punto 4) YA NO se escriben las teclas de EDA-teclas.json (el panel viejo de Python) en cada
+        #   arranque: las teclas las maneja Options → CONTROLES de la d3d9.dll (en vivo con «Bind» y en
+        #   autoexec.cfg), y esto las tapaba en esta PC con lo del panel viejo. EDA-teclas.json queda como está;
+        #   a mano: `python EDA-Teclas.py --aplicar`.
         sys.exit(0)
     if not CFG.is_file():
         import tkinter as tk

@@ -717,8 +717,10 @@ static DWORD WINAPI msn_hilo(LPVOID nada)
             if (mm.wParam == VK_F11) { if (!repetida) atajo(1, "Messenger al frente"); continue; }
             if (mm.wParam == VK_F10) { if (!repetida) atajo(0, "Messenger al frente"); continue; }
             if (mm.wParam == VK_ESCAPE) {                     /* (con DELETE preguntando, Esc es «no») */
+                esc_tragada("Messenger");                      /* ★ (Punto 4) el juego no la ve al cerrar */
+                if (repetida) continue;
                 if (g_msn_confirmar[0]) { msn_quitar_no(); InvalidateRect(v, NULL, FALSE); }
-                else DestroyWindow(v);
+                else { apuntar("  [mazino] messenger: Esc → se cierra el Messenger"); DestroyWindow(v); }
                 continue;
             }
             if (mm.wParam == VK_RETURN && mm.hwnd == g_msn_texto_e) { msn_enviar(); continue; }

@@ -1370,10 +1370,31 @@ typedef BOOL (WINAPI *M_CLIP)(const RECT *);
  *   juego. Ahora todo pasa por entrada_ok(): el juego sólo recibe teclado y mouse si su ventana está al frente y no
  *   hay un panel nuestro abierto. El juego sigue corriendo (foco), pero sin la entrada que no es suya. */
 static int g_mz_entrada = 1;
+/* ★ (18-nov, Punto 4) EL ESC QUE USÓ UN PANEL NO LE LLEGA AL JUEGO. Medido (diagnóstico 22:40, Stage): Esc en Options
+ *   → Options se cierra (22:42:57.689) → 3 ms después el juego vuelve al frente con Esc TODAVÍA apretada; mientras el
+ *   panel estuvo abierto la compuerta le daba el teclado vacío (Esc «arriba»), así que para el juego Esc pasa de
+ *   arriba a abajo = una pulsación nueva → el menú de salida del Stage. Lo mismo que ya se hacía con F10
+ *   (g_dik_antes) y con el clic (g_clic_armado): el panel que usa Esc la marca, y la compuerta de siempre le sigue
+ *   tapando la entrada al juego hasta que Esc se SUELTE (unos 100 ms). Sin ganchos, hilos ni temporizadores nuevos:
+ *   se mira el estado real de Esc (GetAsyncKeyState de la dll: el gancho es sólo el del exe) cuando el juego pregunta. */
+static volatile LONG g_esc_tragada;
+static void esc_tragada(const char *quien)
+{
+    if (!InterlockedExchange(&g_esc_tragada, 1) && g_diagnostico)
+        apuntar("  (diag) Esc la usó %s: el juego no la ve hasta que se suelte", quien);
+}
+static int esc_sigue_tragada(void)
+{
+    if (!g_esc_tragada) return 0;
+    if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) return 1;
+    if (InterlockedExchange(&g_esc_tragada, 0) && g_diagnostico) apuntar("  (diag) Esc soltada: el juego vuelve a ver el teclado");
+    return 0;
+}
 static int entrada_ok(void)
 {
     if (!g_mz_entrada) return 1;
     if (g_panel_abierto) return 0;
+    if (esc_sigue_tragada()) return 0;                       /* ★ (Punto 4) el Esc de un panel, hasta soltarla */
     return !g_ventana_juego || GetForegroundWindow() == g_ventana_juego;
 }
 
@@ -1654,6 +1675,9 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
          *   con su botón Options, y se anulan). Un solo lugar para toda la entrada del juego. */
         int tapar = g_panel_abierto && ((m->message >= WM_MOUSEFIRST && m->message <= WM_MOUSELAST)
                                          || (m->message >= WM_KEYFIRST && m->message <= WM_KEYLAST));
+        /* ★ (Punto 4) y las repeticiones / el soltar de un Esc que usó un panel (ya cerrado), tampoco */
+        if (!tapar && g_esc_tragada && (m->message == WM_KEYDOWN || m->message == WM_KEYUP || m->message == WM_CHAR)
+            && m->wParam == (m->message == WM_CHAR ? 27 : VK_ESCAPE)) tapar = 1;
         if (g_mz_seleccion && !g_panel_abierto && m->message == WM_LBUTTONDOWN) g_antes = elegida();   /* la elegida ANTES del clic */
         if (g_mz_botones && m->message == WM_LBUTTONDOWN) clic_abajo();             /* (apretado EN el juego) */
         /* ★ F10 Options · F11 Messenger · F12 Clan (antes EDA-Atajos.py, sólo en la PC con Python); F10 llega
