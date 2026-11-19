@@ -64,6 +64,36 @@ Cada compilación dice sola qué es; nadie edita el código para eso.
   calcula los hashes y compara (0 coincide · 2 no coincide · 3 dll antigua sin identidad). Sin red.
 - Pruebas: `python herramientas/dll_d3d9/prueba_version.py [d3d9.dll]` (también en el CI).
 
+## El cliente de develop (para probar, 19-nov)
+
+`exe/d3d9.dll` es la de la última release: la que sale del código de `develop` no estaba en ningún lado.
+Ahora, **en cada fusión en `develop`, el CI la compila y la publica sola** en la release
+**`cliente-develop`** del repositorio (trabajo `cliente-develop` de `.github/workflows/pruebas.yml`):
+
+| archivo | qué es |
+|---|---|
+| `cliente-develop.json` | la lista: la identidad de la dll (como `d3d9.dll.json`) y `files` con `path`, `size`, `md5`, `sha256` (la forma del manifiesto del launcher) |
+| `d3d9.dll` | la compilada por el CI desde ese commit (la misma del trabajo `dll`) |
+| `eda_d3d9.ini` | el `.ini` por defecto de `compilar.py` |
+
+`EDA_limpio.exe` no se copia ahí: la lista da su md5 y la dirección del que está en el repositorio, en ese
+commit. El resto del cliente (Data.dat y demás) no cambia con `develop`.
+
+```bat
+py herramientas\dll_d3d9\canal.py bajar                 :: la dll y el .ini → _trabajo\dll\ (de ahí la toma jugar.py)
+py jugar.py --server IP:35900 --como-launcher           :: el juego como lo abre el launcher, contra el server de prueba
+py herramientas\dll_d3d9\canal.py bajar C:\copia\de\EDA :: o a una copia del juego (baja también el exe)
+py herramientas\dll_d3d9\identificar.py _trabajo\dll\d3d9.dll --esperado cliente-develop.json
+```
+
+- En el juego, el aviso de arranque tiene que decir el commit de la lista y **TEST** (puerto 35900).
+- El `.ini` es del jugador: si ya está y es distinto, `bajar` no lo pisa (lo dice).
+- ⚠ Es un canal de **prueba**: la lista no está firmada (la de los jugadores sí). No toca `main`, ni el
+  launcher, ni lo que reciben los jugadores: eso sigue llegando con una release del cliente.
+- Un launcher de prueba propio sólo necesita esto: bajar `cliente-develop.json`, comparar los `sha256` con
+  lo que tiene, bajar lo distinto de `base` + `path` (o de `url`, si la entrada la trae) y abrir
+  `EDA_limpio.exe` con `EDA_SERVER=host:35900` (o `[red] server=` en el `.ini`).
+
 ## Si a alguien se le cae el juego
 
 1. Que mande **`eda_d3d9.log`**, y si existen, `EDA_limpio.rpt` y `EDA_limpio.dmp` (el informe del
