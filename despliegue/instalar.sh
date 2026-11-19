@@ -59,7 +59,7 @@ done
 echo "· 5/5 arrancar y que las dos se actualicen solas"
 bash "$BASE/prod/despliegue/actualizar.sh" prod --forzar
 bash "$BASE/prod/despliegue/actualizar.sh" prueba --forzar
-# ★ (13-nov) PROD también sigue a su rama (main pide 2 aprobaciones; actualizar.sh respalda las cuentas
+# ★ (13-nov) PROD también sigue a su rama (main pide 1 aprobación; actualizar.sh respalda las cuentas
 #   antes y vuelve atrás si no contesta). Se corre una COPIA del script (el `git reset` de adentro
 #   cambia el archivo mientras corre) y con flock (una actualización a la vez por entorno).
 cat > /etc/cron.d/eda <<CRON

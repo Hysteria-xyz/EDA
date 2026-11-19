@@ -28,7 +28,7 @@ programás, también sirve un issue con una foto y lo que dice la consola.
 | para fusionar en | hace falta |
 |---|---|
 | `develop` | las pruebas en verde (`privado`, `server`, `docker`) + **1 aprobación** de un colaborador (Hysteria-xyz, Urek-Mazinoo, Rui) que no sea el autor |
-| `main` (prod) | lo mismo + **2 aprobaciones** (o Rui) |
+| `main` (prod) | lo mismo: **1 aprobación** de otro colaborador (desde el 19-nov; antes eran 2), o Rui |
 
 - El trabajo **`privado`** de las pruebas falla si el PR trae algo con forma de dato privado: una IP
   pública desconocida (la de tu VPS o tu casa), una IP de tu red (`192.168.N.x`), una MAC de verdad,
