@@ -37,3 +37,7 @@ __pycache__/
 *.log
 *.bak
 *.tmp
+
+# --- la identidad de la dll: la genera version.py al compilar ---
+herramientas/dll_d3d9/eda_version.h
+herramientas/dll_d3d9/d3d9.dll.json

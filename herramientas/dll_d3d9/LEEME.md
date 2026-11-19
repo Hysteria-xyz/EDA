@@ -43,6 +43,27 @@ arrastra lo que tenía prendido. Medido: un `.ini` viejo con todo prendido carga
 `EDA_MEJORAS`, `EDA_TOPE_FPS`, `EDA_MOSTRAR_FPS`, `EDA_RED_INMEDIATA`, `EDA_TOPE_ESTRICTO`,
 `EDA_BUFERES_RAPIDOS` (el anillo), `EDA_LETRAS_32`, `EDA_SERVER`.
 
+## Qué dll es (versionado, 19-nov)
+
+Cada compilación dice sola qué es; nadie edita el código para eso.
+
+| dato | de dónde sale |
+|---|---|
+| versión | `VERSION` (lo único que se cambia a mano, al sacar una versión) |
+| commit | el **último commit que tocó el código que se compila** (`.c`/`.h`/`.def`/`VERSION` de esta carpeta, sin las `prueba_*`), no HEAD: commitear `exe/d3d9.dll`, una prueba, un `.py` o este LEEME no lo cambia, y el CI recompila la misma dll |
+| sucio | cambios sin commitear (o archivos nuevos, o sin git) en ese código → `-dirty`, compilación **LOCAL**: nunca pasa por publicada |
+| fecha | limpia: la del commit (UTC), así es reproducible · sucia: la hora real |
+| build | `b` + 10 hex del sha256 del código (con LF): mismo código = mismo build en cualquier PC |
+| entorno | **en el juego**, del server al que va (`[red] server`, `EDA_SERVER` o el 3er argumento del launcher): host de la PC o de la casa → LOCAL · puerto 35900 → TEST · 25900 → PROD · otro → OTRO |
+
+- `version.py` escribe `eda_version.h` (no se commitea); `compilar.py` lo usa y deja **`d3d9.dll.json`** al lado de
+  la dll: la identidad + md5/sha256/tamaño del archivo (el hash final no puede ir adentro: lo cambiaría).
+- En el juego: el **aviso de arranque** (8 s, arriba a la derecha, no toma foco ni clics; `[version] aviso=0` lo
+  apaga), la esquina de **Options** y la línea `identidad:` de `eda_d3d9.log` (y `entorno` en cada `connect`).
+- `identificar.py RUTA\d3d9.dll [--esperado d3d9.dll.json | eda.json | otra.dll]`: lee la marca `EDA-ID|…`,
+  calcula los hashes y compara (0 coincide · 2 no coincide · 3 dll antigua sin identidad). Sin red.
+- Pruebas: `python herramientas/dll_d3d9/prueba_version.py [d3d9.dll]` (también en el CI).
+
 ## Si a alguien se le cae el juego
 
 1. Que mande **`eda_d3d9.log`**, y si existen, `EDA_limpio.rpt` y `EDA_limpio.dmp` (el informe del

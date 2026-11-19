@@ -31,6 +31,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* ── ★ (19-nov) QUÉ DLL ES Y A QUÉ SERVER VA: la identidad que escribe version.py al compilar (eda_version.c) ── */
+#include "eda_version.c"
+
 #define VT(o) (*(void ***)(o))             /* la vtable de un objeto COM */
 static void apuntar(const char *fmt, ...);
 
@@ -649,8 +652,8 @@ static int WSAAPI mi_connect(SOCKET s, const struct sockaddr *sa, int largo)
         nuevo.sin_port = g_destino.sin_port;
         nuevo.sin_addr = g_destino.sin_addr;
         g_desviados++;
-        apuntar("  server: connect a 218.145.66.187:25000 → %s:%u (%ld)", inet_ntoa(nuevo.sin_addr),
-                (unsigned)ntohs(nuevo.sin_port), g_desviados);
+        apuntar("  server: connect a 218.145.66.187:25000 → %s:%u (%ld) · entorno %s", inet_ntoa(nuevo.sin_addr),
+                (unsigned)ntohs(nuevo.sin_port), g_desviados, ent_nombre(ver_entorno(g_server, NULL)));
         return g_connect_real(s, (const struct sockaddr *)&nuevo, sizeof(nuevo));
     }
     return g_connect_real(s, sa, largo);
@@ -1610,6 +1613,15 @@ static BOOL WINAPI mi_clip(const RECT *r) { return g_clip_real(juego_al_frente()
 /* ── ★ EL MESSENGER, EN LA DLL (Punto 2): eda_messenger.c, con el dibujo y el manejo de ventana de Options ── */
 #include "eda_messenger.c"
 
+/* ── ★ (19-nov) EL AVISO DE ARRANQUE (versión, compilación, entorno), con el dibujo de Options ── */
+#include "eda_aviso.c"
+static const char *aviso_estado(void)
+{
+    if (g_server[0] && !g_connect_real) return "⚠ no se pudo desviar la conexión al server";
+    if (!g_mejoras) return "DLL cargada (mejoras=0: video y red como en 2009)";
+    return NULL;
+}
+
 /* ★ (17-nov, PUNTO 2) el panel pedido con el otro abierto: se abre en el hilo del juego cuando el otro terminó */
 static void panel_siguiente_tick(void)
 {
@@ -2062,6 +2074,7 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
         }
     }
     if (g_mostrar) dibujar_contador(dev);
+    aviso_cuadro(w);                                             /* ★ (19-nov) el aviso de arranque: crear / cerrar */
     long hr = g_present_real(dev, a, b, w, r);
     esperar_tope();
     return hr;
@@ -2179,6 +2192,7 @@ static void leer_ajustes(HMODULE self)
      *   el 14-nov, lo que antes hacía Frida (MEDICIONES §57): PRENDIDO por defecto, porque el .ini de cada jugador
      *   no lo pisa el launcher (uno viejo no tiene estas claves) y así llega con la dll nueva. Cada uno se apaga solo. */
     g_mazino = GetPrivateProfileIntA("mazino", "activo", 1, ini);
+    g_aviso_activo = GetPrivateProfileIntA("version", "aviso", 1, ini);   /* ★ (19-nov) el aviso de arranque */
     g_mz_botones = g_mazino ? GetPrivateProfileIntA("mazino", "botones", 1, ini) : 0;
     g_mz_seleccion = g_mazino ? GetPrivateProfileIntA("mazino", "seleccion_multiple", 1, ini) : 0;
     g_mz_foco = g_mazino ? GetPrivateProfileIntA("mazino", "foco", 1, ini) : 0;
@@ -2344,6 +2358,14 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
         g_connect_real = (M_CONNECT)parchear_iat("WS2_32.dll", "connect", (void *)mi_connect);
         apuntar("  server: %s → %s", g_server, g_connect_real ? "connect enganchado"
                 : "⛔ no encontré connect en el exe (¿el EDA.exe con ASProtect? ese va con jugar.py)");
+    }
+    {   /* ★ (19-nov) LA IDENTIDAD, en el registro: qué dll es (sin el hash del archivo: ése, afuera) y a qué server va */
+        char id[160];
+        int puerto, e = ver_entorno(g_server, &puerto);
+        ver_corta(g_server, id, sizeof(id));
+        apuntar("  identidad: %s · compilada %s%s · entorno %s%s%s · %s", id, EDA_FECHA,
+                EDA_SUCIO ? " · ⚠ compilación LOCAL (cambios sin commitear): no es una versión publicada" : "",
+                ent_nombre(e), g_server[0] ? " · server " : "", g_server, g_eda_id);
     }
     AddVectoredExceptionHandler(1, mi_excepcion);    /* (1 = antes que los manejadores del juego) */
     if (g_mejoras) { HANDLE h = CreateThread(NULL, 0, vigia, NULL, 0, NULL); if (h) CloseHandle(h); }

@@ -1028,6 +1028,16 @@ static void opc_pintar(HDC d)
     for (int i = 0; i < 5; i++) caja(d, px0 + c + 10, py1 + 3 + i, px1 - c - 10, py1 + 4 + i, LUZ[i]);
     texto(d, (px0 + px1) / 2 + 1, (py0 + py1) / 2 + 1, L"O P T I O N S", 0x1f6f8f, F_TITULO, 1);
     texto(d, (px0 + px1) / 2, (py0 + py1) / 2, L"O P T I O N S", CIAN_BRILLO, F_TITULO, 1);
+    {   /* ★ (19-nov) qué dll es (eda_version.c): arriba a la izquierda, chico, sin controles */
+        char a8[64], b8[64];
+        WCHAR aw[64], bw[64];
+        snprintf(a8, sizeof(a8), "EDA %s-%s", EDA_VERSION, ent_sufijo(ver_entorno(g_server, NULL)));
+        snprintf(b8, sizeof(b8), "%s%s · %s", EDA_COMMIT, EDA_SUCIO ? "-dirty" : "", EDA_BUILD);
+        if (MultiByteToWideChar(CP_UTF8, 0, a8, -1, aw, 64) && MultiByteToWideChar(CP_UTF8, 0, b8, -1, bw, 64)) {
+            texto(d, 24, 13, aw, EDA_SUCIO ? ORO : GRIS, F_CHICA, 0);
+            texto(d, 24, 27, bw, EDA_SUCIO ? ORO : GRIS, F_CHICA, 0);
+        }
+    }
     /* la ✕ de metal */
     int xx = w - 24, yy = 22, k = registrar(xx - 9, yy - 9, xx + 10, yy + 10, C_CERRAR_X, 0, 0);
     ovalo(d, xx - 9, yy - 9, xx + 9, yy + 9, 0x1a1c1f, ACERO);
