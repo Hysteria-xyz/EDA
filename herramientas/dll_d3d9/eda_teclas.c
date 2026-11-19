@@ -122,6 +122,30 @@ static void tec_agregar(TEC_BOTON *b, const char *accion)
     for (int i = 0; i < b->n; i++) if (!lstrcmpiA(b->acc[i], accion)) return;
     if (b->n < TEC_ACC_MAX) { strncpy(b->acc[b->n], accion, 23); b->acc[b->n][23] = 0; b->n++; }
 }
+/* ★ (18-nov, noche) el autoexec.cfg ORIGINAL (2009, el de una instalación nueva) nombra las teclas por su
+ *   nombre de DirectInput ("W", "F1", "1", "Q"…) en vez de «##n»: también se leen (si no, esas teclas no se
+ *   veían y al GUARDAR quedaba la línea vieja además de la nueva). Sólo las que usa ese archivo: letras,
+ *   números y F1–F12; cualquier otra → 0 (no se toca la línea). */
+static int tec_por_nombre(const char *n)
+{
+    static const char *const FILAS[3] = {"QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"};
+    static const int DESDE[3] = {16, 30, 44};
+    if (n[0] && !n[1]) {
+        char c = n[0] >= 'a' && n[0] <= 'z' ? (char)(n[0] - 32) : n[0];
+        if (c >= '1' && c <= '9') return 2 + (c - '1');
+        if (c == '0') return 11;
+        for (int f = 0; f < 3; f++)
+            for (int i = 0; FILAS[f][i]; i++) if (FILAS[f][i] == c) return DESDE[f] + i;
+        return 0;
+    }
+    if ((n[0] == 'F' || n[0] == 'f') && n[1] >= '1' && n[1] <= '9') {
+        int k = atoi(n + 1);
+        if (k >= 1 && k <= 10 && (n[2] == 0 || (n[2] == '0' && !n[3] && k == 10))) return 58 + k;
+        if ((k == 11 || k == 12) && !n[3]) return 76 + k;
+    }
+    return 0;
+}
+
 /* una línea «rangebind "##keyboard" "##59" 0.000000 0.000000 "Skill1" …» → cod y las acciones (sus textos
  *   entre comillas desde el 3º). Devuelve el cod (0 = no es de un botón: ejes del mouse, otra cosa). */
 static int tec_linea(const char *l, char q[][24], int *nq)
@@ -145,6 +169,7 @@ static int tec_linea(const char *l, char q[][24], int *nq)
         int c = atoi(q[1] + 2);
         return c > 0 && c < 256 ? c : 0;
     }
+    if (!lstrcmpiA(q[0], "##keyboard")) return tec_por_nombre(q[1]);   /* (el autoexec.cfg de 2009: "W", "F1", "1") */
     if (!lstrcmpiA(q[0], "##mouse") && !tec_empieza_n(q[1], "##Button ", 9)) return TEC_MOUSE + atoi(q[1] + 9);
     return 0;
 }
@@ -328,5 +353,88 @@ static int tec_nuevo_cfg(const char *cfg, const TEC_MAPA *nuevo, const int *cods
         }
     }
     salida[n] = 0;
+    return n;
+}
+
+/* ★ (18-nov, noche) ¿QUÉ TIENE EL MOTOR DE VERDAD? Para no dar por bueno un «Bind» sólo porque se mandó: se
+ *   leen (SÓLO LEER) las mismas estructuras que recorre el propio juego al escribir autoexec.cfg al salir
+ *   (0x445B70, el que imprime «rangebind "%s" "%s" » y «%f %f "%s" »):
+ *     [0x930D68]      el primer dispositivo; el siguiente en +0x2FC
+ *     dispositivo     nombre: [+4] o, si es 0, el texto en +0xC  («##keyboard», «##mouse»)
+ *                     sus botones: lista circular desde [+0x8C]; el siguiente en +4; el nombre en +0x6C («##17»)
+ *     botón           sus acciones: [+0x138]; cada una {+0 desde, +4 hasta, +8 texto «*…», +0xC acción
+ *                     (su nombre en +4)}; la siguiente en +0x10
+ *   `leer` devuelve 4 bytes de una dirección (0 en *ok si no se puede leer) y `texto` copia un texto: así se
+ *   prueba sin Windows (prueba_teclas.c arma una memoria de mentira con esa forma).
+ *   Devuelve -1 = no está el dispositivo, 0 = el botón no está (= sin acciones), 1 = está (acciones en `out`). */
+typedef unsigned int (*TEC_LEER4)(unsigned int dir, int *ok);
+typedef int (*TEC_TEXTO)(unsigned int dir, char *t, int cap);
+static int tec_motor(unsigned int primero, const char *disp, const char *obj, char *out, int cap,
+                     TEC_LEER4 leer, TEC_TEXTO texto)
+{
+    char n[40];
+    int ok = 1;
+    out[0] = 0;
+    for (unsigned int d = primero, vueltas = 0; d && vueltas < 16; vueltas++) {
+        unsigned int pn = leer(d + 4, &ok);
+        if (!ok || !texto(pn ? pn : d + 0xC, n, sizeof(n))) return -1;
+        if (!lstrcmpiA(n, disp)) {
+            unsigned int cabeza = leer(d + 0x8C, &ok), b = cabeza;
+            for (int i = 0; ok && b && i < 1024; i++) {
+                if (texto(b + 0x6C, n, sizeof(n)) && !lstrcmpiA(n, obj)) {
+                    int largo = 0;
+                    unsigned int a = leer(b + 0x138, &ok);
+                    for (int k = 0; ok && a && k < 16; k++) {
+                        unsigned int acc = leer(a + 0xC, &ok), t8 = ok ? leer(a + 8, &ok) : 0;
+                        char nom[32];
+                        if (!ok) break;
+                        if (!(acc ? texto(acc + 4, nom, sizeof(nom)) : t8 ? texto(t8, nom, sizeof(nom)) : 0)) strcpy(nom, "?");
+                        if (largo + (int)strlen(nom) + 3 < cap) largo += sprintf(out + largo, "%s%s", largo ? "," : "", nom);
+                        a = leer(a + 0x10, &ok);
+                    }
+                    return 1;
+                }
+                b = leer(b + 4, &ok);
+                if (b == cabeza) break;
+            }
+            return ok ? 0 : -1;
+        }
+        d = leer(d + 0x2FC, &ok);
+        if (!ok) return -1;
+    }
+    return -1;
+}
+/* ¿las acciones que quedaron en el motor («A,B») son las pedidas (el Bind: «… "A" "B"»)? (sin orden) */
+static int tec_mismas(const char *motor, char q[][24], int desde, int nq)
+{
+    int cuenta = 0;
+    for (const char *p = motor; *p; ) {
+        char un[32];
+        int k = 0;
+        while (*p && *p != ',' && k < 31) un[k++] = *p++;
+        un[k] = 0;
+        if (*p == ',') p++;
+        int esta = 0;
+        for (int i = desde; i < nq; i++) if (!lstrcmpiA(un, q[i])) esta = 1;
+        if (!esta) return 0;
+        cuenta++;
+    }
+    return cuenta == nq - desde;
+}
+/* los textos entre comillas de un comando de consola («Bind "##keyboard" "##17" "MoveForward"») */
+static int tec_comillas(const char *l, char q[][24], int max)
+{
+    int n = 0;
+    for (const char *p = l; *p && n < max; p++) {
+        if (*p != '"') continue;
+        const char *f = p + 1;
+        int k = 0;
+        while (f[k] && f[k] != '"' && k < 23) k++;
+        memcpy(q[n], f, k);
+        q[n][k] = 0;
+        n++;
+        p = f + k;
+        if (*p != '"') break;
+    }
     return n;
 }

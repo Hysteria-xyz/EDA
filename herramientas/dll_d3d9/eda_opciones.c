@@ -21,6 +21,7 @@
  *  GDI se pide en tiempo de ejecución (LoadLibrary): la receta de compilación no cambia (sin -lgdi32). */
 
 static char g_ini[MAX_PATH];                     /* eda_d3d9.ini (lo llena leer_ajustes) */
+#include "eda_teclas.c"                          /* ★ (Punto 4) las teclas: lógica pura (la usa la cola) */
 
 /* ── la cola de comandos de consola (se corre en el hilo del juego, desde PeekMessageA) ── */
 #define OPC_LINEAS 96                  /* (Punto 4: «de fábrica» cambia ~20 teclas de una vez) */
@@ -86,6 +87,44 @@ static int variable_del_juego(const char *nombre, float *valor)
     return 1;
 }
 
+/* ★ (Punto 4, 18-nov noche) después de cada «Bind», en el hilo del juego: se lee del motor qué acciones quedaron en
+ *   ese botón (tec_motor: las mismas estructuras que recorre el juego al escribir autoexec.cfg) y se anota si
+ *   coincide con lo pedido. Así el registro prueba si el cambio en vivo llegó al motor, no sólo que se mandó. */
+static unsigned int tec_leer4(unsigned int dir, int *ok)
+{
+    if (!dir || !legible((const void *)(ULONG_PTR)dir, 4)) { *ok = 0; return 0; }
+    return *(const unsigned int *)(ULONG_PTR)dir;
+}
+static int tec_texto(unsigned int dir, char *t, int cap)
+{
+    MEMORY_BASIC_INFORMATION m;                          /* (una consulta por texto, no una por letra) */
+    const char *p = (const char *)(ULONG_PTR)dir;
+    if (!dir || !VirtualQuery(p, &m, sizeof(m)) || m.State != MEM_COMMIT || (m.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+        return 0;
+    SIZE_T queda = (SIZE_T)((const char *)m.BaseAddress + m.RegionSize - p);
+    int i = 0;
+    for (; i < cap - 1 && (SIZE_T)i < queda; i++) {
+        t[i] = p[i];
+        if (!t[i]) return i > 0;
+        if ((unsigned char)t[i] < 32) return 0;
+    }
+    t[i] = 0;
+    return i > 0 && i == cap - 1;
+}
+static void tec_comprobar(const char *linea)
+{
+    char q[TEC_ACC_MAX + 2][24], hay[160];
+    int nq = tec_comillas(linea, q, TEC_ACC_MAX + 2);
+    if (nq < 2) return;
+    unsigned int primero = tec_leer4(0x930D68, &(int){1});
+    int r = tec_motor(primero, q[0], q[1], hay, sizeof(hay), tec_leer4, tec_texto);
+    if (r < 0) apuntar("  [mazino] teclas: ⚠ en vivo «%s»: no pude leer el dispositivo %s en el motor (no se sabe si lo tomó)", linea, q[0]);
+    else if (tec_mismas(r ? hay : "", q, 2, nq))
+        apuntar("  [mazino] teclas: en vivo ✓ el motor tiene %s %s = %s", q[0], q[1], nq > 2 && hay[0] ? hay : "(nada)");
+    else apuntar("  [mazino] teclas: ⚠ en vivo «%s»: el motor tiene %s %s = %s (no lo que se pidió)", linea, q[0], q[1],
+                 r && hay[0] ? hay : "(nada)");
+}
+
 static void opc_correr_cola(void);
 static void opc_correr_cola_desde_dibujo(void)
 {
@@ -103,7 +142,10 @@ static void opc_correr_cola(void)
     if (n <= 0) { opc_volumen(); return; }
     J_CONSOLA run = consola_del_juego();
     if (!run) { apuntar("  [mazino] opciones: ⚠ no encontré la consola del juego (0x92CF50): quedan para el reinicio"); return; }
-    for (int i = 0; i < n; i++) run(lista[i]);
+    for (int i = 0; i < n; i++) {
+        run(lista[i]);
+        if (!tec_empieza_n(lista[i], "Bind ", 5)) tec_comprobar(lista[i]);   /* ★ (Punto 4) ¿lo tomó el motor? */
+    }
     apuntar("  [mazino] opciones: %d en vivo (%s%s)", n, lista[0], n > 1 ? " …" : "");
     opc_volumen();
 }
@@ -537,7 +579,6 @@ static void opc_al_arrancar(void)
  *  Ahora: la lista de acciones adentro de Options; lo elegido se aplica al GUARDAR, al instante, con el comando
  *  «Bind» de la consola del juego (la misma cola de las Options en vivo, en el hilo del juego) y se escribe en
  *  autoexec.cfg (con un respaldo del anterior). Sin procesos, hilos, ganchos ni temporizadores nuevos. */
-#include "eda_teclas.c"
 static TEC_MAPA g_tec_mapa;                       /* lo que tiene el autoexec.cfg (= lo que usa el juego) */
 static int g_tec[TEC_FILAS][2], g_tec_leidas;     /* lo que se ve / se edita */
 static int g_tec_grupo, g_tec_fila = -1, g_tec_lugar, g_tec_confirmar, g_tec_cambios;
@@ -579,8 +620,19 @@ static int tec_guardar(void)
     }
     char l[96];
     int en_vivo = 0;
-    for (int k = 0; k < n; k++)
-        if (tec_comando(&nuevo, cods[k], l, sizeof(l))) { opc_encolar(l); en_vivo++; }
+    for (int k = 0; k < n; k++) {
+        /* (cada etapa al registro: el botón, lo que tenía, lo que tendrá y el comando que va a la consola) */
+        char antes[160], ahora[160], d[16], o[24];
+        const TEC_BOTON *a = tec_boton(&g_tec_mapa, cods[k], 0), *b = tec_boton(&nuevo, cods[k], 0);
+        antes[0] = ahora[0] = 0;
+        for (int i = 0; a && i < a->n; i++) sprintf(antes + strlen(antes), "%s%s", i ? "," : "", a->acc[i]);
+        for (int i = 0; b && i < b->n; i++) sprintf(ahora + strlen(ahora), "%s%s", i ? "," : "", b->acc[i]);
+        tec_objeto(cods[k], d, o);
+        int va = tec_comando(&nuevo, cods[k], l, sizeof(l));
+        apuntar("  [mazino] teclas: %s %s: antes «%s» → ahora «%s» · %s%s", d, o, antes[0] ? antes : "nada",
+                ahora[0] ? ahora : "nada", va ? "a la consola: " : "⚠ comando demasiado largo, sólo al reiniciar", va ? l : "");
+        if (va) { opc_encolar(l); en_vivo++; }
+    }
     apuntar("  [mazino] teclas: %d botones cambiados · %d «Bind» en vivo · autoexec.cfg %s", n, en_vivo, ok ? "escrito" : "⚠ NO escrito");
     if (ok) { g_tec_mapa = nuevo; g_tec_cambios = 0; }
     return ok;
@@ -1244,21 +1296,28 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         }
         case C_TEC_GRUPO: g_tec_grupo = c.id; g_tec_confirmar = 0; break;
         case C_TECLA:
+            apuntar("  [mazino] teclas: esperando la tecla de %s (%s)", TEC[c.id].accion, c.valor ? "alterna" : "principal");
             g_tec_fila = c.id;
             g_tec_lugar = c.valor;
             g_tec_confirmar = 0;
             wsprintfW(g_estado, L"Pulsa la tecla nueva para «%s»… (Esc = cancelar)", TEC[c.id].texto);
             g_estado_color = ROJO_LUZ;
             break;
-        case C_TEC_FABRICA: g_tec_confirmar = 1; break;
+        case C_TEC_FABRICA: g_tec_confirmar = 1; apuntar("  [mazino] teclas: DE FÁBRICA → ¿seguro?"); break;
         case C_TEC_SI:
+            apuntar("  [mazino] teclas: DE FÁBRICA → SÍ (falta GUARDAR)");
             tec_de_fabrica(g_tec);
             g_tec_cambios = 1;
             g_tec_confirmar = 0;
             lstrcpyW(g_estado, L"Teclas de fábrica. Falta GUARDAR.");
             g_estado_color = VERDE;
             break;
-        case C_TEC_NO: g_tec_confirmar = 0; break;
+        case C_TEC_NO:
+            g_tec_confirmar = 0;
+            apuntar("  [mazino] teclas: DE FÁBRICA → NO (nada cambió)");
+            lstrcpyW(g_estado, L"Sin cambios.");
+            g_estado_color = GRIS;
+            break;
         }
         InvalidateRect(v, NULL, FALSE);
         return 0;
@@ -1271,6 +1330,8 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
             if (sobre && g_ctl[k].id == g_tec_fila && g_ctl[k].valor == g_tec_lugar) tec_elegida(TEC_MOUSE + (m == WM_RBUTTONDOWN ? 1 : 2));
             else { g_tec_fila = -1; lstrcpyW(g_estado, L"Cancelado."); g_estado_color = GRIS; }
         } else if (sobre && m == WM_RBUTTONDOWN && g_tec[g_ctl[k].id][g_ctl[k].valor]) {
+            apuntar("  [mazino] teclas: clic derecho → %s (%s) borrada (era %d)", TEC[g_ctl[k].id].accion,
+                    g_ctl[k].valor ? "alterna" : "principal", g_tec[g_ctl[k].id][g_ctl[k].valor]);
             g_tec[g_ctl[k].id][g_ctl[k].valor] = 0;
             g_tec_cambios = 1;
             wsprintfW(g_estado, L"%s: tecla borrada. Falta GUARDAR.", TEC[g_ctl[k].id].texto);
@@ -1304,7 +1365,12 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
          *   extendida: flechas, Ctrl/Alt derechos, Num Enter…), el mismo número que va en «##n» */
         if (g_tec_fila >= 0) {
             if (l & (1L << 30)) return 0;                            /* (repetición) */
-            if (w == VK_ESCAPE) { g_tec_fila = -1; lstrcpyW(g_estado, L"Cancelado."); g_estado_color = GRIS; }
+            if (w == VK_ESCAPE) {                                   /* sólo cancela: Options sigue abierta */
+                apuntar("  [mazino] teclas: Esc → captura cancelada (%s), Options sigue abierta", TEC[g_tec_fila].accion);
+                g_tec_fila = -1;
+                lstrcpyW(g_estado, L"Cancelado.");
+                g_estado_color = GRIS;
+            }
             else tec_elegida((int)((l >> 16) & 0x7F) | ((l >> 24) & 1 ? 0x80 : 0) | ((l >> 16) & 0x80));
             InvalidateRect(v, NULL, FALSE);
             return 0;
@@ -1320,6 +1386,7 @@ static LRESULT CALLBACK opc_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         break;                                               /* (Alt+F4 y las demás de sistema, como siempre) */
     case WM_SYSKEYUP:
         if (w == VK_F10) return 0;
+        if (w == VK_MENU) return 0;      /* ★ (Punto 4) soltar Alt (p. ej. recién elegida) no abre el menú de la ventana */
         break;
     case WM_CLOSE: DestroyWindow(v); return 0;
     case WM_DESTROY:
