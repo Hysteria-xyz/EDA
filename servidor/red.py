@@ -22,6 +22,11 @@ Variables (además de las de `servidor/config.py`):
     EDA_LOG_HEX     1 = anotar cada mensaje en hexa (para investigar)
     EDA_HTTP_PUERTO / EDA_HTTP_ESCUCHAR  el login por HTTP: POST /eda/pase (PUERTO+1, 127.0.0.1;
                     afuera va con HTTPS delante). EDA_LOGIN, EDA_PORTERO_CLAVES: servidor/config.py
+                    ★ El mismo HTTP atiende la puerta interna del panel del Coordinador (`/interno/panel/…`,
+                    servidor/panel.py), que sólo abre con R2_CUENTAS_FICHA_INTERNA
+    EDA_PANEL_ESCUCHAR  IP:PUERTO de un HTTP APARTE que sólo atiende `/interno/panel/…` (vacío = ninguno). Para
+                    cuando el server corre con la red del VPS (prod / prueba) y el Coordinador vive en la red de
+                    Docker: «<IP de la máquina en esa red>:25902». Ver despliegue/LEEME.md
 """
 import os
 import signal
@@ -31,6 +36,7 @@ import sys
 import threading
 import time
 import traceback
+import types
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if RAIZ not in sys.path:
@@ -48,6 +54,7 @@ LOG_HEX = os.environ.get("EDA_LOG_HEX") == "1"
 # ★ el login por HTTP (`http()`): el puerto TCP + 1 si no se dice otro; 0 = apagado
 HTTP_ESCUCHAR = os.environ.get("EDA_HTTP_ESCUCHAR", "127.0.0.1")
 HTTP_PUERTO = int(os.environ.get("EDA_HTTP_PUERTO") or PUERTO + 1)
+PANEL_ESCUCHAR = (os.environ.get("EDA_PANEL_ESCUCHAR") or "").strip()   # «IP:PUERTO» (servidor/panel.py)
 INACTIVA_MAX = 15 * 60          # corta una conexión con 15 min SIN datos (el cliente manda 0x1001 cada 20 s)
 
 _lock_log = threading.Lock()
@@ -109,6 +116,30 @@ def enviar_a(n, c, cuerpo):
         log("#%d no pude mandar %04x (%s)" % (n, c, e))
 
 
+def cortar(n, espera=0):
+    """★ Corta la conexión `n` (el «echar» del panel, servidor/panel.py): `atender` ve el corte y hace lo de
+    siempre al cerrarse (su sala, sus amigos, la lista). Con `espera`, a los N segundos (que le llegue el aviso).
+    ⚠ Medido en Windows (20-nov): ahí `shutdown` NO despierta al `recv` que espera (sigue dando timeout hasta que
+    el otro cierra); por eso además se marca `cortada` y `atender` sale en el próximo timeout (≤ 5 s). En Linux el
+    `recv` vuelve en el acto."""
+    era = CONEXIONES.get(n)
+
+    def ya():
+        con = CONEXIONES.get(n)
+        if con is None or con is not era:              # (ya se fue, y el número quizá es de OTRO que entró)
+            return
+        log("#%d la corto (panel)" % n)
+        con["cortada"] = True
+        try:
+            con["cli"].shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+    if espera:
+        threading.Timer(espera, ya).start()
+    else:
+        ya()
+
+
 def despachar(n, resp):
     """resp: [(comando, cuerpo, ms de espera[, conexión destino])] — sin destino, a `n`."""
     for r in resp:
@@ -122,6 +153,10 @@ def despachar(n, resp):
 
 def juego():
     return servidor.cargar(avisar=log)
+
+
+# ★ lo que la puerta del panel (servidor/panel.py) puede hacer con las conexiones: mandarles mensajes y cortarlas
+PUERTA_PANEL = types.SimpleNamespace(enviar=lambda resp: despachar(None, resp), cortar=cortar)
 
 
 def contestar(cli, n, pkt, guion):
@@ -157,6 +192,7 @@ def atender(cli, quien, n, guion):
     # ★ la IP con que llegó (MEDICIONES §52): dos con la MISMA están en la misma casa / el mismo cíber, y
     #   se les da la dirección privada del otro (servidor/relay.py · dir_udp). (No va a ningún archivo.)
     juego().partida(n)["ip_tcp"] = quien[0]
+    juego().partida(n)["desde"] = time.time()                  # (el «conectado desde» del panel)
     cli.settimeout(5.0)
     pendiente = b""
     ultimo = time.time()
@@ -165,6 +201,9 @@ def atender(cli, quien, n, guion):
             try:
                 d = cli.recv(65536)
             except socket.timeout:
+                if (CONEXIONES.get(n) or {}).get("cortada"):
+                    log("#%d cortada por el panel" % n)
+                    break
                 if time.time() - ultimo > INACTIVA_MAX:
                     log("#%d %d s sin datos: la cierro" % (n, INACTIVA_MAX))
                     break
@@ -214,11 +253,13 @@ def relay():
             time.sleep(5)
 
 
-def http():
-    """★ El LOGIN por HTTP (servidor/porteria.py): POST /eda/pase {"pase": "<JWT del portero>"} →
-    {"usuario", "ticket", "vence"}; un rechazo → {"error": código} (400 / 401 / 409 / 503). GET
-    /eda/salud → {"login": "pase" | "abierto"}. ⚠ Es HTTP plano y escucha en 127.0.0.1: afuera se
-    publica con HTTPS (Caddy u otro proxy delante), porque el ticket es un secreto."""
+def servidor_http(direccion, solo_panel=False):
+    """★ El HTTP del server (sin arrancarlo: `serve_forever()` lo hace andar).
+      · el LOGIN (servidor/porteria.py): POST /eda/pase {"pase": "<JWT del portero>"} → {"usuario", "ticket",
+        "vence"}; un rechazo → {"error": código} (400 / 401 / 409 / 503). GET /eda/salud → {"login": …}.
+        ⚠ Es HTTP plano: afuera se publica con HTTPS (Caddy u otro proxy delante), porque el ticket es un secreto.
+      · la PUERTA INTERNA del panel del Coordinador: /interno/panel/… (servidor/panel.py: la ficha, X-R2, quién).
+    `solo_panel` = sólo la puerta del panel (el HTTP aparte de EDA_PANEL_ESCUCHAR): el login ahí no existe."""
     import json
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -227,22 +268,49 @@ def http():
         sys_version = ""
 
         def _json(self, codigo, datos):
-            b = json.dumps(datos).encode("utf-8")
+            b = json.dumps(datos, ensure_ascii=False).encode("utf-8")
             self.send_response(codigo)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(b)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(b)
 
+        def _panel(self, metodo):
+            juego()                                           # (recarga servidor/ si cambió)
+            from servidor import panel
+
+            def leer_cuerpo():
+                try:
+                    largo = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    raise ValueError("largo")
+                if not 0 <= largo <= panel.TOPE_CUERPO:
+                    raise ValueError("largo")
+                return self.rfile.read(largo) if largo else b""
+            try:
+                codigo, datos = panel.atender(metodo, self.path, self.headers, leer_cuerpo, PUERTA_PANEL)
+            except Exception:                                 # noqa: BLE001
+                log("⛔ %s %s falló:\n%s" % (metodo,self.path.split("?")[0], traceback.format_exc()))
+                codigo, datos = 500, {"error": "Error interno del servidor del juego."}
+            self._json(codigo, datos)
+
+        def _es_panel(self):
+            ruta = self.path.split("?", 1)[0]
+            return ruta == "/interno/panel" or ruta.startswith("/interno/panel/")
+
         def do_GET(self):
-            if self.path == "/eda/salud":
+            if self._es_panel():
+                return self._panel("GET")
+            if self.path == "/eda/salud" and not solo_panel:
                 return self._json(200, {"login": config.LOGIN})
-            self._json(404, {"error": "ruta"})
+            self._json(404, {"error": "No existe."})
 
         def do_POST(self):
-            if self.path != "/eda/pase":
-                return self._json(404, {"error": "ruta"})
+            if self._es_panel():
+                return self._panel("POST")
+            if self.path != "/eda/pase" or solo_panel:
+                return self._json(404, {"error": "No existe."})
             try:
                 largo = int(self.headers.get("Content-Length") or 0)
             except ValueError:
@@ -269,9 +337,29 @@ def http():
         def log_message(self, *a):                            # (lo importante ya se anota arriba)
             pass
 
-    srv = ThreadingHTTPServer((HTTP_ESCUCHAR, HTTP_PUERTO), Atender)
-    log("login por HTTP en %s:%d (modo «%s»; claves del portero: %s)" % (
-        HTTP_ESCUCHAR, HTTP_PUERTO, config.LOGIN, ("por configuración (EDA_CUENTAS_CLAVE_PUBLICA)" if config.CUENTAS_CLAVE_PUBLICA else config.PORTERO_CLAVES) or "⚠ ninguna"))
+    return ThreadingHTTPServer(direccion, Atender)
+
+
+def http():
+    srv = servidor_http((HTTP_ESCUCHAR, HTTP_PUERTO))
+    log("login por HTTP en %s:%d (modo «%s»; claves del portero: %s) · panel interno: %s" % (
+        HTTP_ESCUCHAR, HTTP_PUERTO, config.LOGIN, ("por configuración (EDA_CUENTAS_CLAVE_PUBLICA)" if config.CUENTAS_CLAVE_PUBLICA else config.PORTERO_CLAVES) or "⚠ ninguna",
+        "con ficha" if config.FICHA_INTERNA else "cerrado (sin R2_CUENTAS_FICHA_INTERNA)"))
+    srv.serve_forever()
+
+
+def http_panel():
+    """★ El HTTP aparte, sólo con la puerta del panel (EDA_PANEL_ESCUCHAR = «IP:PUERTO»)."""
+    ip, _, puerto = PANEL_ESCUCHAR.rpartition(":")
+    while True:
+        try:
+            srv = servidor_http((ip, int(puerto)), solo_panel=True)
+            break
+        except OSError as e:                                  # (p. ej. la IP de la red de Docker todavía no está)
+            log("⛔ el panel interno no pudo escuchar en %s (%s): reintento en 30 s" % (PANEL_ESCUCHAR, e))
+            time.sleep(30)
+    log("panel interno (sólo /interno/panel) en %s · %s" % (
+        PANEL_ESCUCHAR, "con ficha" if config.FICHA_INTERNA else "cerrado (sin R2_CUENTAS_FICHA_INTERNA)"))
     srv.serve_forever()
 
 
@@ -296,6 +384,8 @@ def main():
     threading.Thread(target=reloj, daemon=True).start()
     if HTTP_PUERTO:
         threading.Thread(target=http, daemon=True).start()
+    if PANEL_ESCUCHAR:
+        threading.Thread(target=http_panel, daemon=True).start()
     while True:
         cli, quien = s.accept()
         n = numero_libre()

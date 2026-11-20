@@ -19,6 +19,7 @@ Probado con el cliente de 2009, pantalla por pantalla (cada cosa tiene su medici
 | ✅ habilidades | verificar el libro con el pergamino, aprender (con oro y nivel), borrar, barra F1–F8 |
 | ✅ refinería | crear engarce, poner piedras (suman su bonus), refinar piedras, reparar |
 | ✅ multijugador | P2P en la misma PC (ping y movimiento); *relay* UDP para PCs distintas (probado en una PC) |
+| ✅ panel del Coordinador | conectados, buscar, ficha, aviso, echar y monedas por la puerta interna (`servidor/panel.py`, [despliegue/LEEME.md](despliegue/LEEME.md#el-panel-del-coordinador-la-puerta-interna)) |
 
 ## Qué NO anda (todavía)
 
