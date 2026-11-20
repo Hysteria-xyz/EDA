@@ -1,5 +1,7 @@
 # EDA — Espada del Alma · servidor abierto
 
+> Parte de **Eñeños** · coordinado por [`r2beatlatino/coordinador`](https://github.com/r2beatlatino/coordinador) (las cuentas, el panel y el catálogo de juegos).
+
 Servidor para **E.D.A. (Espada del Alma)**, el juego de acción por stages que **Softnyx**
 (Gunbound, Rakion, WolfTeam) sacó en **closed beta en 2009** y que nunca llegó a lanzarse. Sus
 servidores se apagaron hace años y el juego quedó como *lost media*.
