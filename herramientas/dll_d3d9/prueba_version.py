@@ -202,6 +202,121 @@ def pruebas_identificar():
         shutil.rmtree(t, ignore_errors=True)
 
 
+def pruebas_manifiestos():
+    """★ (19-nov) los formatos REALES: el manifiesto del launcher (armar_cliente.py: version de la release, base,
+    servidor, canje, files[path, size, md5]), el firmado (JWS), la lista del canal develop (canal.py: identidad +
+    files con sha256) y los manifiestos incompletos o incorrectos (un error, nunca una coincidencia)."""
+    import base64
+    import contextlib
+    import io
+    print("== 5b, 6b: manifiestos del launcher, del canal develop e incorrectos ==")
+    t = tempfile.mkdtemp(prefix="eda_man_")
+
+    def correr(*a):
+        sal = io.StringIO()
+        with contextlib.redirect_stdout(sal):
+            try:
+                c = identificar.main(list(a))
+            except Exception as e:                             # noqa: BLE001  (un KeyError = una prueba mala)
+                c = "EXCEPCIÓN %r" % e
+        return c, sal.getvalue()
+
+    def escribir(nombre, obj):
+        ruta = os.path.join(t, nombre)
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write(obj if isinstance(obj, str) else json.dumps(obj))
+        return ruta
+    try:
+        marca = b"EDA-ID|v=0.5.0|c=cce27e9|s=0|f=2026-11-19 06:13 UTC|b=bb9c5c22a0b|"
+        juego = os.path.join(t, "juego")
+        os.makedirs(os.path.join(juego, "redist"))
+        dll = os.path.join(juego, "d3d9.dll")
+        open(dll, "wb").write(b"MZ" + b"\0" * 90 + marca + b"\0" * 30)
+        archivos = {"d3d9.dll": None, "eda_d3d9.ini": b"[red]\r\nserver=\r\n", "EDA_limpio.exe": b"MZ-exe",
+                    "autoexec.cfg": b'"windowed" "1"\r\n', "redist/mss.flt": b"flt"}
+        for n, d in archivos.items():
+            if d is not None:
+                open(os.path.join(juego, *n.split("/")), "wb").write(d)
+
+        def h(n):
+            d = open(os.path.join(juego, *n.split("/")), "rb").read()
+            return {"path": n, "size": len(d), "md5": hashlib.md5(d).hexdigest()}
+        info = identificar.leer(dll)
+        launcher = {"version": "2026.11.19.1", "base": "https://cdn.example.org/files-eda/x/",
+                    "servidor": "eda.example.org:25900", "canje": "https://eda.example.org/eda/pase",
+                    "files": [h(n) for n in sorted(archivos)]}
+        ml = escribir("eda.json", launcher)
+        c, out = correr(dll, "--esperado", ml)
+        chequear("launcher (files/path/size): coincide, sin KeyError", c == 0, "%s %s" % (c, out[-300:]))
+        chequear("launcher: la versión de la RELEASE no se toma como la de la dll", "release 2026.11.19.1" in out
+                 and "versión, commit, build): no disponible" in out and "commit: instalada" not in out, out[-400:])
+        jws = "%s.%s.%s" % (base64.urlsafe_b64encode(b'{"alg":"EdDSA"}').decode().rstrip("="),
+                            base64.urlsafe_b64encode(json.dumps(dict(launcher, aud="eda-launcher", iat=1)).encode())
+                            .decode().rstrip("="), "firma")
+        chequear("launcher firmado (JWS): coincide", correr(dll, "--esperado", escribir("m.jws", jws))[0] == 0)
+        c, out = correr(dll, "--esperado", ml, "--carpeta", juego)
+        chequear("launcher --carpeta: rutas, tamaños y md5 de todo el cliente", c == 0 and "5 archivos" in out, out[-300:])
+        open(os.path.join(juego, "eda_d3d9.ini"), "wb").write(b"[video]\r\ntope_fps=60\r\n")
+        c, out = correr(dll, "--esperado", ml, "--carpeta", juego)
+        chequear("--carpeta: el .ini del jugador distinto es un aviso, no un error", c == 0 and "es del jugador" in out)
+        os.remove(os.path.join(juego, "redist", "mss.flt"))
+        c, out = correr(dll, "--esperado", ml, "--carpeta", juego)
+        chequear("★ revés --carpeta: falta un archivo del juego → NO COINCIDE (2)", c == 2 and "redist/mss.flt: falta" in out)
+        open(os.path.join(juego, "redist", "mss.flt"), "wb").write(b"flt")
+        open(os.path.join(juego, "EDA_limpio.exe"), "wb").write(b"MZ-otro")
+        c, out = correr(dll, "--esperado", ml, "--carpeta", juego)
+        chequear("★ revés --carpeta: otro exe → NO COINCIDE (2)", c == 2 and "EDA_limpio.exe: distinto" in out)
+        open(os.path.join(juego, "EDA_limpio.exe"), "wb").write(b"MZ-exe")
+        mal = json.loads(json.dumps(launcher))
+        idll = [f["path"] for f in launcher["files"]].index("d3d9.dll")
+        mal["files"][idll]["md5"] = "0" * 32
+        chequear("★ revés launcher: otro md5 de la dll → NO COINCIDE (2)", correr(dll, "--esperado", escribir("m1.json", mal))[0] == 2)
+        mal = json.loads(json.dumps(launcher))
+        mal["files"][idll]["size"] += 1
+        chequear("★ revés launcher: otro tamaño → NO COINCIDE (2)", correr(dll, "--esperado", escribir("m2.json", mal))[0] == 2)
+        viejo = {"version": "1", "archivos": [{"ruta": "d3d9.dll", "tam": info["tam"], "md5": info["md5"]}]}
+        chequear("forma vieja (archivos/ruta/tam): coincide", correr(dll, "--esperado", escribir("m3.json", viejo))[0] == 0)
+        # la lista del canal develop (la forma de canal.py armar)
+        canal = dict(info["identidad"], canal="develop", rama_commit="b" * 40, puerto_server=35900, archivo="d3d9.dll",
+                     tam=info["tam"], md5=info["md5"], sha256=info["sha256"],
+                     files=[dict(h("d3d9.dll"), sha256=info["sha256"])])
+        mc = escribir("cliente-develop.json", canal)
+        c, out = correr(dll, "--esperado", mc)
+        chequear("canal develop: coincide con identidad y sha256", c == 0 and "commit cce27e9" in out, out[-300:])
+        chequear("★ revés canal: otra identidad (commit) → NO COINCIDE (2)",
+                 correr(dll, "--esperado", escribir("c1.json", dict(canal, commit="ffff000")))[0] == 2)
+        roto = json.loads(json.dumps(canal))
+        roto["files"][0]["sha256"] = "a" * 64
+        chequear("★ revés canal: arriba y files no cierran → manifiesto incorrecto (1)",
+                 correr(dll, "--esperado", escribir("c2.json", roto))[0] == 1)
+        # incompletos o incorrectos: un error (1), nunca una coincidencia
+        malos = {
+            "sin la dll": dict(launcher, files=[h("autoexec.cfg")]),
+            "la dll en una subcarpeta": dict(launcher, files=[dict(h("d3d9.dll"), path="redist/d3d9.dll")]),
+            "la dll sin hash": dict(launcher, files=[{"path": "d3d9.dll", "size": info["tam"]}]),
+            "md5 que no es hex": dict(launcher, files=[dict(h("d3d9.dll"), md5="zz")]),
+            "tamaño de texto": dict(launcher, files=[dict(h("d3d9.dll"), size="225792")]),
+            "ruta con ..": dict(launcher, files=[h("d3d9.dll"), dict(h("autoexec.cfg"), path="../x.cfg")]),
+            "files no es lista": dict(launcher, files={"d3d9.dll": 1}),
+            "la dll dos veces": dict(launcher, files=[h("d3d9.dll"), h("d3d9.dll")]),
+            "un json sin files ni hash": {"version": "0.5.0"},
+            "un json que es una lista": [1, 2],
+            "no es json": "esto no es json {",
+        }
+        for i, (nombre, obj) in enumerate(malos.items()):
+            c, out = correr(dll, "--esperado", escribir("malo%d.json" % i, obj))
+            chequear("★ incorrecto: %s → MANIFIESTO INCORRECTO (1)" % nombre, c == 1 and "INCORRECTO" in out, "%s %s" % (c, out[-200:]))
+        c, out = correr(dll, "--esperado", ml, "--json")
+        j = json.loads(out)
+        chequear("--json: se lee y dice el código", j["codigo"] == 0 and j["esperada"]["identidad"] is None
+                 and j["esperada"]["release"] == "2026.11.19.1")
+        vieja = os.path.join(t, "vieja.dll")
+        open(vieja, "wb").write(b"MZ" + b"\0" * 40)
+        chequear("★ revés: dll antigua contra la lista del canal → NO COINCIDE (2)", correr(vieja, "--esperado", mc)[0] == 2)
+    finally:
+        shutil.rmtree(t, ignore_errors=True)
+
+
 PROCESOS = re.compile(r"CreateProcess|ShellExecute|WinExec|system\s*\(|_popen|cmd\.exe|python|\.py\b", re.I)
 
 
@@ -230,6 +345,7 @@ if __name__ == "__main__":
     pruebas_git()
     pruebas_c()
     pruebas_identificar()
+    pruebas_manifiestos()
     pruebas_sin_ventanas(sys.argv[1] if len(sys.argv) > 1 else None)
     print("prueba_version.py: %d bien · %d mal" % (OK, MAL))
     sys.exit(1 if MAL else 0)

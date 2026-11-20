@@ -60,8 +60,13 @@ Cada compilación dice sola qué es; nadie edita el código para eso.
   la dll: la identidad + md5/sha256/tamaño del archivo (el hash final no puede ir adentro: lo cambiaría).
 - En el juego: el **aviso de arranque** (8 s, arriba a la derecha, no toma foco ni clics; `[version] aviso=0` lo
   apaga), la esquina de **Options** y la línea `identidad:` de `eda_d3d9.log` (y `entorno` en cada `connect`).
-- `identificar.py RUTA\d3d9.dll [--esperado d3d9.dll.json | eda.json | otra.dll]`: lee la marca `EDA-ID|…`,
-  calcula los hashes y compara (0 coincide · 2 no coincide · 3 dll antigua sin identidad). Sin red.
+- `identificar.py RUTA\d3d9.dll [--esperado d3d9.dll.json | cliente-develop.json | eda.json | otra.dll] [--carpeta JUEGO]`:
+  lee la marca `EDA-ID|…`, calcula los hashes y compara con lo que el esperado **realmente** trae. El manifiesto
+  del launcher (`files`: `path`, `size`, `md5`; también firmado) no trae la identidad de la dll: su `version` es la
+  de la release, y commit/build salen «no disponible» (se comparan los hashes). `--carpeta` revisa además ruta,
+  tamaño y hash de cada archivo de la lista (el `.ini` y el `autoexec.cfg` del jugador sólo avisan).
+  0 coincide · 1 manifiesto ilegible o incorrecto (sin la dll, sin hash, datos que no cierran) · 2 no coincide ·
+  3 dll antigua sin identidad. Sin red.
 - Pruebas: `python herramientas/dll_d3d9/prueba_version.py [d3d9.dll]` (también en el CI).
 
 ## El cliente de develop (para probar, 19-nov)
