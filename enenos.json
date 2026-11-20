@@ -7,17 +7,18 @@
     "test": null
   },
   "capacidades": {
-    "estado": null,
-    "conectados": null,
-    "buscar": null,
-    "ficha": null,
-    "aviso": null,
-    "echar": null,
+    "estado": "GET /interno/panel/salud",
+    "conectados": "GET /interno/panel/conectados",
+    "buscar": "GET /interno/panel/buscar?q=",
+    "ficha": "GET /interno/panel/ficha/<cuenta>",
+    "aviso": "POST /interno/panel/aviso",
+    "echar": "POST /interno/panel/echar",
     "sancionar_chat": null,
     "banear": null,
-    "dar_moneda": null,
-    "auditoria": null
+    "dar_moneda": "POST /interno/panel/moneda (oro, cash, monedas_revivir)",
+    "auditoria": "panel_auditoria.jsonl + movimientos de la ficha"
   },
   "extras": [],
-  "nota": "Hoy el server sólo tiene por HTTP el login con el pase (POST /eda/pase). El bloqueo por juego lo hace el Coordinador (baneo por aud). capacidades null = todavía no lo soporta; lo lee el Coordinador para armar su panel."
+  "nota": "El panel del Coordinador va por el contrato del panel v1 (servidor/panel.py): /interno/panel/… en el HTTP del server, con la ficha R2_CUENTAS_FICHA_INTERNA. Las monedas sólo con el jugador desconectado. No hay baneo ni silencio del chat en el server: el bloqueo por juego lo hace el Coordinador (el pase). capacidades null = todavía no lo soporta.",
+  "panel": "contrato1"
 }

@@ -985,6 +985,9 @@ def control():
     pruebas_personajes(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
+    pruebas_panel(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
     shutil.rmtree(config.CUENTAS, ignore_errors=True)
     config.NIVEL_INICIAL = nivel_real
     if saltadas:
@@ -1478,6 +1481,256 @@ def pruebas_login(chequear):
         for x in (jwks, os.path.join(config.ESTADO, "control_porteria.db")):
             if os.path.exists(x):
                 os.remove(x)
+
+
+def pruebas_panel(chequear):
+    """★ (20-nov) LA PUERTA INTERNA del panel del Coordinador (servidor/panel.py, «contrato del panel v1»): la
+    ficha, X-R2, quién lo pidió, cada ruta y cada acción, con su revés. Y por HTTP de verdad (red.servidor_http)."""
+    import threading
+    import urllib.error
+    import urllib.request
+    from servidor import panel
+    from servidor.cuentas import CUENTA_CLAVES, escribir, ruta_cuenta
+
+    class Red:                                       # (lo que hace servidor/red.py con las conexiones, anotado)
+        def __init__(self):
+            self.enviados, self.cortes = [], []
+
+        def enviar(self, resp):
+            self.enviados += resp
+
+        def cortar(self, n, espera=0):
+            self.cortes.append((n, espera))
+
+    FICHA, QUIEN = "ficha-de-prueba-0123456789", "coordinador:prueba"
+    red = Red()
+
+    def pedir(metodo, ruta, cuerpo=None, ficha=FICHA, r2="1", quien=QUIEN, extra=None, con_red=True):
+        cab = {}
+        if ficha is not None:
+            cab["X-Ficha-Interna"] = ficha
+        if r2 is not None:
+            cab["X-R2"] = r2
+        if quien is not None:
+            cab["X-Coordinador-Quien"] = quien
+        cab.update(extra or {})
+        b = json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else b""
+        return panel.atender(metodo, panel.PREFIJO + "/" + ruta, cab, lambda: b, red if con_red else None)
+
+    def archivo(nombre):
+        return json.load(open(ruta_cuenta(nombre), encoding="utf-8"))
+
+    def texto_1005(x):
+        return x[1][11:37].decode("utf-16-le").rstrip("\0"), x[1][41:].decode("utf-16-le")
+
+    guardado = (config.LOGIN, config.PREFIJO_CUENTA, config.FICHA_INTERNA, config.PANEL_AUDITORIA, config.ENTORNO)
+    config.LOGIN, config.PREFIJO_CUENTA, config.ENTORNO = "pase", "en_", "control"
+    config.PANEL_AUDITORIA = os.path.join(config.CUENTAS, "panel_auditoria.jsonl")
+    A, B, C = "en_10000042", "en_10000043", "en_123"       # C: un número de R2Beat viejo (< 10.000.000)
+    escribir(A, {"nombre": A, "plata": 500, "cash": 10, "monedas": 3, "activo": 0, "pjs": [
+        {"nick": "Panelista", "clase": 1, "exp": EXPS[4], "lugar": 0, "stats": [1, 2, 3, 4, 5], "items": [[1, 1, 10, 1, 1]]},
+        {"nick": "Arquero2", "clase": 2, "exp": 0, "lugar": 2}]})
+    escribir(B, {"nombre": B, "plata": 0, "cash": 0, "monedas": 0, "activo": 0,
+                 "pjs": [{"nick": "Arquera", "clase": 2, "exp": 0, "lugar": 0}]})
+    escribir(C, {"nombre": C, "plata": 1, "cash": 1, "monedas": 1, "activo": 0, "pjs": []})
+    ASIGNADAS.clear()
+    PARTIDAS.clear()
+    ASIGNADAS.update({501: B, 502: "_sin_login"})           # B conectado; 502 todavía sin mostrar su ticket
+    PARTIDAS[501] = {"ip_tcp": "192.0.2.10", "desde": 1_790_000_000}
+    try:
+        # ── la ficha interna ────────────────────────────────────────────────────────────────────
+        config.FICHA_INTERNA = ""
+        chequear("★ sin R2_CUENTAS_FICHA_INTERNA la puerta no existe: 404 aunque traiga una ficha (y con una vacía)",
+                 pedir("GET", "capacidades")[0] == 404 and pedir("GET", "capacidades", ficha="")[0] == 404)
+        config.FICHA_INTERNA = FICHA
+        chequear("con la ficha: capacidades → 200", pedir("GET", "capacidades")[0] == 200)
+        chequear("★ el revés: sin la cabecera, con otra ficha o con la ficha a medias → 404 (como si no existiera)",
+                 [pedir("GET", "capacidades", ficha=f)[0] for f in (None, "otra", FICHA[:-1], FICHA + "x")]
+                 == [404, 404, 404, 404])
+        chequear("★ con la ficha pero llegado por un proxy (X-Forwarded-For) → 404",
+                 pedir("GET", "capacidades", extra={"X-Forwarded-For": "198.51.100.7"})[0] == 404)
+        # ── capacidades: EXACTAMENTE lo implementado ────────────────────────────────────────────
+        cod, cap = pedir("GET", "capacidades")
+        chequear("capacidades: eda, versión 1, su entorno; acciones = ver, aviso, echar, moneda",
+                 (cap["juego"], cap["version"], cap["entorno"], cap["acciones"])
+                 == ("eda", 1, "control", ["ver", "aviso", "echar", "moneda"]), cap["acciones"])
+        chequear("las monedas son las de panel.MONEDAS y cada una es una clave que la CUENTA guarda (CUENTA_CLAVES)",
+                 [m["id"] for m in cap["monedas"]] == [m["id"] for m in panel.MONEDAS]
+                 and all(m["campo"] in CUENTA_CLAVES for m in panel.MONEDAS) and all(m["nombre"] for m in cap["monedas"]))
+        cod, cap2 = pedir("GET", "capacidades", con_red=False)
+        chequear("★ el revés: sin las conexiones (sin red.py) no ofrece aviso ni echar, y esas rutas dan 404",
+                 cap2["acciones"] == ["ver", "moneda"]
+                 and pedir("POST", "aviso", {"texto": "hola", "a": "todos"}, con_red=False)[0] == 404
+                 and pedir("POST", "echar", {"id": B}, con_red=False)[0] == 404, cap2["acciones"])
+        chequear("★ una ruta que no está (banear, PUT, ficha sin id, otra puerta) → 404",
+                 [pedir("GET", "banear")[0], pedir("POST", "banear", {"id": A})[0], pedir("PUT", "capacidades")[0],
+                  pedir("GET", "ficha/")[0], pedir("GET", "ficha/../../porteria")[0],
+                  panel.atender("GET", "/interno/panelx/capacidades", {"X-Ficha-Interna": FICHA}, red=red)[0]]
+                 == [404] * 6)
+        # ── X-R2 y quién ────────────────────────────────────────────────────────────────────────
+        chequear("★ un POST sin X-R2: 1 → 403 (y con X-R2: 0 también); no cambia nada",
+                 pedir("POST", "moneda", {"id": A, "moneda": "oro", "cantidad": 1}, r2=None)[0] == 403
+                 and pedir("POST", "moneda", {"id": A, "moneda": "oro", "cantidad": 1}, r2="0")[0] == 403
+                 and archivo(A)["plata"] == 500)
+        chequear("★ un POST sin X-Coordinador-Quien → 400 (no se puede anotar quién lo pidió); no cambia nada",
+                 pedir("POST", "moneda", {"id": A, "moneda": "oro", "cantidad": 1}, quien=None)[0] == 400
+                 and archivo(A)["plata"] == 500)
+        chequear("un cuerpo que no es JSON → 400", panel.atender(
+            "POST", panel.PREFIJO + "/moneda", {"X-Ficha-Interna": FICHA, "X-R2": "1", "X-Coordinador-Quien": QUIEN},
+            lambda: b"{no", red)[0] == 400)
+
+        # ── buscar ──────────────────────────────────────────────────────────────────────────────
+        def ids(q):
+            return [f["id"] for f in pedir("GET", "buscar?q=" + q)[1]["filas"]]
+        chequear("buscar por una parte del apodo (sin mayúsculas), también de un personaje que no es el activo",
+                 ids("nelis") == [A] and ids("PANELIS") == [A] and ids("quero2") == [A], (ids("nelis"), ids("quero2")))
+        chequear("buscar por la cuenta del juego y por el Eñeños ID", ids(B) == [B] and ids("10000042") == [A])
+        chequear("★ el revés: lo que no está → nada; vacío → nada; un número de R2Beat viejo (< 10.000.000) no es un Eñeños ID",
+                 ids("zzzz") == [] and ids("") == [] and ids("123") == [], ids("123"))
+        fila = pedir("GET", "buscar?q=" + B)[1]["filas"][0]
+        chequear("cada fila: id, nick, enenos_id, conectado, resumen",
+                 fila == {"id": B, "nick": "Arquera", "enenos_id": 10000043, "conectado": True,
+                          "resumen": "Nivel 1 · Cazador (Hunter) · 1 personaje"}, fila)
+        for k in range(panel.TOPE_BUSCAR + 5):
+            escribir("en_%d" % (20000000 + k), {"nombre": "en_%d" % (20000000 + k), "activo": 0,
+                                                 "pjs": [{"nick": "Tope%02d" % k, "clase": 1, "exp": 0, "lugar": 0}]})
+        chequear("buscar tiene tope de %d (había %d)" % (panel.TOPE_BUSCAR, panel.TOPE_BUSCAR + 5),
+                 len(ids("tope")) == panel.TOPE_BUSCAR)
+        chequear("★ el revés: el tope no corta una búsqueda chica", ids("Tope07") == ["en_20000007"])
+        # ── conectados y salud ──────────────────────────────────────────────────────────────────
+        cod, con = pedir("GET", "conectados")
+        chequear("conectados: sólo los que entraron (no la conexión sin ticket), con IP, desde, dónde y Eñeños ID",
+                 con["filas"] == [{"id": B, "nick": "Arquera", "enenos_id": 10000043, "donde": "en el lobby",
+                                   "desde": 1_790_000_000, "ip": "192.0.2.10"}], con)
+        cod, sal = pedir("GET", "salud")
+        chequear("salud: en línea, 1 jugando, con su detalle en palabras",
+                 sal["en_linea"] is True and sal["jugando"] == 1
+                 and all(set(d) == {"nombre", "valor"} for d in sal["detalle"]), sal["jugando"])
+        # ── la ficha ────────────────────────────────────────────────────────────────────────────
+        cod, f = pedir("GET", "ficha/" + A)
+        campos = {c["nombre"]: c["valor"] for c in f["campos"]}
+        chequear("ficha: el personaje activo, nivel %d (de su EXP), clase, monedas de la cuenta, sus 2 personajes" % nivel(EXPS[4]),
+                 cod == 200 and f["nick"] == "Panelista" and f["enenos_id"] == 10000042 and f["conectado"] is False
+                 and campos["Nivel"] == nivel(EXPS[4]) and campos["Clase"] == "Guerrero (Warrior)"
+                 and campos["Fuerza · Constitución · Destreza · Inteligencia · Sabiduría"] == "1 · 2 · 3 · 4 · 5"
+                 and f["monedas"] == {"oro": 500, "cash": 10, "monedas_revivir": 3}
+                 and f["personajes"] == [{"id": A + ".0", "nick": "Panelista"}, {"id": A + ".2", "nick": "Arquero2"}],
+                 (cod, campos.get("Nivel"), f.get("monedas")))
+        cod2, f2 = pedir("GET", "ficha/" + A + ".2")
+        chequear("ficha/<cuenta>.<lugar>: ese personaje (Arquero2, Cazador)",
+                 cod2 == 200 and f2["nick"] == "Arquero2"
+                 and {c["nombre"]: c["valor"] for c in f2["campos"]}["Clase"] == "Cazador (Hunter)")
+        chequear("★ el revés: una cuenta que no existe, un lugar vacío, un nombre con ruta → 404",
+                 [pedir("GET", "ficha/" + x)[0] for x in ("en_999", A + ".4", "..", "en_1/../x")] == [404] * 4)
+        chequear("ficha de una cuenta sin personajes (y un Eñeños ID que no es: None)",
+                 pedir("GET", "ficha/" + C)[1]["enenos_id"] is None and pedir("GET", "ficha/" + C)[1]["personajes"] == [])
+        todo = json.dumps([pedir("GET", r)[1] for r in ("ficha/" + A, "ficha/" + B, "conectados", "buscar?q=e", "salud")])
+        chequear("★ ninguna respuesta lleva la ficha interna, tickets ni contraseñas",
+                 FICHA not in todo and not re.search(r'"(ticket|pase|pass\w*|hash|clave)"', todo))
+        # ── moneda ──────────────────────────────────────────────────────────────────────────────
+        cod, r = pedir("POST", "moneda", {"id": A, "moneda": "oro", "cantidad": 250})
+        chequear("moneda: +250 de oro a un desconectado → antes 500, después 750, y queda en su archivo (sus personajes intactos)",
+                 (cod, r) == (200, {"ok": True, "antes": 500, "despues": 750}) and archivo(A)["plata"] == 750
+                 and [p["nick"] for p in archivo(A)["pjs"]] == ["Panelista", "Arquero2"], (cod, r))
+        ultima = json.loads(open(config.PANEL_AUDITORIA, encoding="utf-8").read().splitlines()[-1])
+        chequear("se anota con quién lo pidió (auditoría y movimientos de la ficha)",
+                 (ultima["quien"], ultima["accion"], ultima["id"]) == (QUIEN, "moneda", A)
+                 and pedir("GET", "ficha/" + A)[1]["movimientos"][0]["quien"] == QUIEN, ultima)
+        chequear("★ nunca negativo: quitar 751 de 750 → 409 y no cambia",
+                 pedir("POST", "moneda", {"id": A, "moneda": "oro", "cantidad": -751})[0] == 409
+                 and archivo(A)["plata"] == 750)
+        chequear("…y quitar justo 750 → 0 (el borde vale)",
+                 pedir("POST", "moneda", {"id": A, "moneda": "oro", "cantidad": "-750"})[1].get("despues") == 0
+                 and archivo(A)["plata"] == 0)
+        chequear("★ el tope de las monedas para revivir (999): +997 sobre 3 → 409; +996 → 999",
+                 pedir("POST", "moneda", {"id": A, "moneda": "monedas_revivir", "cantidad": 997})[0] == 409
+                 and pedir("POST", "moneda", {"id": A, "moneda": "monedas_revivir", "cantidad": 996})[1].get("despues") == 999)
+        chequear("★ cantidad 0, texto, true, 1.5; moneda inventada → 400; cuenta que no existe → 404",
+                 [pedir("POST", "moneda", {"id": A, "moneda": "oro", "cantidad": x})[0] for x in (0, "abc", True, 1.5, None)]
+                 == [400] * 5 and pedir("POST", "moneda", {"id": A, "moneda": "rcoin", "cantidad": 1})[0] == 400
+                 and pedir("POST", "moneda", {"id": "en_999", "moneda": "oro", "cantidad": 1})[0] == 404)
+        cambia = {}
+        for m in panel.MONEDAS:                      # (lo esperado sale de la tabla, no escrito a mano)
+            antes = archivo(C)[m["campo"]]
+            pedir("POST", "moneda", {"id": C, "moneda": m["id"], "cantidad": 2})
+            cambia[m["id"]] = archivo(C)[m["campo"]] - antes
+        chequear("cada moneda de capacidades cambia SU clave de la cuenta", cambia == {m["id"]: 2 for m in panel.MONEDAS}, cambia)
+        cod, r = pedir("POST", "moneda", {"id": B, "moneda": "oro", "cantidad": 10})
+        chequear("★ a un CONECTADO no se le tocan las monedas: 409 con el motivo, y no cambia",
+                 cod == 409 and "conectado" in r["error"] and archivo(B)["plata"] == 0, r)
+        ASIGNADAS.pop(501)
+        chequear("…y cuando sale, sí (+10)", pedir("POST", "moneda", {"id": B, "moneda": "oro", "cantidad": 10})[1].get("despues") == 10)
+        # ── aviso y echar ───────────────────────────────────────────────────────────────────────
+        ASIGNADAS.update({501: B, 503: A})
+        cod, r = pedir("POST", "aviso", {"texto": "Reinicio en 5 minutos", "a": "todos"})
+        chequear("aviso a todos: llega a los 2 conectados (no a la conexión sin ticket), como línea del chat «[Aviso]»",
+                 (cod, r) == (200, {"ok": True, "llego_a": 2}) and sorted(x[3] for x in red.enviados) == [501, 503]
+                 and all(x[0] == 0x1005 and texto_1005(x) == ("[Aviso]", "Reinicio en 5 minutos") for x in red.enviados),
+                 (cod, r, [x[3] for x in red.enviados]))
+        red.enviados.clear()
+        cod, r = pedir("POST", "aviso", {"texto": "hola", "a": "uno", "id": A})
+        chequear("aviso a uno: sólo a su conexión", (cod, r["llego_a"], [x[3] for x in red.enviados]) == (200, 1, [503]))
+        red.enviados.clear()
+        chequear("★ el revés: a uno que no está → 404; sin texto, con más de %d letras o «a» inventado → 400; nada sale" % panel.TOPE_AVISO,
+                 pedir("POST", "aviso", {"texto": "hola", "a": "uno", "id": C})[0] == 404
+                 and [pedir("POST", "aviso", d)[0] for d in ({"texto": "  ", "a": "todos"}, {"texto": "x" * 201, "a": "todos"},
+                                                             {"texto": "hola", "a": "algunos"})] == [400] * 3
+                 and red.enviados == [])
+        cod, r = pedir("POST", "echar", {"id": B})
+        chequear("echar: corta SU conexión, ya", (cod, r, red.cortes) == (200, {"ok": True}, [(501, 0)]), red.cortes)
+        red.cortes.clear()
+        cod, r = pedir("POST", "echar", {"id": A, "motivo": "lenguaje"})
+        chequear("echar con motivo: primero el aviso con el motivo, y el corte con espera",
+                 cod == 200 and red.cortes == [(503, 1.5)] and "lenguaje" in texto_1005(red.enviados[-1])[1])
+        red.cortes.clear()
+        chequear("★ el revés: echar a uno que no está conectado → 404 y no se corta nada",
+                 pedir("POST", "echar", {"id": C})[0] == 404 and red.cortes == [])
+        acc = [json.loads(x)["accion"] for x in open(config.PANEL_AUDITORIA, encoding="utf-8").read().splitlines()]
+        chequear("la auditoría tiene cada cambio (moneda, aviso, echar) y ninguno de los rechazados",
+                 {"moneda", "aviso", "echar"} <= set(acc) and acc.count("echar") == 2 and acc.count("aviso") == 2, acc)
+        # ── por HTTP de verdad (servidor/red.py) ────────────────────────────────────────────────
+        from servidor import red as R
+        juego_real, R.juego = R.juego, (lambda: None)        # (sin recargar servidor/: perdería lo de la prueba)
+        abrir = urllib.request.build_opener(urllib.request.ProxyHandler({})).open
+
+        def http(puerto, metodo, ruta, cab=None, cuerpo=None):
+            req = urllib.request.Request("http://127.0.0.1:%d%s" % (puerto, ruta), method=metodo, data=cuerpo,
+                                         headers=cab or {})
+            try:
+                with abrir(req, timeout=5) as rr:
+                    return rr.status, json.loads(rr.read())
+            except urllib.error.HTTPError as e:
+                return e.code, json.loads(e.read() or b"{}")
+        srvs = [R.servidor_http(("127.0.0.1", 0)), R.servidor_http(("127.0.0.1", 0), solo_panel=True)]
+        for s in srvs:
+            threading.Thread(target=s.serve_forever, daemon=True).start()
+        try:
+            uno, solo = (s.server_address[1] for s in srvs)
+            bien = {"X-Ficha-Interna": FICHA}
+            cod, cap = http(uno, "GET", "/interno/panel/capacidades", bien)
+            chequear("HTTP: capacidades con la ficha → 200, con aviso y echar (las conexiones de red.py)",
+                     cod == 200 and cap["acciones"] == ["ver", "aviso", "echar", "moneda"], (cod, cap))
+            sin, nada = http(uno, "GET", "/interno/panel/capacidades"), http(uno, "GET", "/no/existe")
+            chequear("★ HTTP: sin la ficha → 404, igual que una ruta que no existe", sin == nada and sin[0] == 404, (sin, nada))
+            cod, r = http(uno, "POST", "/interno/panel/moneda", dict(bien, **{"Content-Type": "application/json"}),
+                          json.dumps({"id": A, "moneda": "oro", "cantidad": 1}).encode())
+            chequear("★ HTTP: un POST sin X-R2 → 403", cod == 403, (cod, r))
+            cod, r = http(uno, "POST", "/interno/panel/moneda", dict(bien, **{"X-R2": "1", "X-Coordinador-Quien": QUIEN}),
+                          b"x" * (panel.TOPE_CUERPO + 1))
+            chequear("★ HTTP: un cuerpo de más de %d bytes → 413" % panel.TOPE_CUERPO, cod == 413, cod)
+            chequear("HTTP: el login sigue igual (/eda/salud → 200)", http(uno, "GET", "/eda/salud")[0] == 200)
+            chequear("el HTTP aparte (EDA_PANEL_ESCUCHAR): el panel sí; ★ el revés: el login ahí no existe",
+                     http(solo, "GET", "/interno/panel/salud", bien)[0] == 200 and http(solo, "GET", "/eda/salud")[0] == 404
+                     and http(solo, "POST", "/eda/pase", {}, b"{}")[0] == 404)
+        finally:
+            for s in srvs:
+                s.shutdown()
+                s.server_close()
+            R.juego = juego_real
+    finally:
+        (config.LOGIN, config.PREFIJO_CUENTA, config.FICHA_INTERNA, config.PANEL_AUDITORIA, config.ENTORNO) = guardado
+        ASIGNADAS.clear()
+        PARTIDAS.clear()
 
 
 # El casillero de EQUIPO de cada familia de ítem (medido con el 0x102D, MEDICIONES §27)

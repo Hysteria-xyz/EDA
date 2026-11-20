@@ -159,3 +159,43 @@ Cloudflare lo firme). El cliente se arma con `py herramientas\armar_cliente.py` 
 `… manifiesto`), se sube a `/opt/eda/files-eda/<release>-<azar>/` y se verifica con `md5sum -c` **antes**
 de pedir ningún archivo por Cloudflare (si no, la CDN puede guardar un 404). Un nombre de release ya
 servido no se reutiliza nunca.
+
+## El panel del Coordinador (la puerta interna)
+
+El Coordinador Eñeños administra EDA con el **contrato del panel v1** (está en el repo del Coordinador,
+`documentacion/CONTRATO_PANEL.md`; acá lo atiende `servidor/panel.py`). El Coordinador decide quién puede qué; este
+server sólo hace lo que sabe hacer hoy y anota quién lo pidió:
+
+| ruta (`/interno/panel/…`) | qué hace |
+|---|---|
+| `GET capacidades` · `salud` · `conectados` · `buscar?q=` · `ficha/<cuenta>` | mirar: quién está, dónde, su personaje, sus monedas y lo que el panel le cambió |
+| `POST aviso` | una línea en el chat de todos o de uno (`[Aviso]`) |
+| `POST echar` | le corta la conexión (con el motivo en el chat, si se da). ⚠ No es un baneo: puede volver a entrar; el bloqueo es del Coordinador (el pase) |
+| `POST moneda` | suma o resta **oro**, **cash** o **monedas para revivir** (de la cuenta). Nunca deja negativo. ⚠ Sólo con el jugador **desconectado** (si no, 409: el juego no se lo mostraría y una compra a la vez lo pisaría) |
+
+- **La ficha:** todo pedido trae `X-Ficha-Interna` = `R2_CUENTAS_FICHA_INTERNA` (la misma del `.env` de Eñeños).
+  Sin la variable, la puerta no existe (todo 404). Cada POST pide `X-R2: 1` y `X-Coordinador-Quien`.
+- **La auditoría:** cada cambio va al registro del server (`docker logs`, líneas `panel: …`) y a
+  `<estado>/panel_auditoria.jsonl` (de ahí salen los «movimientos» de la ficha).
+- **No sale a internet:** Caddy publica sólo `/eda/*`; y un pedido que llega con `X-Forwarded-For` (por un proxy)
+  da 404 aunque traiga la ficha.
+
+**Cómo lo alcanza el Coordinador** (su contenedor `cuentas` vive en la red de Docker de la pila Eñeños):
+
+- **El EDA de la pila Eñeños** (el servicio `eda` de su `docker-compose.yml`): el HTTP del login ya escucha en
+  `0.0.0.0` dentro de esa red, sin publicarse. Se lo alcanza por el nombre: `http://eda:<EDA_PUERTO + 1>/interno/panel`.
+  Al servicio hay que pasarle `R2_CUENTAS_FICHA_INTERNA` (y, si se quiere, `EDA_ENTORNO`).
+- **`eda-prod` / `eda-prueba`** (este `docker-compose.yml`, con la red del VPS): su HTTP del login escucha en
+  `127.0.0.1`, que desde otro contenedor no se alcanza. Para eso está `EDA_PANEL_ESCUCHAR`: un HTTP aparte, **sólo con
+  el panel**, en la IP de la máquina en la red `bridge` de Docker, que los contenedores sí alcanzan:
+
+  ```bash
+  docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}'     # la IP de la máquina en esa red
+  # en /opt/eda/prod.env:   R2_CUENTAS_FICHA_INTERNA=<la de Eñeños>   EDA_PANEL_ESCUCHAR=<esa IP>:25902
+  # en /opt/eda/prueba.env: R2_CUENTAS_FICHA_INTERNA=<la de Eñeños>   EDA_PANEL_ESCUCHAR=<esa IP>:35902
+  ufw allow proto tcp from <las redes de Docker: el bloque 172.16/12> to <esa IP> port 25902,35902 comment "panel del Coordinador"
+  ```
+
+  (`ufw` cierra lo que entra, también lo que viene de un contenedor a la máquina.) En el Coordinador:
+  `R2_PANEL_GESTION=eda=contrato1:http://<esa IP>:25902/interno/panel` (o `host.docker.internal` con
+  `extra_hosts: ["host.docker.internal:host-gateway"]` en `cuentas`). Esa IP no es pública: desde internet no llega.

@@ -38,9 +38,10 @@ COMANDOS = ("amigos", "amigo", "agregar", "quitar", "borrar", "m", "w", "mp", "s
 #     DELETE (/quitar X) → fuera de las DOS listas (también cancela una solicitud enviada)
 
 
-def aviso(texto, destino, tipo=3):
+def aviso(texto, destino, tipo=3, nombre="[Messenger]"):
+    """(`nombre` = el remitente que se ve; el panel del Coordinador manda los suyos como «[Aviso]», servidor/panel.py)"""
     b = texto.encode("utf-16-le")
-    nom = "[Messenger]".encode("utf-16-le")[:24].ljust(26, b"\0")
+    nom = nombre.encode("utf-16-le")[:24].ljust(26, b"\0")
     return (0x1005, struct.pack("<HBII", 0, tipo, 0xFF00FF00, 0) + nom + struct.pack("<I", len(b)) + b,
             0, destino)
 

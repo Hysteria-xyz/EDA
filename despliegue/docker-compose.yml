@@ -31,6 +31,12 @@ services:
       EDA_HTTP_PUERTO: ${EDA_HTTP_PUERTO:-}
       # ★ P2P entre casas (servidor/nat.py, MEDICIONES §53): 1 = directo con la pública real; vacío = relay
       EDA_P2P_ENTRE_CASAS: ${EDA_P2P_ENTRE_CASAS:-}
+      # ★ el panel del Coordinador Eñeños (servidor/panel.py): la ficha interna (vacía = la puerta no existe), un HTTP
+      #   aparte sólo para el panel en la IP de la máquina en la red de Docker (ver despliegue/LEEME.md) y el nombre
+      #   del entorno que muestra el panel
+      R2_CUENTAS_FICHA_INTERNA: ${R2_CUENTAS_FICHA_INTERNA:-}
+      EDA_PANEL_ESCUCHAR: ${EDA_PANEL_ESCUCHAR:-}
+      EDA_ENTORNO: ${EDA_ENTORNO:-local}
     volumes:
       # las cuentas de los jugadores: AFUERA del contenedor (y de la copia del repo), para que
       #   sobrevivan a cada actualización y se puedan llevar a otro VPS

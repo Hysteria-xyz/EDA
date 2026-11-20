@@ -6,6 +6,7 @@ mitad de partida borró el game over pendiente. Por eso vive en un módulo apart
 que la recarga no toca.
 """
 import sys
+import time
 import types
 
 VIVO = sys.modules.get("_eda_partidas")
@@ -17,6 +18,8 @@ if not hasattr(VIVO, "ASIGNADAS"):
     VIVO.ASIGNADAS = {}                                     # conexión → nombre de la cuenta
 if not hasattr(VIVO, "SALAS"):
     VIVO.SALAS = {}                                         # número → {"sala", "anfitrion", "miembros"}
+if not hasattr(VIVO, "ARRANQUE"):
+    VIVO.ARRANQUE = time.time()                             # cuándo arrancó el server (el «encendido hace» del panel)
 PARTIDAS = VIVO.PARTIDAS
 ASIGNADAS = VIVO.ASIGNADAS
 SALAS = VIVO.SALAS

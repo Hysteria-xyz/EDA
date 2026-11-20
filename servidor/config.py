@@ -91,6 +91,13 @@ MAX_JUGADORES = int(os.environ.get("EDA_MAX_JUGADORES") or 100)
 #   (servidor/cuentas.py · con_nivel_inicial). 0 = sin piso (las pruebas lo usan así)
 NIVEL_INICIAL = int(os.environ.get("EDA_NIVEL_INICIAL") or 25)
 
+# ★ (20-nov) LA PUERTA INTERNA DEL PANEL del Coordinador Eñeños (servidor/panel.py, el «contrato del panel v1»):
+#   R2_CUENTAS_FICHA_INTERNA es la ficha que tiene que traer cada pedido (la MISMA variable que el resto del conjunto
+#   Eñeños). Vacía = la puerta no existe (todo 404). EDA_ENTORNO dice qué server es (prod, prueba, ensayo…).
+FICHA_INTERNA = (os.environ.get("R2_CUENTAS_FICHA_INTERNA") or "").strip()
+ENTORNO = os.environ.get("EDA_ENTORNO") or "local"
+PANEL_AUDITORIA = os.path.join(ESTADO, "panel_auditoria.jsonl")   # cada cambio pedido por el panel, con quién
+
 # ★ para probar a mano: lo que se deje en este archivo ([["1069", "00"], …]) sale con el próximo
 #   «estoy vivo» (0x1001), y el archivo se borra
 EMPUJAR = os.path.join(ESTADO, "empujar.json")
