@@ -173,8 +173,8 @@ def leer_cliente(nombre, ruta, dia_local, zona):
 def leer_diag(archivos):
     """★ (21-nov) lo que mandaron los clientes beta (servidor/diag.py): «<cuenta>-<sesion>.jsonl» → {cuenta: [Linea]}.
     La hora de cada evento es la del reloj de SU PC: se corrige con «dr» (la diferencia que midió el server al recibir)."""
-    r = {}
-    for nombre, texto in archivos.items():
+    r, vistos = {}, set()
+    for nombre, texto in sorted(archivos.items()):
         m = re.match(r"^(.+)-([0-9a-f]{32})\.jsonl$", nombre)
         if not m:
             continue
@@ -184,6 +184,12 @@ def leer_diag(archivos):
                 ev = json.loads(ln)
             except ValueError:
                 continue
+            # (la dll manda una caída por la red y también la deja en disco para el próximo arranque: la misma
+            #  línea puede llegar 2 veces, incluso en otra sesión → se cuenta una)
+            clave = (cuenta, json.dumps({k: v for k, v in ev.items() if k not in ("r", "dr")}, sort_keys=True))
+            if clave in vistos:
+                continue
+            vistos.add(clave)
             t = datetime.fromtimestamp((ev.get("t", 0) + ev.get("dr", 0)) / 1000.0, UTC)
             resto = " ".join("%s=%s" % (k, v) for k, v in ev.items() if k not in ("t", "e", "r", "dr", "m"))
             r.setdefault(cuenta, []).append(Linea(t, "%s/diag·%s" % (cuenta, sesion[:6]), ("%s %s" % (ev.get("e"), resto)).strip()))
@@ -432,8 +438,8 @@ def armar(paquete, partida_id=None, desde=None, hasta=None, clientes=(), zona=-5
     for n, ls in dg.items():
         for ln in ls:
             ev = ln.texto.split(" ", 1)[0]
-            if ev in ("caida", "congelado", "atrapado_carga", "server_corta", "tcp_silencio"):
-                an.append("%s #%s (%s), su cliente: %s (%s)" % ("⛔" if ev in ("caida", "atrapado_carga") else "⚠", n,
+            if ev in ("caida", "atrapado", "congelado", "perdidos"):      # (los que manda eda_diag.c)
+                an.append("%s #%s (%s), su cliente: %s (%s)" % ("⛔" if ev in ("caida", "atrapado") else "⚠", n,
                                                                miembros.get(n, "?"), ln.texto, hh(ln.t)))
     nombre = elegidas[0]["id"] if len(elegidas) == 1 else "intervalo-%s" % desde_.strftime("%Y%m%d-%H%M%S")
 
