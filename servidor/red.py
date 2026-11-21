@@ -13,6 +13,7 @@ En UN proceso:
 
     python -m servidor.red                       # el server (lee la configuración del entorno)
     python -m servidor.red prueba HOST:PUERTO    # ★ ¿contesta? (un 0x0604 de verdad, con su revés)
+    python -m servidor.red multi HOST:PUERTO     # ★ dos jugadores: sala, F9, uno se corta en la carga → el otro larga
 
 Variables (además de las de `servidor/config.py`):
     EDA_ESCUCHAR    la IP donde escucha            (0.0.0.0)
@@ -478,6 +479,76 @@ def prueba(destino):
     return 0 if all(ok) else 1
 
 
+def prueba_multi(destino):
+    """★ (20-nov) MULTIJUGADOR DE PUNTA A PUNTA contra un server corriendo (como el de TEST): dos jugadores por
+    TCP de verdad crean y entran a una sala, larga el anfitrión, el anfitrión termina de cargar y al otro se le
+    corta el juego durante la carga. El anfitrión TIENE que largar (0x105E) en unos segundos; antes quedaba
+    en la pantalla de carga para siempre. El revés: mientras el otro sigue conectado y cargando, NO larga."""
+    host, _, puerto = destino.rpartition(":")
+    clave = P.CLAVES_FIJAS["EDA.exe de 2009"]
+    ok = []
+
+    def chequear(texto, cond, d=""):
+        print("  %s %s %s" % ("✅" if cond else "⛔", texto, d))
+        ok.append(bool(cond))
+
+    class Jugador:
+        def __init__(self):
+            self.s = socket.create_connection((host, int(puerto)), timeout=5)
+            self.buf = b""
+
+        def mandar(self, c, cuerpo):
+            self.s.sendall(P.armar(P.mensaje(c, cuerpo), clave))
+
+        def esperar(self, comando, segundos):
+            """los mensajes hasta ver `comando` (o hasta el plazo): [(comando, cuerpo)]"""
+            vistos, fin = [], time.time() + segundos
+            while time.time() < fin:
+                self.s.settimeout(max(0.05, fin - time.time()))
+                try:
+                    d = self.s.recv(65536)
+                except socket.timeout:
+                    break
+                if not d:
+                    break
+                self.buf += d
+                while len(self.buf) >= 2 and len(self.buf) >= struct.unpack_from("<H", self.buf)[0] + 4:
+                    n = struct.unpack_from("<H", self.buf)[0] + 4
+                    pkt, self.buf = self.buf[:n], self.buf[n:]
+                    m = P.abrir(pkt, clave)
+                    vistos.append((m["comando"], m["mensaje"][4:]))
+                if any(c == comando for c, _ in vistos):
+                    break
+            return vistos
+
+    a, b = Jugador(), Jugador()
+    sala = bytearray(0x59)
+    struct.pack_into("<I", sala, 0x28, 1011)
+    sala[0x2F] = 3
+    a.mandar(0x101D, bytes(4) + bytes(sala))
+    r = dict(a.esperar(0x101E, 5))
+    chequear("el anfitrión crea la sala (0x101E)", 0x101E in r)
+    num = struct.unpack_from("<H", r.get(0x101E, bytes(16)), 5 + 4)[0]
+    b.mandar(0x101F, struct.pack("<IH", 0, num) + bytes(20))
+    r = dict(b.esperar(0x1020, 5))
+    chequear("el otro entra (0x1020)", 0x1020 in r and r[0x1020][:2] == b"\x01\x00")
+    yo_b = r.get(0x1020, b"\0\0\0\0")[3]
+    b.mandar(0x1047, bytes([yo_b, 1]))
+    b.esperar(0x1048, 3)
+    a.mandar(0x104E, b"")
+    chequear("F9: los dos reciben 0x104F", 0x104F in dict(a.esperar(0x104F, 5)) and 0x104F in dict(b.esperar(0x104F, 5)))
+    a.mandar(0x105F, bytes(4))
+    r = dict(a.esperar(0x105E, 2.5))
+    chequear("★ el revés: con el otro todavía cargando, el anfitrión NO larga", 0x105E not in r)
+    b.s.close()                                               # (al otro se le corta el juego en la carga)
+    t0 = time.time()
+    r = dict(a.esperar(0x105E, 8))
+    chequear("★ al otro se le cortó el juego → el anfitrión larga (0x105E)", 0x105E in r, "%.1f s" % (time.time() - t0))
+    a.s.close()
+    print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
+    return 0 if all(ok) else 1
+
+
 if __name__ == "__main__":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -485,4 +556,6 @@ if __name__ == "__main__":
         pass
     if sys.argv[1:2] == ["prueba"]:
         sys.exit(prueba(sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1:%d" % PUERTO))
+    if sys.argv[1:2] == ["multi"]:
+        sys.exit(prueba_multi(sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1:%d" % PUERTO))
     sys.exit(main())
