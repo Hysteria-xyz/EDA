@@ -109,7 +109,7 @@ def main():
     codigo = re.sub(r"/\*.*?\*/", "", fuente, flags=re.S)
     prohibidas = ["GetAdaptersInfo", "mac_texto", "gethostname", "gethostbyname", "GetComputerName", "GetUserName",
                   "getsockname", "g_server", "inet_ntoa", "GetVolumeInformation", "GetCommandLine", "g_linea"]
-    usadas = [p for p in prohibidas if p in codigo]
+    usadas = [p for p in prohibidas if re.search(r"\b%s\b" % re.escape(p), codigo)]
     copia_ticket = re.findall(r"(?:memcpy|lstrcpy\w*|strcpy|strncpy)\s*\([^;]*ticket", codigo)
     ok = not usadas and not copia_ticket
     print("%s privacidad: eda_diag.c no lee MAC / IP / nombres%s" % (

@@ -33,6 +33,7 @@ static DG_COLA g_dg_cola;
 static ULONGLONG g_dg_t0;
 static volatile LONG g_dg_ocupado;                   /* el hilo está tocando el búfer (para el cierre) */
 static char *g_dg_buf;                               /* lo que todavía no llegó (líneas enteras) */
+static volatile LONG g_dg_lotes_ok, g_dg_lineas_ok, g_dg_fallos, g_dg_ms_max;   /* (para el registro: cuánto cuesta) */
 static size_t g_dg_n;
 #define DG_BUF (256 * 1024)
 #define DG_SPOOL_MAX (2 * 1024 * 1024)
@@ -284,8 +285,16 @@ static DWORD WINAPI dg_hilo(LPVOID nada)
         size_t n = dg_cortar_lote(g_dg_buf, g_dg_n);
         if (!n) { g_dg_n = 0; continue; }            /* (no pasa: las líneas son cortas) */
         if (!pendiente) { lote++; pendiente = 1; }
+        DWORD t0 = GetTickCount();
         int r = dg_post(g_dg_buf, n, lote);
+        DWORD dur = GetTickCount() - t0;
+        if ((LONG)dur > g_dg_ms_max) InterlockedExchange(&g_dg_ms_max, (LONG)dur);
         if (r == 200 || r == 409 || r == 413 || r == 400) {   /* llegó (o el server ya lo tenía / no lo quiere): fuera */
+            int lineas = 0;
+            for (size_t i = 0; i < n; i++) lineas += g_dg_buf[i] == '\n';
+            if (InterlockedIncrement(&g_dg_lotes_ok) == 1)
+                apuntar("  [diag] primer lote entregado (HTTP %d · %d eventos · %lu ms)", r, lineas, dur);
+            InterlockedExchangeAdd(&g_dg_lineas_ok, lineas);
             InterlockedExchange(&g_dg_ocupado, 1);
             memmove(g_dg_buf, g_dg_buf + n, g_dg_n - n);
             g_dg_n -= n;
@@ -294,6 +303,7 @@ static DWORD WINAPI dg_hilo(LPVOID nada)
             rechazos = 0;
             espera = g_dg_n ? 6000 : 10000;          /* (≤ 12 por minuto, como pide el server) */
         } else if (r == 401 || r == 404) {           /* ticket vencido, reloj, o el server sin EDA_DIAG */
+            InterlockedIncrement(&g_dg_fallos);
             if (++rechazos >= 5) {
                 apuntar("  [diag] el server rechazó 5 veces (%d): el diagnóstico automático se apaga en esta sesión", r);
                 g_dg_activo = 0;
@@ -301,6 +311,7 @@ static DWORD WINAPI dg_hilo(LPVOID nada)
             }
             espera = 60000;
         } else {                                     /* sin red, 429, 5xx: cada vez más espaciado (≤ 5 min) */
+            if (InterlockedIncrement(&g_dg_fallos) <= 3) apuntar("  [diag] ⚠ el lote %lu no llegó (HTTP %d): se reintenta", lote, r);
             espera = espera < 10000 ? 10000 : espera * 2;
             if (espera > 300000) espera = 300000;
         }
@@ -363,6 +374,8 @@ static void dg_iniciar(const char *carpeta_dll, int entorno)
 static void dg_cerrar(void)
 {
     if (!g_dg_activo) return;
+    apuntar("  [diag] al cerrar: %ld lotes entregados · %ld eventos · %ld fallos · el envío más lento %ld ms · "
+            "descartados en la cola %ld", g_dg_lotes_ok, g_dg_lineas_ok, g_dg_fallos, g_dg_ms_max, g_dg_cola.perdidos);
     dg_anotar("fin", "");
     if (g_dg_ocupado || !g_dg_buf) {                 /* (el hilo murió a mitad: sólo la cola) */
         char l[DG_LARGO + 1];
