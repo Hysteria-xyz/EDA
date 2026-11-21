@@ -1008,6 +1008,10 @@ def control():
     pruebas_carga_sin_cortes(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
+    pruebas_fin_stage_grupo(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
+    SALAS.clear()
     pruebas_messenger(chequear)
     pruebas_messenger_cuentas_reales(chequear)
     PARTIDAS.clear()
@@ -1710,6 +1714,111 @@ def pruebas_carga_sin_cortes(chequear):
         chequear("★ el revés: si el orden falla, se manda como antes (no se pierde nada)", salio == [(980, 0x1005, b"igual")])
     finally:
         red.enviar_a, red.juego = viejos
+
+
+def pruebas_fin_stage_grupo(chequear):
+    """★ (21-nov) EL FIN DE LA STAGE CON VARIOS, con cuentas genéricas, salas de 2, 3 y 4 y partidas a la vez.
+    En el exe sólo el MÁSTER de la partida (el anfitrión) manda las bajas (0x1061) y el fin (0x1064): ver
+    `partida.fin_de_stage`. Antes el server le contestaba sólo al máster y los demás quedaban en la stage."""
+    from servidor.juego import tick
+    base = [0]
+
+    def jugadores(k):
+        ns = list(range(7000 + base[0], 7000 + base[0] + k))
+        base[0] += 10
+        for n in ns:
+            ASIGNADAS[n] = "gen_%d" % n                   # (cuentas genéricas: ningún nombre especial)
+        return ns
+
+    def armar(num, ns):
+        """una sala con esos jugadores, larga el primero, cargan todos → en la stage"""
+        SALAS[num] = {"sala": bytes(0x59), "anfitrion": ns[0], "miembros": list(ns),
+                      "numeros": {m: i for i, m in enumerate(ns)}, "listos": set()}
+        for m in ns:
+            partida(m)["sala"] = num
+        for m in ns[1:]:
+            responder(0x1047, bytes([SALAS[num]["numeros"][m], 1]), m)
+        responder(0x104E, b"", ns[0])
+        for m in ns:
+            responder(0x105F, b"\0" * 4, m)
+        return SALAS[num]
+
+    def a_quien(r, cmd, defecto):
+        return sorted(x[3] if len(x) > 3 else defecto for x in r if x[0] == cmd)
+
+    for k in (2, 3, 4):
+        ns = jugadores(k)
+        s = armar(80 + k, ns)
+        for _ in range(5):
+            responder(0x1061, struct.pack("<H", 1) + bytes(6), ns[0])   # (las bajas: sólo el máster las manda)
+        r = responder(0x1064, bytes([0]), ns[0])
+        chequear("fin con %d: el 0x1064 del máster → PlayEnd (0x1073) a los %d" % (k, k),
+                 a_quien(r, 0x1073, ns[0]) == ns, a_quien(r, 0x1073, ns[0]))
+        chequear("fin con %d: resultado (0x106E) y cartas (0x106F) a cada uno" % k,
+                 a_quien(r, 0x106E, ns[0]) == ns and a_quien(r, 0x106F, ns[0]) == ns)
+        bajas = [struct.unpack_from("<IH", x[1])[1] for x in r if x[0] == 0x106E]
+        chequear("fin con %d: las bajas son del equipo (las 5 del máster en el resultado de todos)" % k,
+                 bajas == [5] * k, bajas)
+        chequear("fin con %d: la sala vuelve a «Waiting» (nadie sigue en la stage)" % k, not s.get("jugando"))
+        r2 = responder(0x1064, bytes([1]), ns[1])
+        chequear("★ el revés con %d: un 0x1064 tardío de otro no paga dos veces" % k, r2 == [], r2)
+
+    # el que NO es el máster manda un 0x1064 (no debería): sólo su resultado, los demás siguen jugando
+    ns = jugadores(3)
+    s = armar(90, ns)
+    r = responder(0x1064, bytes([1]), ns[1])
+    chequear("★ el revés: un 0x1064 que no es del máster cierra SÓLO la stage de ese",
+             a_quien(r, 0x1073, ns[1]) == [ns[1]] and sorted(s["en_stage"]) == [ns[0], ns[2]] and s.get("jugando"))
+    r = responder(0x1064, bytes([0]), ns[0])
+    chequear("…y después el del máster cierra la de los que quedaban", a_quien(r, 0x1073, ns[0]) == [ns[0], ns[2]])
+
+    # uno salió antes (0x1074): no recibe nada del fin
+    ns = jugadores(3)
+    armar(91, ns)
+    responder(0x1074, b"", ns[2])
+    r = responder(0x1064, bytes([0]), ns[0])
+    chequear("★ el que salió antes de la stage (0x1074) no recibe el fin; los otros sí",
+             a_quien(r, 0x1073, ns[0]) == ns[:2], a_quien(r, 0x1073, ns[0]))
+
+    # uno muerto esperando el game over: también termina, y el game over ya no llega
+    ns = jugadores(2)
+    armar(92, ns)
+    responder(0x1065, b"", ns[1])
+    r = responder(0x1064, bytes([0]), ns[0])
+    chequear("el muerto (esperando revivir) también recibe el fin", a_quien(r, 0x1073, ns[0]) == ns)
+    chequear("…y su game over queda cancelado", not partida(ns[1]).get("game_over_en"))
+
+    # el máster se va en plena stage: el mando pasa a uno que SIGUE en la stage, y su 0x1064 cierra la de todos
+    ns = jugadores(4)
+    s = armar(93, ns)
+    responder(0x1064, bytes([1]), ns[1])              # (ns[1] ya terminó la suya)
+    r = responder(0x1074, b"", ns[0])                 # (el máster abandona)
+    nuevo = [x[1][3] for x in r if x[0] == 0x1058 and x[1][1:3] == b"\x03\x00"]
+    chequear("★ el máster abandona: el nuevo máster es uno que SIGUE en la stage (no el que ya terminó)",
+             s["anfitrion"] == ns[2] and nuevo and set(nuevo) == {s["numeros"][ns[2]]}, (s["anfitrion"], nuevo))
+    r = responder(0x1064, bytes([2]), ns[2])
+    chequear("…y su 0x1064 cierra la stage de los que quedaban", a_quien(r, 0x1073, ns[2]) == [ns[2], ns[3]])
+
+    # al máster se le corta el juego: lo mismo, con el tick
+    ns = jugadores(3)
+    s = armar(94, ns)
+    cerrada(ns[0])
+    tick(ns[1:])
+    chequear("★ al máster se le corta el juego: el mando pasa a otro de la stage", s["anfitrion"] in ns[1:])
+    r = responder(0x1064, bytes([0]), s["anfitrion"])
+    chequear("…y el fin llega a los dos que quedan", a_quien(r, 0x1073, s["anfitrion"]) == ns[1:])
+
+    # dos partidas a la vez: el fin de una no toca la otra
+    a, b = jugadores(3), jugadores(2)
+    sa, sb = armar(95, a), armar(96, b)
+    r = responder(0x1064, bytes([0]), a[0])
+    chequear("★ partidas a la vez: el fin de la sala A no le llega a nadie de la B",
+             not set(a_quien(r, 0x1073, a[0])) & set(b) and sb.get("jugando") and not sa.get("jugando"))
+    r = responder(0x1064, bytes([0]), b[0])
+    chequear("…y la B termina con su máster", a_quien(r, 0x1073, b[0]) == b)
+    for k in list(SALAS):
+        if k >= 80:
+            SALAS.pop(k, None)
 
 def pruebas_lista_servidores(chequear):
     """★ La lista de servidores (0x070B) con los jugadores de verdad."""
