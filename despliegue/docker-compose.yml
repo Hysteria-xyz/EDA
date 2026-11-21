@@ -32,6 +32,9 @@ services:
       EDA_HTTP_PUERTO: ${EDA_HTTP_PUERTO:-}
       # ★ P2P entre casas (servidor/nat.py, MEDICIONES §53): 1 = directo con la pública real; vacío = relay
       EDA_P2P_ENTRE_CASAS: ${EDA_P2P_ENTRE_CASAS:-}
+      # ★ (21-nov) el camino de la partida (servidor/config.py): vacío = directo (lo de siempre) · relay · auto.
+      #   Antes NO se pasaba al contenedor: poner EDA_P2P en el .env no hacía nada
+      EDA_P2P: ${EDA_P2P:-}
       # ★ el panel del Coordinador Eñeños (servidor/panel.py): la ficha interna (vacía = la puerta no existe), un HTTP
       #   aparte sólo para el panel en la IP de la máquina en la red de Docker (ver despliegue/LEEME.md) y el nombre
       #   del entorno que muestra el panel

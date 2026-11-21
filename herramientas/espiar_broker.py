@@ -175,12 +175,19 @@ def enviar_a(n, c, cuerpo):
 
 
 def despachar(n, resp):
-    """resp: [(comando, cuerpo, ms de espera[, conexión destino])] — sin destino, a `n`."""
+    """resp: [(comando, cuerpo, ms de espera[, conexión destino])] — sin destino, a `n`.
+    ★ (21-nov) por `servidor/salida.py`: lo que cortaría la carga de la stage sale después del 0x105E."""
+    try:
+        sv = servidor()
+        if sv is not None and hasattr(sv, "ordenar_salida"):
+            resp = sv.ordenar_salida(n, resp)
+    except Exception:                                         # noqa: BLE001
+        log("[oyente]  ⛔ ordenar_salida falló (se manda como antes):\n%s" % traceback.format_exc())
     for r in resp:
         c, cuerpo, espera = r[0], r[1], r[2]
         destino = r[3] if len(r) > 3 else n
         if espera:
-            threading.Timer(espera / 1000.0, enviar_a, (destino, c, cuerpo)).start()
+            threading.Timer(espera / 1000.0, despachar, (destino, [(c, cuerpo, 0, destino)])).start()
         else:
             enviar_a(destino, c, cuerpo)
 

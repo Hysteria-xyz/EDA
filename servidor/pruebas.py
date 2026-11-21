@@ -387,8 +387,8 @@ def control():
     chequear("★ el revés: con basura en ese lugar (juego sin comillas) NO hay MAC → la inventada",
              partida(404).get("mac") is None and identidad_de(404) == identidad_falsa(404))
     # el punch vio a 401 y 403 detrás de la MISMA IP pública (un cíber), y a 402 en otra casa
-    json.dump({"401": ["200.1.1.1", 40001], "402": ["190.2.2.2", 40002], "403": ["200.1.1.1", 40003],
-               "404": ["181.4.4.4", 40004]}, open(config.PUNCH_MAPA, "w"))
+    json.dump({"401": ["200.1.1.1", 40001, 1e12], "402": ["190.2.2.2", 40002, 1e12], "403": ["200.1.1.1", 40003, 1e12],
+               "404": ["181.4.4.4", 40004, 1e12]}, open(config.PUNCH_MAPA, "w"))
     SALAS[88] = {"sala": bytes(0x59), "anfitrion": 401, "miembros": [401, 402, 403, 404]}
     a = {x[3]: x[1] for x in pares(SALAS[88])}
 
@@ -410,7 +410,7 @@ def control():
              and struct.unpack_from("<IH", m, 0x48) == (ip_int("200.1.1.1"), 40001))
     # ★ (MEDICIONES §52, lo de prod: dos PCs de la misma casa y el ANFITRIÓN sin 0x3006) → la misma IP
     #   con que se conectaron alcanza para darse la PRIVADA
-    json.dump({"402": ["190.2.2.2", 40002]}, open(config.PUNCH_MAPA, "w"))
+    json.dump({"402": ["190.2.2.2", 40002, 1e12]}, open(config.PUNCH_MAPA, "w"))
     partida(401)["ip_tcp"], partida(402)["ip_tcp"] = "190.2.2.2", "190.2.2.2"
     chequear("misma IP de conexión, el anfitrión sin punch: a 402 le llega la PRIVADA de 401",
              dir_udp(401, 402) == (ip_int("192.168.0.1"), 50401)
@@ -421,8 +421,8 @@ def control():
              dir_udp(402, 401) == (0x7F000001, config.RELAY_BASE + 1 + 402)
              and dir_udp(401, 402) == (0x7F000001, config.RELAY_BASE + 1 + 401))
     partida(401).pop("ip_tcp"), partida(402).pop("ip_tcp")
-    json.dump({"401": ["200.1.1.1", 40001], "402": ["190.2.2.2", 40002], "403": ["200.1.1.1", 40003],
-               "404": ["181.4.4.4", 40004]}, open(config.PUNCH_MAPA, "w"))
+    json.dump({"401": ["200.1.1.1", 40001, 1e12], "402": ["190.2.2.2", 40002, 1e12], "403": ["200.1.1.1", 40003, 1e12],
+               "404": ["181.4.4.4", 40004, 1e12]}, open(config.PUNCH_MAPA, "w"))
     escribir_relay()
     chequear("relay.json: la «falsa» de quien mandó su MAC es la real (el relay no la toca)",
              json.load(open(config.RELAY_MAPA))["401"]["falsa"] == macs[401])
@@ -1001,6 +1001,13 @@ def control():
     pruebas_nat(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
+    pruebas_entre_casas(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
+    SALAS.clear()
+    pruebas_carga_sin_cortes(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
     pruebas_messenger(chequear)
     pruebas_messenger_cuentas_reales(chequear)
     PARTIDAS.clear()
@@ -1527,6 +1534,182 @@ def pruebas_nat(chequear):
              dir_udp(960, 961) == (ip_int("203.0.113.9"), config.RELAY_BASE + 1 + 960))
     (config.P2P_ENTRE_CASAS, config.NAT_MAPA, config.RELAY_IP, config.P2P, config.PUNCH_MAPA) = viejos
 
+
+
+def pruebas_entre_casas(chequear):
+    """★ (21-nov) Lo de la prueba entre dos casas del server de prueba (05:35 UTC): punch.json va por número de
+    conexión, los números se reusan, y al invitado se le dio para el anfitrión (conexión 1) el puerto 19745 de una
+    sesión de las 04:26 — el de esta era el 18113. Y el modo «auto»: el mismo camino en los dos sentidos."""
+    from servidor.relay import estable, punch_de, publica_de, ruta
+    from servidor.salas import reanunciar
+    viejos = (config.P2P_ENTRE_CASAS, config.RELAY_IP, config.P2P, config.PUNCH_MAPA)
+    config.PUNCH_MAPA = os.path.join(config.CUENTAS, "punch_casas.json")
+    config.RELAY_IP, config.P2P, config.P2P_ENTRE_CASAS = "203.0.113.9", "directo", True
+
+    def ip_int(t):
+        return struct.unpack(">I", bytes(int(x) for x in t.split(".")))[0]
+
+    def entra(n, mac, privada, publica, ip_tcp):
+        b = bytearray(0xE9)
+        b[0x7A:0x7A + 34] = mac.encode("utf-16-le")[:34].ljust(34, b"\0")
+        struct.pack_into("<IHIH", b, 0xDD, ip_int(privada[0]), privada[1], ip_int(publica[0]), publica[1])
+        responder(0x100F, bytes(b), n)
+        partida(n)["ip_tcp"] = ip_tcp
+    ahora = time.time()
+    # (las IP son de los rangos de documentación del RFC 5737: no son de nadie)
+    entra(970, "02:CC:00:00:00:01", ("192.168.50.10", 57654), ("198.51.100.26", 18113), "198.51.100.26")
+    entra(971, "02:CC:00:00:00:02", ("192.168.0.20", 57654), ("203.0.113.77", 40500), "203.0.113.77")
+    partida(970)["desde"], partida(971)["desde"] = ahora, ahora
+    host = (ip_int("198.51.100.26"), 18113)
+    # lo que había en el server de prueba: el anfitrión con la entrada de OTRA sesión (una hora antes)
+    json.dump({"970": ["198.51.100.26", 19745, ahora - 3800], "971": ["203.0.113.77", 40500, ahora + 1]},
+              open(config.PUNCH_MAPA, "w"))
+    chequear("★ lo del server de prueba: una entrada de punch.json de OTRA sesión (mismo número) no vale",
+             punch_de(970) is None)
+    chequear("…y al invitado le llega la del anfitrión de ESTA sesión (su 0x100F: 18113), no la vieja (19745)",
+             dir_udp(970, 971) == host)
+    json.dump({"970": ["198.51.100.26", 19745]}, open(config.PUNCH_MAPA, "w"))
+    chequear("★ el revés: una entrada sin hora (de un relay viejo) tampoco vale", punch_de(970) is None)
+    json.dump({"970": ["198.51.100.26", 18113, ahora + 0.5], "971": ["203.0.113.77", 40500, ahora + 1]},
+              open(config.PUNCH_MAPA, "w"))
+    chequear("una entrada de ESTA sesión sí vale", punch_de(970) == host)
+    cerrada(970)
+    entra(970, "02:CC:00:00:00:09", ("192.168.7.7", 57654), ("192.0.2.99", 30000), "192.0.2.99")
+    partida(970)["desde"] = ahora + 10
+    chequear("★ el revés: el número 970 reusado por OTRA sesión no hereda la dirección del que se fue",
+             punch_de(970) is None and dir_udp(970, 971) == (ip_int("192.0.2.99"), 30000))
+    cerrada(970)
+    entra(970, "02:CC:00:00:00:01", ("192.168.50.10", 57654), ("198.51.100.26", 18113), "198.51.100.26")
+    partida(970)["desde"] = ahora
+    # ── modo «auto»: por pareja, el mismo camino en los dos sentidos
+    config.P2P = "auto"
+    json.dump({"971": ["203.0.113.77", 40500, ahora + 1]}, open(config.PUNCH_MAPA, "w"))
+    rel = ip_int("203.0.113.9")
+    chequear("auto: el anfitrión sin 0x3006 (no se sabe si su NAT guarda el puerto) → la pareja por el RELAY, "
+             "los dos sentidos", ruta(970, 971) == ruta(971, 970) == "relay"
+             and dir_udp(970, 971) == (rel, config.RELAY_BASE + 1 + 970)
+             and dir_udp(971, 970) == (rel, config.RELAY_BASE + 1 + 971))
+    json.dump({"970": ["198.51.100.26", 18113, ahora + 1], "971": ["203.0.113.77", 40500, ahora + 1]},
+              open(config.PUNCH_MAPA, "w"))
+    chequear("auto: las dos públicas confiables (0x3006 y 0x3002 por el mismo puerto) → DIRECTO, los dos sentidos",
+             estable(970) and estable(971) and ruta(970, 971) == ruta(971, 970) == "directo"
+             and dir_udp(970, 971) == host and dir_udp(971, 970) == (ip_int("203.0.113.77"), 40500))
+    json.dump({"970": ["198.51.100.26", 16429, ahora + 1], "971": ["203.0.113.77", 40500, ahora + 1]},
+              open(config.PUNCH_MAPA, "w"))
+    chequear("★ el revés: el NAT del anfitrión le cambia el puerto (0x3006 por 16429, 0x3002 por 18113) → RELAY, "
+             "los dos sentidos (nunca uno directo y el otro no)",
+             not estable(970) and ruta(970, 971) == ruta(971, 970) == "relay"
+             and dir_udp(971, 970)[1] == config.RELAY_BASE + 1 + 971)
+    partida(971)["ip_tcp"] = "198.51.100.26"
+    chequear("auto: misma casa (misma IP de conexión) → las PRIVADAS, los dos sentidos",
+             ruta(970, 971) == ruta(971, 970) == "casa"
+             and dir_udp(970, 971) == (ip_int("192.168.50.10"), 57654)
+             and dir_udp(971, 970) == (ip_int("192.168.0.20"), 57654))
+    partida(971)["ip_tcp"] = "203.0.113.77"
+    partida(971).pop("mac", None)
+    chequear("★ el revés: uno sin MAC → relay", ruta(970, 971) == "relay")
+    partida(971)["mac"] = "02:CC:00:00:00:02"
+    # ── la dirección cambia mientras esperan en la sala → el 0x1059 otra vez (sólo a quien le cambió)
+    config.P2P = "directo"
+    json.dump({"970": ["198.51.100.26", 18113, ahora + 1], "971": ["203.0.113.77", 40500, ahora + 1]},
+              open(config.PUNCH_MAPA, "w"))
+    SALAS[77] = {"sala": bytes(0x59), "anfitrion": 970, "miembros": [970, 971]}
+    pares(SALAS[77])
+    chequear("★ el revés: sin cambios, no se vuelve a mandar nada", reanunciar(SALAS) == [])
+    json.dump({"970": ["198.51.100.26", 18665, ahora + 2], "971": ["203.0.113.77", 40500, ahora + 1]},
+              open(config.PUNCH_MAPA, "w"))
+    r = reanunciar(SALAS)
+    chequear("el NAT del anfitrión cambió de puerto (su 0x3006 nuevo): el 0x1059 otra vez, sólo al invitado",
+             [(x[0], x[3]) for x in r] == [(0x1059, 971)]
+             and struct.pack("<IH", ip_int("198.51.100.26"), 18665) in r[0][1])
+    chequear("…y una sola vez", reanunciar(SALAS) == [])
+    SALAS[77]["jugando"] = True
+    json.dump({"970": ["198.51.100.26", 18700, ahora + 3]}, open(config.PUNCH_MAPA, "w"))
+    chequear("★ el revés: jugando, no (el 0x1059 es de la sala que espera)", reanunciar(SALAS) == [])
+    SALAS.pop(77)
+    (config.P2P_ENTRE_CASAS, config.RELAY_IP, config.P2P, config.PUNCH_MAPA) = viejos
+    # ── EDA_P2P como llega del docker-compose (vacía si el .env no la tiene)
+    import subprocess
+    import sys
+
+    def modo(valor):
+        env = dict(os.environ)
+        env.pop("EDA_P2P", None)
+        env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)      # (los mismos módulos que esta corrida)
+        if valor is not None:
+            env["EDA_P2P"] = valor
+        raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return subprocess.run([sys.executable, "-c", "from servidor import config; print(config.P2P)"], cwd=raiz,
+                              env=env, capture_output=True, text=True).stdout.strip()
+    chequear("EDA_P2P: sin la variable o vacía (el compose la pasa vacía) → directo, como siempre",
+             modo(None) == modo("") == "directo")
+    chequear("EDA_P2P: relay y auto se toman (también con mayúsculas o espacios)",
+             modo("relay") == "relay" and modo(" AUTO ") == "auto")
+    chequear("★ el revés: un valor que no existe → directo (no un modo a medias)", modo("relai") == "directo")
+
+
+def pruebas_carga_sin_cortes(chequear):
+    """★ (21-nov) servidor/salida.py: mientras el juego carga la stage (desde su 0x104F hasta su 0x105E), lo de
+    0x1003–0x100B le termina el hilo de carga (exe 0x5345C0 → «Thread DoEnd!!») y el 0x105E ya no se atiende:
+    «NOW LOADING» para siempre. Lo del server de prueba: al anfitrión le llegó un 0x1005 entre su 0x105F y su 0x105E."""
+    import types
+    from servidor import red, salida
+    PARTIDAS[980], PARTIDAS[981] = {}, {}
+    o = salida.ordenar
+    chequear("sin cargar, el chat sale de una", o(980, [(0x1005, b"hola", 0)]) == [(0x1005, b"hola", 0, 980)])
+    o(980, [(0x104F, b"", 0)])
+    chequear("cargando (después de su 0x104F): el 0x1005 se GUARDA", o(980, [(0x1005, b"a", 0)]) == [])
+    chequear("…igual todo 0x1003–0x100B", o(980, [(0x1003, b"", 0), (0x100B, b"b", 0)]) == [])
+    chequear("★ el revés: lo demás pasa (0x105F, 0x1002, 0x100C, la lista de salas)",
+             [x[0] for x in o(980, [(0x105F, b"", 0), (0x1002, b"", 0), (0x100C, b"", 0), (0x101C, b"", 0)])]
+             == [0x105F, 0x1002, 0x100C, 0x101C])
+    chequear("★ el revés: al que NO carga (el otro de la sala) le llega en el momento",
+             o(980, [(0x1005, b"x", 0, 981)]) == [(0x1005, b"x", 0, 981)])
+    r = o(980, [(0x105E, b"L", 0)])
+    chequear("su 0x105E sale PRIMERO, y después lo guardado, en el mismo orden",
+             r == [(0x105E, b"L", 0, 980), (0x1005, b"a", 0, 980), (0x1003, b"", 0, 980), (0x100B, b"b", 0, 980)])
+    chequear("…y después de la largada, el chat sale de una", o(980, [(0x1005, b"c", 0)]) == [(0x1005, b"c", 0, 980)])
+    o(980, [(0x104F, b"", 0)])
+    o(980, [(0x1005, b"d", 0)])
+    chequear("si sale de la stage (0x1075) sin largar, lo guardado sale igual",
+             [x[0] for x in o(980, [(0x1075, b"", 0)])] == [0x1075, 0x1005])
+    t0 = time.monotonic()
+    o(980, [(0x104F, b"", 0)], ahora=t0)
+    o(980, [(0x1005, b"e", 0)], ahora=t0)
+    chequear("★ una carga que no termina nunca: pasado VENCE se suelta (nada queda guardado para siempre)",
+             o(980, [(0x101C, b"", 0)], ahora=t0 + salida.VENCE + 1) == [(0x1005, b"e", 0, 980), (0x101C, b"", 0, 980)]
+             and not PARTIDAS[980].get("cargando"))
+    o(980, [(0x104F, b"", 0)])
+    for i in range(salida.TOPE + 30):
+        o(980, [(0x1005, bytes([i % 256]), 0)])
+    chequear("★ con más de TOPE guardados, se quedan los últimos TOPE", len(PARTIDAS[980]["diferidos"]) == salida.TOPE)
+    o(980, [(0x105E, b"", 0)])
+    chequear("los mensajes con espera no se tocan acá (vuelven a pasar cuando vence)",
+             o(980, [(0x1005, b"z", 300)]) == [(0x1005, b"z", 300, 980)])
+    PARTIDAS[980].clear()
+    # ── por servidor/red.py (despachar), con el envío falso: el orden de lo que de verdad sale
+    salio = []
+    viejos = (red.enviar_a, red.juego)
+    red.enviar_a = lambda n, c, cuerpo: salio.append((n, c, cuerpo))
+    red.juego = lambda: types.SimpleNamespace(ordenar_salida=salida.ordenar)
+    try:
+        red.despachar(980, [(0x104F, b"", 0)])
+        red.despachar(981, [(0x1005, b"chat", 0, 980), (0x1005, b"chat", 0, 981)])   # el chat del otro, a los dos
+        red.despachar(980, [(0x1005, b"tarde", 40)])                                 # uno con espera, mientras carga
+        time.sleep(0.15)
+        red.despachar(None, [(0x105E, b"L", 0, 980), (0x105E, b"L", 0, 981)])
+        a980 = [(c, cuerpo) for n, c, cuerpo in salio if n == 980]
+        chequear("red.despachar: al que carga, el 0x105E ANTES que el chat (y el de espera también se guarda)",
+                 a980 == [(0x104F, b""), (0x105E, b"L"), (0x1005, b"chat"), (0x1005, b"tarde")], a980)
+        chequear("★ el revés: al otro, el chat en el momento", [c for n, c, _ in salio if n == 981] == [0x1005, 0x105E])
+        red.juego = lambda: types.SimpleNamespace(ordenar_salida=lambda n, r: 1 / 0)
+        salio.clear()
+        viejo_log, red.log = red.log, (lambda m: None)
+        red.despachar(980, [(0x1005, b"igual", 0)])
+        red.log = viejo_log
+        chequear("★ el revés: si el orden falla, se manda como antes (no se pierde nada)", salio == [(980, 0x1005, b"igual")])
+    finally:
+        red.enviar_a, red.juego = viejos
 
 def pruebas_lista_servidores(chequear):
     """★ La lista de servidores (0x070B) con los jugadores de verdad."""
