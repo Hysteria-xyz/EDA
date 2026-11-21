@@ -155,13 +155,52 @@ def md5(p):
     return hashlib.md5(open(p, "rb").read()).hexdigest()
 
 
+def fuentes():
+    """lo que se copia a la carpeta de compilación"""
+    return sorted(x for x in os.listdir(AQUI) if x.startswith("eda_") and x.endswith((".c", ".h"))
+                  and x != "eda_version.h") + ["d3d9.def"]          # (eda_version.h lo genera version.py, abajo)
+
+
+def control_fuentes():
+    """(CI) copia como compilar() y verifica que no falte ningún #include: lo que rompió la 1ª compilación de 0.5.1"""
+    import tempfile
+    d = tempfile.mkdtemp()
+    for f in fuentes():
+        shutil.copy(os.path.join(AQUI, f), d)
+    faltan = incluidos_que_faltan(os.path.join(d, "eda_d3d9.c"), d)
+    shutil.rmtree(d, ignore_errors=True)
+    print("fuentes: %d copiados, %s" % (len(fuentes()), "faltan: " + ", ".join(faltan) if faltan else "ninguno falta"))
+    return not faltan
+
+
+def incluidos_que_faltan(fuente, carpeta, vistos=None):
+    """los #include "x.c" / "x.h" (recursivos) que no están en la carpeta de compilación"""
+    import re
+    vistos = set() if vistos is None else vistos
+    faltan = []
+    for m in re.finditer(r'^\s*#include\s+"([^"]+\.[ch])"', open(fuente, encoding="utf-8", errors="replace").read(), re.M):
+        f = m.group(1)
+        if f in vistos or f == "eda_version.h":                      # (la genera version.py después)
+            continue
+        vistos.add(f)
+        p = os.path.join(carpeta, f)
+        if not os.path.isfile(p):
+            faltan.append(f)
+        else:
+            faltan += incluidos_que_faltan(p, carpeta, vistos)
+    return faltan
+
+
 def compilar():
     if not os.path.isfile(ZIG):
         raise SystemExit("⛔ no encuentro Zig 0.16.0: %s (se puede indicar con la variable ZIG)" % ZIG)
     os.makedirs(SALIDA, exist_ok=True)
-    for f in ("eda_d3d9.c", "eda_opciones.c", "eda_teclas.c", "eda_messenger.c", "eda_version.c", "eda_aviso.c",
-              "eda_medir5.c", "eda_escala2d.c", "eda_rojo.c", "eda_graficos.c", "eda_selector.h", "d3d9.def"):
+    # ★ (21-nov) TODOS los eda_*.c y eda_*.h (antes una lista fija: un módulo nuevo, eda_apis.c, quedaba afuera)
+    for f in fuentes():
         shutil.copy(os.path.join(AQUI, f), SALIDA)
+    faltan = incluidos_que_faltan(os.path.join(SALIDA, "eda_d3d9.c"), SALIDA)
+    if faltan:
+        raise SystemExit("⛔ eda_d3d9.c incluye archivos que no están: %s" % ", ".join(faltan))
     # ★ (19-nov) la identidad (versión, commit, sucio, fecha, build): la calcula version.py, nadie la escribe a mano
     sys.path.insert(0, AQUI)
     import version
