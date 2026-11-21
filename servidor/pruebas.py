@@ -1694,6 +1694,18 @@ def pruebas_login(chequear):
         chequear("★ el revés: alg «none» → «algoritmo»", rechazo(sin_firma, ahora) == "algoritmo")
         chequear("★ el revés: para otro juego (aud) → «audiencia»",
                  rechazo(firmar(clave, dict(datos, jti="j-6", aud="r2beat")), ahora) == "audiencia")
+        # ★ (21-nov) el server de PRUEBA acepta SU pase (`eda-prueba`) y no el de prod, y al revés
+        chequear("★ el revés: un pase del server de prueba (aud eda-prueba) no entra a prod → «audiencia»",
+                 rechazo(firmar(clave, dict(datos, jti="j-6b", aud="eda-prueba")), ahora) == "audiencia")
+        aud_antes = config.PORTERO_AUDIENCIA
+        config.PORTERO_AUDIENCIA = "eda-prueba"
+        try:
+            chequear("prueba (EDA_PORTERO_AUDIENCIA=eda-prueba): su pase entra",
+                     rechazo(firmar(clave, dict(datos, jti="j-6c", aud="eda-prueba")), ahora) is None)
+            chequear("★ el revés: en el de prueba, un pase de prod (aud eda) → «audiencia»",
+                     rechazo(firmar(clave, dict(datos, jti="j-6d")), ahora) == "audiencia")
+        finally:
+            config.PORTERO_AUDIENCIA = aud_antes
         chequear("★ el revés: de otro emisor (iss) → «emisor»",
                  rechazo(firmar(clave, dict(datos, jti="j-7", iss="otro")), ahora) == "emisor")
         chequear("★ el revés: vencido hace 31 s → «vencido»",

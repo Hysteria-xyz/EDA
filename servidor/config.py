@@ -78,7 +78,9 @@ PREFIJO_CUENTA = os.environ.get("EDA_PREFIJO_CUENTA") or "r2b_"
 #                 juego (el cliente ya la muestra vacía: es lo que pasa cuando alguien los borra todos)
 CUENTA_NUEVA = os.environ.get("EDA_CUENTA_NUEVA") or "personaje"
 PORTERO_EMISOR = "r2beat-portero"
-PORTERO_AUDIENCIA = "eda"
+# ★ (21-nov) el `aud` del pase que acepta ESTE server: `eda` (prod) o `eda-prueba` (el server de prueba, con su pase
+#   propio en Cuenta Eñeños: así una cuenta con acceso a uno no entra sola al otro, y un pase de prueba no abre prod)
+PORTERO_AUDIENCIA = (os.environ.get("EDA_PORTERO_AUDIENCIA") or "eda").strip()
 PORTERIA = os.path.join(ESTADO, "porteria.db")              # los tickets dados y los pases ya usados
 TICKET_HORAS = float(os.environ.get("EDA_TICKET_HORAS") or 12)
 
