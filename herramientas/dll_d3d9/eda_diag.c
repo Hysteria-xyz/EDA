@@ -2,9 +2,10 @@
  * segundo plano, al server de PRUEBA (POST /eda/diag, servidor/diag.py). El jugador no hace nada: ni BAT ni logs.
  *
  * CUÁNDO: sólo si el entorno es TEST (el server del launcher/ini) Y hay dirección ([diag] url / EDA_DIAG_URL) Y el
- * juego se lanzó con usuario y ticket. En prod, local o sin dirección: no hace NADA (ni el hilo).
+ * juego se lanzó con usuario y ticket. En prod o sin dirección: no hace NADA (ni el hilo). (Para la prueba de punta a
+ * punta en una PC: server LOCAL y http://127.0.0.1/…; ningún otro http.)
  *
- * QUÉ MANDA (y nada más): inicio (versión, build, resolución del ini no: sólo versión), escena (la vtable de la escena,
+ * QUÉ MANDA (y nada más): inicio (versión y build), escena (la vtable de la escena,
  * un número del exe), congelado (≥ 2 s sin cuadros: cuánto y en qué escena), atrapado (≥ 15 s y sigue), fps (cada
  * ~30 s), foco (el juego al frente o no), server_conecta (cuántas veces; SIN la dirección), caida (código, sitio en el
  * exe o el NOMBRE del módulo, sin ruta), fin (cierre normal). Sin MAC, sin IP, sin nombre de la PC, sin rutas, sin
@@ -330,12 +331,16 @@ static void dg_iniciar(const char *carpeta_dll, int entorno)
     int https, puerto;
     char host[128], ruta[128];
     if (!g_dg_url[0]) return;
-    if (entorno != ENT_TEST) { apuntar("  [diag] apagado: el entorno no es TEST"); return; }
-    if (!g_dg_k_lista) { apuntar("  [diag] apagado: el juego no se lanzó con usuario y ticket"); return; }
     if (!dg_url(g_dg_url, &https, host, sizeof(host), &puerto, ruta, sizeof(ruta))) {
         apuntar("  [diag] apagado: la dirección no es https (http sólo a 127.0.0.1)");
         return;
     }
+    /* TEST; o, para probarlo de punta a punta en la misma PC, server LOCAL + http://127.0.0.1 (nunca prod) */
+    if (entorno != ENT_TEST && !(entorno == ENT_LOCAL && !https)) {
+        apuntar("  [diag] apagado: el entorno no es TEST");
+        return;
+    }
+    if (!g_dg_k_lista) { apuntar("  [diag] apagado: el juego no se lanzó con usuario y ticket"); return; }
     typedef BOOLEAN (WINAPI *AZAR)(PVOID, ULONG);
     HMODULE a = LoadLibraryA("advapi32.dll");        /* (ya está cargada: no corre código nuevo en DllMain) */
     AZAR azar = a ? (AZAR)GetProcAddress(a, "SystemFunction036") : NULL;   /* RtlGenRandom */
