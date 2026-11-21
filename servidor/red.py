@@ -13,6 +13,7 @@ En UN proceso:
 
     python -m servidor.red                       # el server (lee la configuración del entorno)
     python -m servidor.red prueba HOST:PUERTO    # ★ ¿contesta? (un 0x0604 de verdad, con su revés)
+    python -m servidor.red multi HOST:PUERTO     # ★ dos jugadores: sala, F9, uno se corta en la carga → el otro larga
 
 Variables (además de las de `servidor/config.py`):
     EDA_ESCUCHAR    la IP donde escucha            (0.0.0.0)
@@ -29,6 +30,7 @@ Variables (además de las de `servidor/config.py`):
                     Docker: «<IP de la máquina en esa red>:25902». Ver despliegue/LEEME.md
 """
 import os
+import queue
 import signal
 import socket
 import struct
@@ -102,18 +104,62 @@ def soltar(n):
         _usados.discard(n)
 
 
+# ★ (20-nov, multijugador) LO QUE SALE, POR UNA COLA DE CADA CONEXIÓN. Antes `enviar_a` hacía el `sendall`
+#   en el hilo de QUIEN mandaba (el de otro jugador, el reloj, un Timer): si el juego de un jugador no leía
+#   (colgado, cargando, una red lenta), el hilo de su COMPAÑERO quedaba parado hasta 5 s por mensaje (el
+#   timeout del socket) y sus propias respuestas se atrasaban: el lag/congelamiento pasaba de uno a otro.
+#   Y si el `sendall` se cortaba por el timeout a mitad de un paquete, el resto ya no encajaba (el cliente
+#   lee [largo][cuerpo]): se seguía mandando sobre un flujo roto. Ahora cada conexión tiene su escritor;
+#   mandar no espera nunca, y si no se puede mandar (o la cola crece sin que el cliente lea) la conexión se
+#   corta limpia, como un cierre normal (su sala, sus amigos, la lista).
+COLA_MAX = int(os.environ.get("EDA_COLA_MAX") or 2000)
+
+
+def escritor(n, con):
+    cola = con["cola"]
+    while True:
+        item = cola.get()
+        if item is None:
+            return
+        c, largo, p = item
+        try:
+            con["cli"].sendall(p)
+            log("#%d → %04x (%d B)" % (n, c, largo))
+        except OSError as e:
+            log("#%d no pude mandar %04x (%s): corto la conexión (el resto no encajaría)" % (n, c, e))
+            _cortar_ya(n, con)
+            return
+
+
+def _cortar_ya(n, con):
+    con["cortada"] = True
+    try:
+        con["cli"].shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+
+
 def enviar_a(n, c, cuerpo):
     con = CONEXIONES.get(n)
     if con is None:
         log("#%d ya no está: no le mando %04x" % (n, c))
         return
     p = P.armar(P.mensaje(c, cuerpo), con["clave"], con["campo2"])
-    try:
-        with con["lock"]:
-            con["cli"].sendall(p)
-        log("#%d → %04x (%d B)" % (n, c, len(cuerpo)))
-    except OSError as e:
-        log("#%d no pude mandar %04x (%s)" % (n, c, e))
+    if "cola" not in con:                                    # (una conexión sin escritor: como antes)
+        try:
+            with con["lock"]:
+                con["cli"].sendall(p)
+            log("#%d → %04x (%d B)" % (n, c, len(cuerpo)))
+        except OSError as e:
+            log("#%d no pude mandar %04x (%s)" % (n, c, e))
+        return
+    if con.get("cortada"):
+        return
+    if con["cola"].qsize() >= COLA_MAX:
+        log("#%d no lee: %d mensajes sin salir; corto la conexión" % (n, COLA_MAX))
+        _cortar_ya(n, con)
+        return
+    con["cola"].put((c, len(cuerpo), p))
 
 
 def cortar(n, espera=0):
@@ -166,7 +212,10 @@ def contestar(cli, n, pkt, guion):
         log("#%d paquete que no se abre (%s): ¿un exe con otra clave? (EDA_CLAVES)" % (n, e))
         return
     if n not in CONEXIONES:
-        CONEXIONES[n] = {"cli": cli, "clave": m["clave"], "campo2": m["campo2"], "lock": threading.Lock()}
+        con = {"cli": cli, "clave": m["clave"], "campo2": m["campo2"], "lock": threading.Lock(),
+               "cola": queue.Queue()}
+        CONEXIONES[n] = con
+        threading.Thread(target=escritor, args=(n, con), daemon=True).start()
         log("#%d clave: %s" % (n, m.get("de", "?")))
     else:
         # el cliente tira lo que no venga con SU servicio en la cabecera (`0x744910`)
@@ -175,13 +224,16 @@ def contestar(cli, n, pkt, guion):
     log("#%d ← %04x (%d B)%s" % (n, cmd, len(m["mensaje"]),
                                   ("\n" + m["mensaje"].hex(" ")) if LOG_HEX else ""))
     resp = None
-    try:
-        resp = juego().responder(cmd, m["mensaje"][4:], n)
-    except Exception:                                         # noqa: BLE001
-        log("#%d ⛔ servidor/ falló con %04x:\n%s" % (n, cmd, traceback.format_exc()))
-    if resp is not None:
-        despachar(n, resp)
-        return
+    # ★ (20-nov) contestar y ENCOLAR de a uno (servidor.CANDADO): así lo que el server decide en un orden sale a
+    #   cada jugador en ese mismo orden, aunque dos hilos contesten a la vez. Encolar no espera (ver `escritor`).
+    with servidor.CANDADO:
+        try:
+            resp = juego().responder(cmd, m["mensaje"][4:], n)
+        except Exception:                                     # noqa: BLE001
+            log("#%d ⛔ servidor/ falló con %04x:\n%s" % (n, cmd, traceback.format_exc()))
+        if resp is not None:
+            despachar(n, resp)
+            return
     for r in guion.get("%04x" % cmd, []):
         c, cuerpo = r.split(":", 1)
         enviar_a(n, int(c, 16), bytes.fromhex(cuerpo))
@@ -191,8 +243,9 @@ def atender(cli, quien, n, guion):
     log("#%d conectó %s:%d" % (n, quien[0], quien[1]))
     # ★ la IP con que llegó (MEDICIONES §52): dos con la MISMA están en la misma casa / el mismo cíber, y
     #   se les da la dirección privada del otro (servidor/relay.py · dir_udp). (No va a ningún archivo.)
-    juego().partida(n)["ip_tcp"] = quien[0]
-    juego().partida(n)["desde"] = time.time()                  # (el «conectado desde» del panel)
+    with servidor.CANDADO:
+        juego().partida(n)["ip_tcp"] = quien[0]
+        juego().partida(n)["desde"] = time.time()              # (el «conectado desde» del panel)
     cli.settimeout(5.0)
     pendiente = b""
     ultimo = time.time()
@@ -220,8 +273,10 @@ def atender(cli, quien, n, guion):
                 pkt, pendiente = pendiente[:largo], pendiente[largo:]
                 contestar(cli, n, pkt, guion)
     finally:
+        con = CONEXIONES.pop(n, None)
+        if con and "cola" in con:
+            con["cola"].put(None)                             # (el escritor termina)
         cli.close()
-        CONEXIONES.pop(n, None)
         try:
             juego().cerrada(n)
         except Exception:                                     # noqa: BLE001
@@ -235,9 +290,10 @@ def reloj():
     while True:
         time.sleep(1.0)
         try:
-            resp = juego().tick(sorted(CONEXIONES))
-            if resp:
-                despachar(None, resp)
+            with servidor.CANDADO:
+                resp = juego().tick(sorted(CONEXIONES))
+                if resp:
+                    despachar(None, resp)
         except Exception:                                     # noqa: BLE001
             log("⛔ tick falló:\n%s" % traceback.format_exc())
             time.sleep(10)
@@ -288,8 +344,20 @@ def servidor_http(direccion, solo_panel=False):
                 if not 0 <= largo <= panel.TOPE_CUERPO:
                     raise ValueError("largo")
                 return self.rfile.read(largo) if largo else b""
+            # ★ (20-nov) el cuerpo se lee ANTES del candado (un cliente HTTP lento no frena el juego) y el panel
+            #   mira las salas y partidas de a uno con el juego (sin «el diccionario cambió mientras se recorría»)
             try:
-                codigo, datos = panel.atender(metodo, self.path, self.headers, leer_cuerpo, PUERTA_PANEL)
+                cuerpo, error_cuerpo = leer_cuerpo(), None
+            except ValueError as e:
+                cuerpo, error_cuerpo = b"", e
+
+            def cuerpo_leido():
+                if error_cuerpo is not None:
+                    raise error_cuerpo
+                return cuerpo
+            try:
+                with servidor.CANDADO:
+                    codigo, datos = panel.atender(metodo, self.path, self.headers, cuerpo_leido, PUERTA_PANEL)
             except Exception:                                 # noqa: BLE001
                 log("⛔ %s %s falló:\n%s" % (metodo,self.path.split("?")[0], traceback.format_exc()))
                 codigo, datos = 500, {"error": "Error interno del servidor del juego."}
@@ -427,6 +495,76 @@ def prueba(destino):
     return 0 if all(ok) else 1
 
 
+def prueba_multi(destino):
+    """★ (20-nov) MULTIJUGADOR DE PUNTA A PUNTA contra un server corriendo (como el de TEST): dos jugadores por
+    TCP de verdad crean y entran a una sala, larga el anfitrión, el anfitrión termina de cargar y al otro se le
+    corta el juego durante la carga. El anfitrión TIENE que largar (0x105E) en unos segundos; antes quedaba
+    en la pantalla de carga para siempre. El revés: mientras el otro sigue conectado y cargando, NO larga."""
+    host, _, puerto = destino.rpartition(":")
+    clave = P.CLAVES_FIJAS["EDA.exe de 2009"]
+    ok = []
+
+    def chequear(texto, cond, d=""):
+        print("  %s %s %s" % ("✅" if cond else "⛔", texto, d))
+        ok.append(bool(cond))
+
+    class Jugador:
+        def __init__(self):
+            self.s = socket.create_connection((host, int(puerto)), timeout=5)
+            self.buf = b""
+
+        def mandar(self, c, cuerpo):
+            self.s.sendall(P.armar(P.mensaje(c, cuerpo), clave))
+
+        def esperar(self, comando, segundos):
+            """los mensajes hasta ver `comando` (o hasta el plazo): [(comando, cuerpo)]"""
+            vistos, fin = [], time.time() + segundos
+            while time.time() < fin:
+                self.s.settimeout(max(0.05, fin - time.time()))
+                try:
+                    d = self.s.recv(65536)
+                except socket.timeout:
+                    break
+                if not d:
+                    break
+                self.buf += d
+                while len(self.buf) >= 2 and len(self.buf) >= struct.unpack_from("<H", self.buf)[0] + 4:
+                    n = struct.unpack_from("<H", self.buf)[0] + 4
+                    pkt, self.buf = self.buf[:n], self.buf[n:]
+                    m = P.abrir(pkt, clave)
+                    vistos.append((m["comando"], m["mensaje"][4:]))
+                if any(c == comando for c, _ in vistos):
+                    break
+            return vistos
+
+    a, b = Jugador(), Jugador()
+    sala = bytearray(0x59)
+    struct.pack_into("<I", sala, 0x28, 1011)
+    sala[0x2F] = 3
+    a.mandar(0x101D, bytes(4) + bytes(sala))
+    r = dict(a.esperar(0x101E, 5))
+    chequear("el anfitrión crea la sala (0x101E)", 0x101E in r)
+    num = struct.unpack_from("<H", r.get(0x101E, bytes(16)), 5 + 4)[0]
+    b.mandar(0x101F, struct.pack("<IH", 0, num) + bytes(20))
+    r = dict(b.esperar(0x1020, 5))
+    chequear("el otro entra (0x1020)", 0x1020 in r and r[0x1020][:2] == b"\x01\x00")
+    yo_b = r.get(0x1020, b"\0\0\0\0")[3]
+    b.mandar(0x1047, bytes([yo_b, 1]))
+    b.esperar(0x1048, 3)
+    a.mandar(0x104E, b"")
+    chequear("F9: los dos reciben 0x104F", 0x104F in dict(a.esperar(0x104F, 5)) and 0x104F in dict(b.esperar(0x104F, 5)))
+    a.mandar(0x105F, bytes(4))
+    r = dict(a.esperar(0x105E, 2.5))
+    chequear("★ el revés: con el otro todavía cargando, el anfitrión NO larga", 0x105E not in r)
+    b.s.close()                                               # (al otro se le corta el juego en la carga)
+    t0 = time.time()
+    r = dict(a.esperar(0x105E, 8))
+    chequear("★ al otro se le cortó el juego → el anfitrión larga (0x105E)", 0x105E in r, "%.1f s" % (time.time() - t0))
+    a.s.close()
+    print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
+    return 0 if all(ok) else 1
+
+
 if __name__ == "__main__":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -434,4 +572,6 @@ if __name__ == "__main__":
         pass
     if sys.argv[1:2] == ["prueba"]:
         sys.exit(prueba(sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1:%d" % PUERTO))
+    if sys.argv[1:2] == ["multi"]:
+        sys.exit(prueba_multi(sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1:%d" % PUERTO))
     sys.exit(main())

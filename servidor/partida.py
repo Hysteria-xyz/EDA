@@ -111,6 +111,8 @@ def termino_su_stage(s, conexion):
             VIVO.LISTA_CAMBIO = True
         s["jugando"] = False
         s.setdefault("cargados", set()).clear()
+        s.pop("largada", None)
+        s.pop("carga_desde", None)
 
 
 def dejar_la_sala(p, conexion):
@@ -183,13 +185,52 @@ def termino_de_cargar(cmd, cuerpo, conexion, c, p):
         return [(0x106C, struct.pack("<BB", i, i), 0, n) for n in destinos for i in total]
     # ★ con varios: la largada (0x105E) recién cuando cargaron TODOS, y a todos juntos
     s = SALAS.get(p.get("sala"))
-    if s and len(s["miembros"]) > 1:
+    if s and conexion in s["miembros"] and len(s["miembros"]) > 1 and s.get("jugando"):
+        if s.get("largada"):
+            # ★ (20-nov) ya se largó (por tiempo o porque los demás estaban): el que llega tarde larga
+            #   SOLO él. Antes se repetía el 0x105E a TODOS (una 2.ª largada en plena stage).
+            print("[carga] sala %s: #%d terminó de cargar después de la largada: larga sólo él"
+                  % (p.get("sala"), conexion), flush=True)
+            return [(0x105E, struct.pack("<HI", 1, 600), 0)] + activar([conexion], [numero(s, conexion)])
         s.setdefault("cargados", set()).add(conexion)
-        if set(s["miembros"]) <= s["cargados"]:
-            return ([(0x105E, struct.pack("<HI", 1, 600), 0, n) for n in s["miembros"]]
-                    + activar(s["miembros"], [numero(s, m) for m in s["miembros"]]))
-        return []
+        s.setdefault("carga_desde", time.monotonic())
+        return largar_si_cargaron(s)
     return [(0x105E, struct.pack("<HI", 1, 600), 0)] + activar([conexion], [numero_jugador(conexion)])
+
+
+# ★ (20-nov, multijugador) cuánto se espera a los que no terminan de cargar. Medido: los dos cargan en
+#   1–2 s (18-nov, 19-nov: 0x104F → 0x105F). Con uno colgado o que se fue, los demás quedaban en la
+#   pantalla de carga PARA SIEMPRE (la largada sólo se miraba al llegar un 0x105F).
+ESPERA_CARGA = float(os.environ.get("EDA_ESPERA_CARGA") or 45)
+
+
+def largar_si_cargaron(s, por_tiempo=False):
+    """La largada (0x105E) a los que ya cargaron, UNA sola vez: cuando cargaron todos los que siguen en la
+    sala o, `por_tiempo`, a los que llegaron. Los que cargan después largan solos (`termino_de_cargar`)."""
+    if not s.get("jugando") or s.get("largada"):
+        return []
+    miembros = list(s["miembros"])
+    listos = [n for n in miembros if n in s.get("cargados", ())]
+    if not listos or (not por_tiempo and len(listos) < len(miembros)):
+        return []
+    s["largada"] = True
+    if len(listos) < len(miembros):
+        print("[carga] ⚠ a los %g s largan %s; todavía cargando: %s"
+              % (ESPERA_CARGA, listos, [n for n in miembros if n not in listos]), flush=True)
+    r = [(0x105E, struct.pack("<HI", 1, 600), 0, n) for n in listos]
+    if os.path.exists(os.path.join(config.ESTADO, "con_106c")):
+        r += [(0x106C, struct.pack("<BB", i, i), 0, n) for n in listos for i in [numero(s, m) for m in listos]]
+    return r
+
+
+def vigilar_cargas(salas):
+    """Del `tick`: las salas que esperan a alguien más de ESPERA_CARGA segundos largan con los que cargaron."""
+    r = []
+    for s in list(salas.values()):
+        if (s.get("jugando") and not s.get("largada") and s.get("cargados")
+                and time.monotonic() - s.get("carga_desde", time.monotonic()) >= ESPERA_CARGA):
+            r += largar_si_cargaron(s, por_tiempo=True)
+    return r
 
 
 @maneja(0x1061)
@@ -215,6 +256,15 @@ def npc_muerto(cmd, cuerpo, conexion, c, p):
     return []
 
 
+def en_la_stage(s, conexion):
+    """★ (20-nov) A quién se le reenvía lo de la stage: los OTROS de la sala que SIGUEN en ella. Lo midió el
+    Punto 3 con el 0x105D (fuera de la stage cierra el juego: 18-nov 10:19:37 en el lobby, 11:56:59 en la
+    sala) y se arregló sólo en el 0x105C; el 0x105D, 0x1060, 0x1062, 0x1066 y 0x106D seguían yendo a TODOS
+    los de la sala, también al que ya volvió a la sala o a las cartas mientras el otro sigue jugando."""
+    en_stage = s.get("en_stage", s["miembros"])
+    return [m for m in s["miembros"] if m != conexion and m in en_stage]
+
+
 @maneja(0x1063)
 def le_pegaron(cmd, cuerpo, conexion, c, p):
     """★ le pegaron (0x1063 C→S / 0x1062 S→C `0x547440`, aporte de Hysteria-xyz):
@@ -227,9 +277,8 @@ def le_pegaron(cmd, cuerpo, conexion, c, p):
         # 0x1062 (16 B, 0x547440): u32 jugador_id · u32 0 · u16 HP · u8 0 · u32 MP · u8 buffs
         hp = struct.unpack_from("<H", cuerpo, 1)[0] if len(cuerpo) >= 3 else 1000
         msg_62 = struct.pack("<IIHBI B", yo, 0, hp, 0, 100, 0)
-        for m in s["miembros"]:
-            if m != conexion:
-                r.append((0x1062, msg_62, 0, m))
+        for m in en_la_stage(s, conexion):
+            r.append((0x1062, msg_62, 0, m))
     return r
 
 
@@ -239,7 +288,7 @@ def sincronizar_hud_companero(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"]:
         return None
-    return [(0x1062, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+    return [(0x1062, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
 
 
 @maneja(0x1067)
@@ -279,7 +328,7 @@ def sincronizar_objeto_1066(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"]:
         return None
-    return [(0x1066, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+    return [(0x1066, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
 
 
 @maneja(0x105C)
@@ -292,8 +341,7 @@ def evento_guion_escenario(cmd, cuerpo, conexion, c, p):
         return []
     # ★ (Punto 3) sólo a los que SIGUEN en la stage: el 0x105D fuera de la stage cierra el juego (medido
     #   dos veces el 18-nov: 10:19:37 en el lobby y 11:56:59 en la sala)
-    en_stage = s.get("en_stage", s["miembros"])
-    return [(0x105D, cuerpo, 0, m) for m in s["miembros"] if m != conexion and m in en_stage]
+    return [(0x105D, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
 
 
 @maneja(0x105D)
@@ -302,7 +350,7 @@ def sincronizar_evento_105d(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"]:
         return None
-    return [(0x105D, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+    return [(0x105D, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
 
 
 @maneja(0x1060)
@@ -311,7 +359,7 @@ def sincronizar_tick_1060(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"]:
         return [(0x1060, cuerpo if len(cuerpo) >= 4 else struct.pack("<I", 0), 0)]
-    return [(0x1060, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+    return [(0x1060, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
 
 
 @maneja(0x106D)
@@ -320,7 +368,7 @@ def sincronizar_tiempo_106d(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"]:
         return [(0x106D, cuerpo if len(cuerpo) >= 16 else bytes(16), 0)]
-    return [(0x106D, cuerpo, 0, m) for m in s["miembros"] if m != conexion]
+    return [(0x106D, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
 
 
 @maneja(0x1001)

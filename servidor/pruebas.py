@@ -1011,6 +1011,7 @@ def control():
     pruebas_personajes(chequear)
     pruebas_cazadora(chequear)
     pruebas_150_variantes(chequear)
+    pruebas_multijugador(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
     pruebas_panel(chequear)
@@ -1233,6 +1234,235 @@ def pruebas_150_variantes(chequear):
              26004 not in [it[0] for it in nuevos] and 26004 not in [it[0] for it in c["items"]])
     chequear("(Paso 6) el premio da sólo ORO (= Σ Type 0) y no toca el cash", not oro_mal, oro_mal[:10])
     chequear("la carta de cada stage es un ítem que existe (o nada)", not carta_mal, carta_mal[:10])
+
+
+def pruebas_multijugador(chequear):
+    """★ (20-nov) MULTIJUGADOR: la largada con varios (0x105F → 0x105E), sin nadie cargando para siempre, sin
+    largadas repetidas, de a uno entre hilos; y lo que sale por la red sin que un jugador frene a otro."""
+    import threading
+    from servidor import partida as mod_partida
+    from servidor.juego import tick
+
+    def sala_cargando(num, miembros):
+        SALAS[num] = {"sala": bytes(0x59), "anfitrion": miembros[0], "miembros": list(miembros),
+                      "numeros": {m: i for i, m in enumerate(miembros)}, "listos": set()}
+        for m in miembros:
+            partida(m)["sala"] = num
+        for m in miembros[1:]:
+            responder(0x1047, bytes([SALAS[num]["numeros"][m], 1]), m)
+        r = responder(0x104E, b"", miembros[0])
+        return [x[3] for x in r if x[0] == 0x104F]
+
+    def largadas(r):
+        return sorted(x[3] if len(x) > 3 else None for x in r if x[0] == 0x105E)
+
+    def limpiar(num, miembros):
+        SALAS.pop(num, None)
+        for m in miembros:
+            partida(m).pop("sala", None)
+
+    # 1 · los dos cargan: UNA largada a cada uno, con el último 0x105F
+    A, B, C = 501, 502, 503
+    chequear("multi: F9 con dos → 0x104F a los dos", sorted(sala_cargando(60, [A, B])) == [A, B])
+    r1 = responder(0x105F, b"\0" * 4, A)
+    r2 = responder(0x105F, b"\0" * 4, B)
+    chequear("multi: el 1.º que carga espera (sin 0x105E)", largadas(r1) == [], r1)
+    chequear("multi: el último que carga → 0x105E a los dos, una vez", largadas(r2) == [A, B], largadas(r2))
+    r3 = responder(0x105F, b"\0" * 4, A)
+    chequear("★ el revés: un 0x105F repetido después de la largada larga SÓLO a ese (antes: a todos otra vez)",
+             largadas(r3) == [None], largadas(r3))
+    limpiar(60, [A, B])
+
+    # 2 · uno se va mientras el otro ya cargó: antes el que cargó quedaba en la pantalla de carga para siempre
+    sala_cargando(61, [A, B])
+    chequear("multi: A cargó y espera a B", largadas(responder(0x105F, b"\0" * 4, A)) == [])
+    r = responder(0x1045, b"", B)                       # (B sale: Leave Room)
+    chequear("★ multi: B se va durante la carga → A larga (0x105E a A)", largadas(r) == [A], largadas(r))
+    limpiar(61, [A, B])
+
+    # 3 · al que se le cortó el juego durante la carga (cerrada): A larga con el próximo tick
+    sala_cargando(62, [A, B])
+    responder(0x105F, b"\0" * 4, A)
+    cerrada(B)
+    r = tick([A])
+    chequear("★ multi: a B se le cortó el juego durante la carga → A larga con el tick", largadas(r) == [A], largadas(r))
+    limpiar(62, [A, B])
+
+    # 4 · uno que no termina de cargar nunca: a los ESPERA_CARGA s larga el que cargó; el tarde, solo
+    sala_cargando(63, [A, B, C])
+    responder(0x105F, b"\0" * 4, A)
+    responder(0x105F, b"\0" * 4, B)
+    r = tick([A, B, C])
+    chequear("★ el revés: antes del plazo NO se larga sin C", largadas(r) == [], largadas(r))
+    SALAS[63]["carga_desde"] -= mod_partida.ESPERA_CARGA + 1
+    r = tick([A, B, C])
+    chequear("★ multi: C no termina de cargar → a los %g s largan A y B" % mod_partida.ESPERA_CARGA,
+             largadas(r) == [A, B], largadas(r))
+    chequear("multi: y el tick siguiente no larga otra vez", largadas(tick([A, B, C])) == [])
+    r = responder(0x105F, b"\0" * 4, C)
+    chequear("multi: C carga tarde → larga SÓLO C", largadas(r) == [None], largadas(r))
+    limpiar(63, [A, B, C])
+
+    # 5 · la próxima stage de la misma sala vuelve a esperar a todos
+    sala_cargando(64, [A, B])
+    responder(0x105F, b"\0" * 4, A)
+    responder(0x105F, b"\0" * 4, B)
+    mod_partida.termino_su_stage(SALAS[64], A)
+    mod_partida.termino_su_stage(SALAS[64], B)
+    chequear("multi: al terminar la stage se olvida la largada", "largada" not in SALAS[64] and not SALAS[64]["jugando"])
+    responder(0x1047, b"\1\1", B)
+    responder(0x104E, b"", A)
+    chequear("★ el revés: en la 2.ª stage el 1.º que carga vuelve a esperar",
+             largadas(responder(0x105F, b"\0" * 4, A)) == [])
+    limpiar(64, [A, B])
+
+    # 6 · de a uno entre hilos: los dos 0x105F en el MISMO instante (medido 18-nov 10:17:49, 11:54:47…)
+    malas = 0
+    for i in range(150):
+        sala_cargando(65, [A, B])
+        salidas, puerta = [], threading.Barrier(2)
+
+        def cargar(m):
+            puerta.wait()
+            salidas.extend(responder(0x105F, b"\0" * 4, m))
+        hs = [threading.Thread(target=cargar, args=(m,)) for m in (A, B)]
+        [h.start() for h in hs]
+        [h.join() for h in hs]
+        malas += largadas(salidas) != [A, B]
+        limpiar(65, [A, B])
+    chequear("★ multi: 150 veces los dos 0x105F a la vez desde dos hilos → exactamente una largada a cada uno",
+             malas == 0, "%d mal" % malas)
+
+    # 7 · lo de la stage sólo a los que SIGUEN en ella (Punto 3 lo midió con el 0x105D: fuera de la stage cierra
+    #     el juego); antes 0x105D / 0x1060 / 0x1062 / 0x1066 / 0x106D iban a todos los de la sala
+    sala_cargando(66, [A, B])
+    cuerpos = {0x105D: b"\1" * 8, 0x1060: b"\0" * 4, 0x1062: bytes(16), 0x1066: bytes(6), 0x106D: bytes(16),
+               0x105C: b"\1" * 8, 0x1063: b"\0\x64\0"}
+    ambos = all(any(len(x) > 3 and x[3] == B for x in responder(k, v, A)) for k, v in cuerpos.items())
+    chequear("multi: con los dos en la stage, lo de A le llega a B (0x105C/D, 1060, 1062/3, 1066, 106D)", ambos)
+    SALAS[66]["en_stage"].discard(B)                     # (B terminó: está en las cartas / volvió a la sala)
+    fuera = [hex(k) for k, v in cuerpos.items() if any(len(x) > 3 and x[3] == B for x in responder(k, v, A))]
+    chequear("★ multi: B ya salió de la stage → no le llega NADA de la stage de A (antes: 0x105D/1060/1062/1066/106D)",
+             not fuera, fuera)
+    limpiar(66, [A, B])
+    pruebas_estres(chequear)
+    pruebas_red_cola(chequear)
+
+
+def pruebas_estres(chequear):
+    """★ (20-nov) Sin interbloqueos ni estado roto con el candado: 6 jugadores en 6 hilos hacen al azar lo que
+    hace la gente (crear, entrar, listo, F9, cargar, salir, cortarse) mientras el reloj corre, ~1,5 s."""
+    import random
+    import threading
+    from servidor.juego import tick
+    jug = list(range(701, 707))
+    errores, hechos, fin = [], [0], time.monotonic() + 1.5
+    sala_base = bytearray(0x59)
+    struct.pack_into("<I", sala_base, 0x28, 1011)
+    sala_base[0x2F] = 3
+
+    def jugar(n):
+        rnd = random.Random(n)
+        try:
+            while time.monotonic() < fin:
+                op = rnd.randrange(8)
+                if op == 0:
+                    responder(0x101D, bytes(4) + bytes(sala_base), n)
+                elif op == 1 and SALAS:
+                    num = rnd.choice(list(SALAS.keys()) or [0])
+                    responder(0x101F, struct.pack("<IH", 0, num if isinstance(num, int) else 0) + bytes(20), n)
+                elif op == 2:
+                    s = SALAS.get(partida(n).get("sala"))
+                    if s and n in s["miembros"]:
+                        responder(0x1047, bytes([s.get("numeros", {}).get(n, 0), 1]), n)
+                elif op == 3:
+                    responder(0x104E, b"", n)
+                elif op == 4:
+                    responder(0x105F, bytes(4), n)
+                elif op == 5:
+                    responder(0x1045, b"", n)
+                elif op == 6 and rnd.random() < 0.2:
+                    cerrada(n)
+                else:
+                    responder(0x105C, b"\1" * 8, n)
+                hechos[0] += 1
+        except Exception as e:                              # noqa: BLE001
+            errores.append(repr(e))
+
+    def reloj():
+        try:
+            while time.monotonic() < fin:
+                tick(jug)
+                time.sleep(0.01)
+        except Exception as e:                              # noqa: BLE001
+            errores.append("tick: " + repr(e))
+    hs = [threading.Thread(target=jugar, args=(n,), daemon=True) for n in jug] + [threading.Thread(target=reloj, daemon=True)]
+    [h.start() for h in hs]
+    [h.join(10) for h in hs]
+    colgados = [h for h in hs if h.is_alive()]
+    chequear("★ estrés: 6 jugadores + el reloj en 7 hilos, sin interbloqueos (todos terminan)", not colgados,
+             "%d operaciones" % hechos[0])
+    chequear("estrés: ninguna excepción", not errores, errores[:3])
+    malos = [(k, m) for k, s in SALAS.items() for m in s["miembros"] if partida(m).get("sala") != k]
+    dobles = [k for k, s in SALAS.items() if len(set(s["miembros"])) != len(s["miembros"]) or not s["miembros"]]
+    chequear("estrés: cada miembro apunta a su sala, sin repetidos ni salas vacías", not malos and not dobles,
+             (malos[:3], dobles[:3]))
+    for n in jug:
+        cerrada(n)
+
+
+def pruebas_red_cola(chequear):
+    """★ (20-nov) servidor/red.py: lo que sale va por la cola de cada conexión. Un jugador que no lee no frena
+    al que le manda, y un envío cortado a mitad de paquete corta la conexión (no sigue con el flujo roto)."""
+    import socket
+    import threading
+    from servidor import red
+    import paquete_broker as P
+    clave, campo2 = bytes(range(16)), P.CAMPO_2
+    red.log = lambda m: None                                # (silencio)
+
+    # a) normal: todo llega, en orden y entero
+    a, b = socket.socketpair()
+    con = {"cli": a, "clave": clave, "campo2": campo2, "lock": threading.Lock(), "cola": __import__("queue").Queue()}
+    red.CONEXIONES[9001] = con
+    threading.Thread(target=red.escritor, args=(9001, con), daemon=True).start()
+    esperado = b"".join(P.armar(P.mensaje(0x2000 + i, bytes([i]) * (i * 7)), clave, campo2) for i in range(40))
+    for i in range(40):
+        red.enviar_a(9001, 0x2000 + i, bytes([i]) * (i * 7))
+    b.settimeout(3)
+    llegado = b""
+    while len(llegado) < len(esperado):
+        d = b.recv(65536)
+        if not d:
+            break
+        llegado += d
+    chequear("red: 40 mensajes por la cola llegan enteros y en orden", llegado == esperado,
+             "%d/%d B" % (len(llegado), len(esperado)))
+    con["cola"].put(None)
+    red.CONEXIONES.pop(9001, None)
+    a.close()
+    b.close()
+
+    # b) el otro NO lee: mandar no espera, y la conexión se corta limpia (antes: hasta 5 s por mensaje)
+    a, b = socket.socketpair()
+    a.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+    a.settimeout(0.5)
+    con = {"cli": a, "clave": clave, "campo2": campo2, "lock": threading.Lock(), "cola": __import__("queue").Queue()}
+    red.CONEXIONES[9002] = con
+    threading.Thread(target=red.escritor, args=(9002, con), daemon=True).start()
+    t0 = time.monotonic()
+    for i in range(300):
+        red.enviar_a(9002, 0x2100, bytes(1000))
+    tarda = time.monotonic() - t0
+    chequear("★ red: 300 mensajes a uno que no lee NO frenan al que manda", tarda < 0.5, "%.3f s" % tarda)
+    fin = time.monotonic() + 5
+    while not con.get("cortada") and time.monotonic() < fin:
+        time.sleep(0.05)
+    chequear("★ red: el envío que no sale (timeout a mitad de paquete) corta la conexión, no sigue con el flujo roto",
+             con.get("cortada") is True)
+    red.CONEXIONES.pop(9002, None)
+    a.close()
+    b.close()
 
 
 def pruebas_nat(chequear):

@@ -32,16 +32,23 @@ from servidor import config                                  # noqa: E402
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO, partida   # noqa: E402
 from servidor.cuentas import NOMBRES, leer, ruta_cuenta, nivel   # noqa: E402
 from servidor.salas import avisar_lista, avisar_usuarios, _sacar_de_sala     # noqa: E402
-from servidor.partida import cerrar_por_bajas, cuerpo_1072, fin_de_stage, game_over  # noqa: E402
+from servidor.partida import cerrar_por_bajas, cuerpo_1072, fin_de_stage, game_over, vigilar_cargas  # noqa: E402
 from servidor.registro import MANEJADORES                    # noqa: E402
 from servidor.relay import escribir_relay                    # noqa: E402
 # los módulos que REGISTRAN manejadores (importarlos es lo que los anota)
 from servidor import entrada, inventario, tienda, habilidades, refineria, personajes   # noqa: E402,F401
 from servidor import nat                                     # noqa: E402
 from servidor import messenger                               # noqa: E402
+from servidor import CANDADO as _CANDADO                     # noqa: E402
 
 
 def responder(cmd, cuerpo, conexion):
+    """★ (20-nov) de a uno: ver `servidor.CANDADO`."""
+    with _CANDADO:
+        return _responder(cmd, cuerpo, conexion)
+
+
+def _responder(cmd, cuerpo, conexion):
     if cmd == 0x070A:                                       # ★ la lista de servidores, con los jugadores reales
         return [(0x070B, entrada.lista_servidores(), 0)]
     if cmd == 0x0604 and nat.prendido():                    # ★ P2P entre casas: que se presente al relay (§53)
@@ -87,6 +94,11 @@ def segundos_fin_rapido():
 
 def tick(conexiones):
     """Cada segundo (lo llama el espía): lo que el server tiene que decir por TIEMPO."""
+    with _CANDADO:
+        return _tick(conexiones)
+
+
+def _tick(conexiones):
     r = nat.tick(conexiones)                                # los 0x0609 pendientes (P2P entre casas, §53)
     r += messenger.tick()                                   # «X se desconectó» a sus amigos
     forzar = os.path.join(config.ESTADO, "forzar_lista")   # (para probar a mano)
@@ -98,6 +110,7 @@ def tick(conexiones):
     if getattr(VIVO, "LISTA_CAMBIO", False):
         VIVO.LISTA_CAMBIO = False
         r += avisar_lista() + avisar_usuarios()
+    r += [x for x in vigilar_cargas(SALAS) if x[3] in conexiones]   # (20-nov: nadie queda cargando para siempre)
     for n in conexiones:
         p = PARTIDAS.get(n)
         if p and p.get("game_over_en") and time.time() >= p["game_over_en"]:
@@ -119,6 +132,11 @@ def tick(conexiones):
 
 
 def cerrada(conexion):
+    with _CANDADO:
+        _cerrada(conexion)
+
+
+def _cerrada(conexion):
     """El espía avisa que la conexión se cerró: olvidar su partida, su sala y soltar su cuenta.
     (Sin forma de devolver mensajes acá: la lista nueva sale con el próximo `tick`.)"""
     PARTIDAS.pop(conexion, None)
