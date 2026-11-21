@@ -240,8 +240,12 @@ def vigilar_cargas(salas):
 
 @maneja(0x1061)
 def npc_muerto(cmd, cuerpo, conexion, c, p):
-    """un NPC muerto [§5.11]: `u8 n · u8 1 · 6 × 0` (n = el NPC)"""
+    """un NPC muerto [§5.11]: `u8 n · u8 1 · 6 × 0` (n = el NPC). ★ (21-nov) con varios lo manda sólo el máster
+    (`0x639AA0`): las bajas son de la partida (`muertos_stage` de la sala), para el resultado de todos."""
     p["muertos"] = p.get("muertos", 0) + 1
+    s_ = SALAS.get(p.get("sala"))
+    if s_ and s_.get("jugando") and conexion in s_["miembros"]:
+        s_["muertos_stage"] = s_.get("muertos_stage", 0) + 1
     esc = p.get("escenario")
     if esc in ESCENARIOS and p.get("inicio") and len(cuerpo) >= 2 and not p.get("resultado_guardado"):
         bajas = p.setdefault("bajas_stage", set())
@@ -437,11 +441,44 @@ def usar_moneda(cmd, cuerpo, conexion, c, p):
 
 @maneja(0x1064)
 def fin_de_stage(cmd, cuerpo, conexion, c, p):
-    """★ la stage terminó [§5.13, §5.14]"""
+    """★ la stage terminó [§5.13, §5.14].
+    ★ (21-nov) CON VARIOS, el fin es de TODA la partida. Medido en el exe: el guion avisa el fin por
+    `SendEvent` (`0x636EA0`), que sólo llama al delegado que manda el 0x1064 (`0x546480`) si la bandera
+    `+0x168` del administrador de escenarios está prendida; esa bandera es la del MÁSTER de la partida (se copia
+    de la red en `0x64583F`; la prende `0x749020` y la apaga `0x747220`, y el 0x1058 tipo 3 se la pasa al nuevo
+    anfitrión en `0x50C2DB` / `0x54851C`). Lo mismo las bajas (0x1061, `0x639AA0`). O sea: los demás NUNCA mandan
+    su 0x1064 y su escenario no termina solo. Medido en el server de prueba (21-nov 16:58): el anfitrión terminó
+    y volvió a la sala; el invitado quedó en la stage. Ahora el 0x1064 del máster cierra la stage de todos los que
+    SIGUEN en ella (cada uno con su resultado y sus cartas); el de otro (no debería llegar) cierra sólo la suya."""
+    r = _fin_de_uno(cmd, cuerpo, conexion, c, p)
+    s = SALAS.get(p.get("sala"))
+    if not (s and conexion in s["miembros"] and len(s["miembros"]) > 1):
+        return r
+    if s.get("anfitrion") != conexion:
+        if r:
+            print("partida %s: 0x1064 de #%s, que no es el máster (#%s): sólo su resultado"
+                  % (s.get("partida_id", "?"), conexion, s.get("anfitrion")), flush=True)
+        return r
+    from servidor.cuentas import leer
+    equipo = max(p.get("muertos", 0), s.get("muertos_stage", 0))
+    otros = [m for m in en_la_stage(s, conexion) if not partida(m).get("resultado_guardado")]
+    for m in otros:
+        pm = partida(m)
+        pm["muertos"] = max(pm.get("muertos", 0), equipo)            # (las bajas son del equipo: las cuenta el máster)
+        r += [(x[0], x[1], x[2], m) for x in _fin_de_uno(cmd, b"", m, leer(m), pm)]
+    if otros:
+        print("partida %s: el máster #%s terminó la stage → también para %s"
+              % (s.get("partida_id", "?"), conexion, ", ".join("#%s" % m for m in otros)), flush=True)
+    return r
+
+
+def _fin_de_uno(cmd, cuerpo, conexion, c, p):
+    """El fin de la stage de UN jugador: su EXP, su premio, su PlayEnd, su resultado y sus cartas."""
     if p.get("resultado_guardado"):                     # (el aviso tardío no paga dos veces)
         return []
     p["resultado_guardado"] = True
     p["cierre_bajas"] = None
+    p["game_over_en"] = None                            # (si estaba muerto esperando: ya no hay game over)
     inicio = p.get("inicio") or time.time()
     ms = int((time.time() - inicio) * 1000)
     # ★ el premio sale del XML del escenario (RANK_POINT, KILL_POINT, TOTALEXP, MONSTER_CNT,

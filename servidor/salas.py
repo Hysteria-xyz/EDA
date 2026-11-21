@@ -255,7 +255,10 @@ def _sacar_de_sala(s, num, conexion):
         del SALAS[num]
         return []
     if s["anfitrion"] == conexion:
-        s["anfitrion"] = s["miembros"][0]
+        # ★ (21-nov) en plena stage, el mando (el MÁSTER del escenario: el único que manda bajas y el fin, ver
+        #   `partida.fin_de_stage`) pasa a uno que SIGUE en la stage; si no, el que termina queda sin máster
+        en_stage = [m for m in s["miembros"] if m in s.get("en_stage", ())] if s.get("jugando") else []
+        s["anfitrion"] = (en_stage or s["miembros"])[0]
         s.get("listos", set()).discard(s["anfitrion"])  # (el anfitrión no «está listo»: larga)
     nuevo = numero(s, s["anfitrion"])
     r = [(0x1058, struct.pack("<BHB", yo, 3, nuevo), 0, n) for n in s["miembros"]]
@@ -671,6 +674,7 @@ def largar(cmd, cuerpo, conexion, c, p):
         s.pop("largada", None)                          # (20-nov: la largada se da UNA vez por stage)
         s.pop("carga_desde", None)
         s["en_stage"] = set(miembros)                   # (Punto 3: «jugando» hasta que salgan TODOS)
+        s["muertos_stage"] = 0                          # (21-nov: las bajas de la partida, del máster)
         s["listos"] = set()                             # (al volver de la stage, todos «no listo»: `0x548AF0`)
         # ★ (21-nov, diagnóstico) el ID de ESTA partida: una línea del registro con quién juega, para juntar
         #   después todo lo de la partida (herramientas/diag_partida.py). Sin IP ni nada de la cuenta salvo su nombre

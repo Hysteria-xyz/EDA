@@ -272,22 +272,29 @@ def anomalias(h, inicio, clientes, partida_id):
             if molestos:
                 a.append("⚠ #%s recibió %s DURANTE la carga (entre 0x104F y 0x105E): eso termina el hilo de carga del "
                          "juego (0x5345C0)." % (n, ", ".join("0x%04X a las %s" % (c, hh(t)) for c, t in molestos)))
-        if largada and not (fines[n] or salidas[n] or vueltas[n] or x["cerrada"]):
-            a.append("⛔ #%s tuvo la largada (%s) y después NO mandó fin (0x1064) ni salida (0x1074), no recibió la "
-                     "vuelta (0x1075) ni se desconectó: se quedó en la stage." % (n, hh(largada)))
+        if largada and not (primera(x["recibio"].get(0x1073), largada) or salidas[n] or vueltas[n] or x["cerrada"]):
+            a.append("⛔ #%s tuvo la largada (%s) y después NO recibió el fin (PlayEnd 0x1073), no salió (0x1074) ni "
+                     "volvió al lobby (0x1075), ni se desconectó: se quedó en la stage." % (n, hh(largada)))
         if largada and x["cerrada"] and not (fines[n] or salidas[n]):
             a.append("⛔ #%s se DESCONECTÓ (%s) en la stage, sin fin ni salida." % (n, hh(x["cerrada"])))
         if fines[n] and not primera(x["recibio"].get(0x1073), fines[n]):
             a.append("⛔ #%s mandó su fin (0x1064, %s) y NO recibió el PlayEnd (0x1073)." % (n, hh(fines[n])))
-    terminaron = {n: t for n, t in fines.items() if t}
-    for n, t in sorted(terminaron.items(), key=lambda kv: kv[1]):
+    # ★ con varios, el fin lo manda SÓLO el máster (exe `0x636EA0`, bandera +0x168): los demás terminan cuando el
+    #   server les manda su PlayEnd. Si el máster terminó y a otro que seguía en la stage no le llegó → quedó adentro
+    playend = {n: primera(x["recibio"].get(0x1073), inicio) for n, x in h.items()}
+    for n, t in sorted(((n, t) for n, t in fines.items() if t), key=lambda kv: kv[1]):
         for o in h:
-            if o == n or o in terminaron or salidas[o]:
+            if o == n or salidas[o] or (h[o]["cerrada"] and h[o]["cerrada"] <= t):
                 continue
-            ult = h[o]["ultimo_mando"]
-            a.append("⛔ #%s terminó la stage (0x1064, %s) y #%s NO mandó su 0x1064 (cada cliente manda el suyo, el "
-                     "byte es su número de jugador: exe 0x5464D5). El escenario no terminó en la PC de #%s. Lo último "
-                     "que mandó #%s: %s." % (n, hh(t), o, o, o, hh(ult) if ult else "nada"))
+            if not primera(h[o]["recibio"].get(0x105E), inicio):
+                continue
+            pe = playend[o]
+            if not pe or (pe - t).total_seconds() > 5:
+                ult = h[o]["ultimo_mando"]
+                a.append("⛔ #%s mandó el fin de la stage (0x1064, %s) y a #%s, que seguía en la stage, NO le llegó su "
+                         "PlayEnd (0x1073)%s. Con varios jugadores sólo el máster manda el 0x1064 (exe 0x636EA0): el "
+                         "server tiene que cerrarles la stage a los demás. Lo último que mandó #%s: %s." % (
+                             n, hh(t), o, " hasta las %s" % hh(pe) if pe else "", o, hh(ult) if ult else "nada"))
         break
     for n, x in h.items():
         largada = primera(x["recibio"].get(0x105E), inicio)
@@ -515,7 +522,7 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
              [x["id"] for x in todas] == ["P-20261121-165648-s3"] and todas[0]["miembros"] == {1: "en_1", 2: "en_2"})
     z, res = armar(tgz, partida_id="P-20261121-165648-s3", clientes=[("jugador2", cli)], salida=os.path.join(d, "p.zip"))
     chequear("lo de la última prueba: #1 termina y #2 se queda → la anomalía lo dice, con la hora",
-             "#1 terminó la stage (0x1064, 16:58:33) y #2 NO mandó su 0x1064" in res)
+             "#1 mandó el fin de la stage (0x1064, 16:58:33) y a #2, que seguía en la stage, NO le llegó su PlayEnd" in res)
     chequear("…y que #2 siguió vivo (mandó «estoy vivo») hasta desconectarse", "se DESCONECTÓ (17:04:00)" in res)
     chequear("el cliente: su hora de Perú pasa a UTC (11:56:53 → 16:56:53) y entra en la línea de tiempo",
              "16:56:53  jugador2/NetTrace" in zipfile.ZipFile(z).read("linea_de_tiempo.txt").decode())
@@ -556,13 +563,12 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
 2026-11-21 18:00:41 #2 ← 1001 (5 B)
 2026-11-21 18:01:00 #1 ← 1064 (1 B)
 2026-11-21 18:01:00 #1 → 1073 (60 B)
-2026-11-21 18:01:01 #2 ← 1064 (1 B)
-2026-11-21 18:01:01 #2 → 1073 (60 B)
+2026-11-21 18:01:00 #2 → 1073 (60 B)
 """
     open(os.path.join(d, "eda-prueba-diagnostico", "server.log"), "w").write(sana)
     _, res = armar(os.path.join(d, "eda-prueba-diagnostico"), desde=fecha("2026-11-21 17:59"),
                    hasta=fecha("2026-11-21 18:05"), salida=os.path.join(d, "s.zip"))
-    chequear("★ el revés: una partida sana (los dos con su fin y su PlayEnd) → ninguna anomalía",
+    chequear("★ el revés: una partida sana (el máster termina y los dos reciben su PlayEnd) → ninguna anomalía",
              "Ninguna regla saltó." in res, res.split("## Anomalías detectadas")[1][:300] if "Ninguna" not in res else "")
     chequear("por intervalo horario: toma la partida que empezó adentro", "P?-20261121-180000" in res)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
