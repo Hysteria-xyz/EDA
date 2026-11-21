@@ -72,6 +72,29 @@ docker exec eda-prod python servidor/juego.py estado  # las cuentas
 reemplaza nada: el contenedor que andaba sigue andando. Un PR roto en `develop` no tira el server
 de prueba.
 
+## Los registros del server de prueba, para quien investiga una falla
+
+Quien trabaja en `develop` necesita ver qué hizo el server de prueba en una partida (los mensajes, el
+relay, las direcciones del P2P) sin tener la entrada al VPS, donde también está prod. Para eso hay una
+llave de SSH que **sólo baja un paquete de registros** del server de prueba:
+
+```sh
+sh diagnostico-instalar.sh "ssh-ed25519 AAAA… nombre"   # en el VPS, como root: la llave PÚBLICA de quien va a leer
+sh diagnostico-instalar.sh quitar "nombre"              # anularla
+```
+
+Y quien tiene la llave privada, desde su PC (en Windows, con `cmd /c "…"`: el `>` de PowerShell rompe el archivo):
+
+```sh
+ssh -i LLAVE eda-diag@SERVER 24 > diagnostico.tgz       # 24 = horas hacia atrás (1 a 168)
+```
+
+Trae el registro del server (`server.log`), `relay.log`, `punch.json`, `nat.json`, `relay.json` y un
+`LEEME.txt` con el commit que corre y la configuración del P2P (sólo una lista fija de variables: ninguna
+clave). La llave entra como el usuario `eda-diag` con `restrict` y una orden forzada: no da terminal, ni
+túneles, ni otro comando, y lo que arma el paquete ([`diagnostico.sh`](diagnostico.sh)) sólo lee, y sólo
+lo del server de prueba. ⚠ Los registros traen las IP de quienes probaron: no van a un PR ni a un issue.
+
 ## Mudarse a otro VPS
 
 1. En el VPS **nuevo**: el `curl … instalar.sh | bash` de arriba.
