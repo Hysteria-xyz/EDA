@@ -82,21 +82,20 @@ Texto del POP-UP: (py herramientas\version_cliente.py popup VERSIÓN)
 Publicación: pasos 1–6 de arriba · Reversión: versión mayor con los archivos anteriores
 ```
 
-## Borrador en curso: 2026.11.22.1 (dll 0.5.1) — qué pasó las pruebas
+## Borrador en curso: 2026.11.22.1 (dll 0.5.3) — qué pasó las pruebas
 
-Estado: **borrador** (no publicado). Contenido decidido por lo que pasó las pruebas, no por lo que se programó.
+Estado: **borrador** (no publicado). El contenido final se decide por lo que pasa las pruebas, no por lo programado.
+Base: develop **7823eca** (con #68, el selector de Stage = dll 0.5.1). La release lleva la dll **0.5.3** (`a9678cda`,
+commit 04e141d): 0.5.1 (selector) + 0.5.2 (las llamadas sin resolver / mal resueltas) + 0.5.3 (el diagnóstico).
 
 | Qué | Dónde | Resultado |
 |---|---|---|
-| dll 0.5.1 (`cliente/apis-sin-resolver` de35fd4) | compilada por el buzón, reproducible | md5 `e2bf4df23ed43f7f13abe2f8c0916023` |
-| Reproducir la caída (reparación apagada) | EDA-PRUEBA-APIS modo 1, 21-nov 18:17 | ⛔ cae en `0x7F4626` (IsValidLocale), como en la partida de las 14:20 |
-| Camino de la caída con la reparación | modo 2, 18:18 | ✅ `setlocale("korean")` → «Korean_Korea.949» y vuelta a «C», sin errores |
-| Regresión jugando | modo 3, 18:19–18:21 | ✅ login, lobby, 1 Stage, 120 cuadros/s, sin errores, cierre normal |
-| Pruebas sin juego | `prueba_apis.c` / `prueba_apis.py` (CI) | ✅ 17 trampas + 3 llamadas mal resueltas; ninguna otra en la CRT |
+| La caída 0x7F4626 | EDA-PRUEBA-APIS, dll 0.5.1-candidata e2bf4df2 (21-nov 18:17–18:21) | ✅ se reproduce sin la reparación; con ella `setlocale("korean")` vuelve; 1 Stage sin errores |
+| Pruebas sin juego | `prueba_apis.c/.py`, `prueba_selector.c`, `prueba_diag.c/.py`, `diag_partida control`, server | ✅ (CI) |
+| El diagnóstico de punta a punta | EDA-PRUEBA-DIAG (server local, dll 0.5.3) | pendiente: el informe dice si pasa |
+| FPS con y sin diagnóstico | EDA-PRUEBA-DIAG sin / con | pendiente |
+| El POP-UP | `launcher/popup-novedades/probar_popup.js` con el Launcher.exe de TEST | ✅ 14/14 en la pantalla del launcher (falta el launcher recompilado por su dueño) |
+| Partida de DOS en TEST | — | pendiente (después del despliegue autorizado) |
 
-Lo que llevó a la 2ª corrección: con sólo las 17 trampas reparadas, el modo 2 se cayó con la pila corrida
-(`0x7F4610` llamaba a `RtlIntegerToChar` en vez de `IsValidCodePage`). Por eso la 0.5.1 corrige también las 3
-llamadas mal resueltas de la CRT de `documentacion/APIS_A_MANO.md`.
-
-Falta antes de publicar: la partida de DOS en el server TEST donde se vio la caída (14:20), con la dll 0.5.1.
-No entra en esta versión: el diagnóstico automático (todavía sin prueba de punta a punta en el juego).
+Si se publica otro día, la versión es la de ESE día: `AAAA.MM.DD.1` (o `.2`, `.3`… si ya salió una ese día), siempre
+mayor que la anterior (`2026.11.19` en los launchers de hoy); `version_cliente.py revisar` lo exige.
