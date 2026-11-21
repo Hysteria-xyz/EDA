@@ -454,6 +454,10 @@ def main():
         log("relay UDP: IP pública %s, puertos %d … %d" % (
             config.RELAY_IP, config.RELAY_BASE, config.RELAY_BASE + MAX_CONEXIONES))
         threading.Thread(target=relay, daemon=True).start()
+        log("P2P: modo «%s»%s · entre casas: %s" % (
+            config.P2P, " (⚠ EDA_P2P=%r no existe: uso «directo»)" % config.P2P_PEDIDO
+            if config.P2P_PEDIDO and config.P2P_PEDIDO != config.P2P else "",
+            "sí" if config.P2P_ENTRE_CASAS else "no"))
     else:
         log("sin relay (EDA_RELAY_IP vacío): sólo para jugadores en la MISMA PC que el server")
     threading.Thread(target=reloj, daemon=True).start()

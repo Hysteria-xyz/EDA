@@ -50,7 +50,10 @@ PUNCH_PUERTO = int(os.environ.get("EDA_PUNCH_PUERTO") or 25001)   # `herramienta
 #   ★ (21-nov) "auto" = por PAREJA y el mismo camino en los dos sentidos: misma casa → las privadas; las dos
 #     públicas confiables (su 0x3006 de esta sesión y su 0x3002 por el mismo puerto) → directo; si no → relay.
 #     (El anfitrión nunca manda su 0x3006: con él, relay.) Ver `servidor/relay.ruta`.
-P2P = os.environ.get("EDA_P2P", "directo")
+# ⚠ (21-nov) docker-compose pasa la variable SIEMPRE (vacía si el .env no la tiene): vacía = "directo", lo de
+#   siempre. Un valor que no es ninguno de los tres también queda en "directo" (y se avisa al arrancar).
+P2P_PEDIDO = (os.environ.get("EDA_P2P") or "").strip().lower()
+P2P = P2P_PEDIDO if P2P_PEDIDO in ("directo", "relay", "auto") else "directo"
 PUNCH_MAPA = os.path.join(ESTADO, "punch.json")   # conexión → [IP, puerto, hora] que vio el punch (relay_udp.py; ★ 21-nov: con hora)
 # ★ P2P ENTRE CASAS (MEDICIONES §53, servidor/nat.py): cada juego se presenta al relay al conectarse
 #   (0x0607 → su 0x3002) y el server le dice su dirección PÚBLICA (0x0609), como el original. Así el

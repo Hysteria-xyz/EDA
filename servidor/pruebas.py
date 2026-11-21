@@ -1557,7 +1557,7 @@ def pruebas_entre_casas(chequear):
         partida(n)["ip_tcp"] = ip_tcp
     ahora = time.time()
     # (las IP son de los rangos de documentación del RFC 5737: no son de nadie)
-    entra(970, "02:CC:00:00:00:01", ("192.168.1.48", 57654), ("198.51.100.26", 18113), "198.51.100.26")
+    entra(970, "02:CC:00:00:00:01", ("192.168.50.10", 57654), ("198.51.100.26", 18113), "198.51.100.26")
     entra(971, "02:CC:00:00:00:02", ("192.168.0.20", 57654), ("203.0.113.77", 40500), "203.0.113.77")
     partida(970)["desde"], partida(971)["desde"] = ahora, ahora
     host = (ip_int("198.51.100.26"), 18113)
@@ -1579,7 +1579,7 @@ def pruebas_entre_casas(chequear):
     chequear("★ el revés: el número 970 reusado por OTRA sesión no hereda la dirección del que se fue",
              punch_de(970) is None and dir_udp(970, 971) == (ip_int("192.0.2.99"), 30000))
     cerrada(970)
-    entra(970, "02:CC:00:00:00:01", ("192.168.1.48", 57654), ("198.51.100.26", 18113), "198.51.100.26")
+    entra(970, "02:CC:00:00:00:01", ("192.168.50.10", 57654), ("198.51.100.26", 18113), "198.51.100.26")
     partida(970)["desde"] = ahora
     # ── modo «auto»: por pareja, el mismo camino en los dos sentidos
     config.P2P = "auto"
@@ -1603,7 +1603,7 @@ def pruebas_entre_casas(chequear):
     partida(971)["ip_tcp"] = "198.51.100.26"
     chequear("auto: misma casa (misma IP de conexión) → las PRIVADAS, los dos sentidos",
              ruta(970, 971) == ruta(971, 970) == "casa"
-             and dir_udp(970, 971) == (ip_int("192.168.1.48"), 57654)
+             and dir_udp(970, 971) == (ip_int("192.168.50.10"), 57654)
              and dir_udp(971, 970) == (ip_int("192.168.0.20"), 57654))
     partida(971)["ip_tcp"] = "203.0.113.77"
     partida(971).pop("mac", None)
@@ -1628,6 +1628,24 @@ def pruebas_entre_casas(chequear):
     chequear("★ el revés: jugando, no (el 0x1059 es de la sala que espera)", reanunciar(SALAS) == [])
     SALAS.pop(77)
     (config.P2P_ENTRE_CASAS, config.RELAY_IP, config.P2P, config.PUNCH_MAPA) = viejos
+    # ── EDA_P2P como llega del docker-compose (vacía si el .env no la tiene)
+    import subprocess
+    import sys
+
+    def modo(valor):
+        env = dict(os.environ)
+        env.pop("EDA_P2P", None)
+        env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)      # (los mismos módulos que esta corrida)
+        if valor is not None:
+            env["EDA_P2P"] = valor
+        raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return subprocess.run([sys.executable, "-c", "from servidor import config; print(config.P2P)"], cwd=raiz,
+                              env=env, capture_output=True, text=True).stdout.strip()
+    chequear("EDA_P2P: sin la variable o vacía (el compose la pasa vacía) → directo, como siempre",
+             modo(None) == modo("") == "directo")
+    chequear("EDA_P2P: relay y auto se toman (también con mayúsculas o espacios)",
+             modo("relay") == "relay" and modo(" AUTO ") == "auto")
+    chequear("★ el revés: un valor que no existe → directo (no un modo a medias)", modo("relai") == "directo")
 
 
 def pruebas_carga_sin_cortes(chequear):

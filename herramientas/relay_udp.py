@@ -141,7 +141,7 @@ def main(ip="0.0.0.0"):
     log = open(LOG, "a", encoding="utf-8")
 
     def anotar(t):
-        log.write("%s %s\n" % (time.strftime("%H:%M:%S"), t))
+        log.write("%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), t))   # (21-nov: con la fecha)
         log.flush()
 
     anotar("relay escuchando %s:%d (+1+n por jugador)" % (ip, RELAY_BASE))
