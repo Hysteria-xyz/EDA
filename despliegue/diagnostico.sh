@@ -9,6 +9,7 @@
 #   server.log   lo que escribió el server de prueba en esas horas
 #   relay.log    el relay UDP (sus líneas no llevan fecha; van las últimas 20000)
 #   punch.json · nat.json · relay.json   como están AHORA (el server los pisa en cada cambio)
+#   diag/        ★ lo que mandaron los clientes beta en esas horas (servidor/diag.py: eventos técnicos, sin datos personales)
 #
 # SÓLO LEE, y SÓLO lo del server de prueba: no toca prod, ni las cuentas, ni la base del login, ni reinicia
 # nada. Lo instala diagnostico-instalar.sh, que le da a una llave de SSH permiso para correr esto y nada más.
@@ -57,4 +58,9 @@ tail -n 20000 "$E/relay.log" > "$D/relay.log" 2>/dev/null || true
 for f in punch.json nat.json relay.json; do
 	cp "$E/$f" "$D/$f" 2>/dev/null || true
 done
+# ★ (21-nov) los diagnósticos que mandaron los clientes beta en esas horas (servidor/diag.py): sólo eventos técnicos
+if [ -d "$E/diag" ]; then
+	mkdir -p "$D/diag"
+	find "$E/diag" -type f -name '*.jsonl' -mmin -"$((h * 60))" -exec cp {} "$D/diag/" \; 2>/dev/null || true
+fi
 tar -C "$T" -czf - eda-prueba-diagnostico

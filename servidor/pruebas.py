@@ -1012,6 +1012,7 @@ def control():
     PARTIDAS.clear()
     ASIGNADAS.clear()
     SALAS.clear()
+    pruebas_diag_recepcion(chequear)
     pruebas_messenger(chequear)
     pruebas_messenger_cuentas_reales(chequear)
     PARTIDAS.clear()
@@ -1819,6 +1820,100 @@ def pruebas_fin_stage_grupo(chequear):
     for k in list(SALAS):
         if k >= 80:
             SALAS.pop(k, None)
+
+
+def pruebas_diag_recepcion(chequear):
+    """★ (21-nov) POST /eda/diag (servidor/diag.py): los diagnósticos de los clientes beta, firmados con el ticket de su
+    sesión sin mandarlo, con sus límites, y sin nada con forma de dato privado."""
+    import shutil
+    import tempfile
+    from servidor import diag
+    viejo_estado, viejo_activo = config.ESTADO, diag.ACTIVO
+    config.ESTADO = tempfile.mkdtemp(prefix="diag_")
+    diag._ULTIMO_LOTE.clear()
+    diag._RITMO.clear()
+    T = "TICKET-DE-PRUEBA-0123"
+    tickets = {"777": [T]}
+    buscar = lambda c: tickets.get(c, [])          # noqa: E731
+    ahora = 1_795_300_000_000
+    ses = "0123456789abcdef0123456789abcdef"
+
+    def lote(n, eventos, cuenta="777", hora=None, ticket=T, sesion=ses, cuerpo=None):
+        cuerpo = cuerpo if cuerpo is not None else "\n".join(json.dumps(e) for e in eventos).encode()
+        hora = ahora if hora is None else hora
+        cab = {"X-EDA-Cuenta": cuenta, "X-EDA-Sesion": sesion, "X-EDA-Lote": str(n), "X-EDA-Hora": str(hora),
+               "X-EDA-Firma": diag.firma(ticket, hora, sesion, n, cuerpo)}
+        return diag.recibir(cab, cuerpo, ahora, buscar)
+    ev = [{"t": ahora - 5000, "m": 12345, "e": "escena", "a": "stage"},
+          {"t": ahora - 4000, "e": "caida", "codigo": "C0000005", "sitio": "0x7F4626", "modulo": "exe"},
+          {"t": ahora - 3000, "e": "foco", "ticket": T, "mac": "02:00:00:00:00:01", "ip_privada": "192.168.1.9",
+           "nota": "va a 198.51.100.7", "texto_chat": "hola"}]
+    c, r = lote(1, ev)
+    chequear("diag: un lote firmado con el ticket de su sesión → 200 y se guardan los 3 eventos", c == 200 and r.get("guardados") == 3, (c, r))
+    arch = os.path.join(config.ESTADO, "diag", time.strftime("%Y-%m-%d", time.gmtime(ahora / 1000)), "777-%s.jsonl" % ses)
+    texto = open(arch, encoding="utf-8").read() if os.path.exists(arch) else ""
+    chequear("diag: por cuenta y sesión, con la hora de llegada y la diferencia de reloj", '"r":%d' % ahora in texto and '"dr":0' in texto)
+    chequear("★ diag: nada con forma de dato privado (ticket, MAC, IP, texto del chat) queda guardado",
+             T not in texto and "02:00:00" not in texto and "192.168" not in texto and "198.51" not in texto and "hola" not in texto,
+             texto[-300:])
+    chequear("★ diag: el revés: un lote repetido o viejo → 409", lote(1, ev)[0] == 409)
+    chequear("★ diag: el revés: firmado con OTRO ticket → 401", lote(2, ev, ticket="otro")[0] == 401)
+    chequear("★ diag: el revés: otra cuenta con la firma de ésta → 401", lote(2, ev, cuenta="888")[0] == 401)
+    chequear("★ diag: el revés: la hora a más de 10 min → 401", lote(2, ev, hora=ahora - 11 * 60 * 1000)[0] == 401)
+    chequear("★ diag: el revés: un cuerpo de más de 64 KB → 413", lote(2, [], cuerpo=b"x" * (65 * 1024))[0] == 413)
+    chequear("★ diag: el revés: una sesión con otra forma → 400", lote(2, ev, sesion="mi-pc")[0] == 400)
+    codigos = [lote(n, ev[:1])[0] for n in range(10, 30)]
+    chequear("★ diag: más de 12 lotes por minuto de una cuenta → 429 (y antes, 200)", codigos.count(200) >= 1 and codigos[-1] == 429, codigos)
+    # la poda: lo de más de 14 días se va, lo de hoy nunca
+    base = os.path.join(config.ESTADO, "diag")
+    for dia in ("2026-10-01", "2026-11-20"):
+        os.makedirs(os.path.join(base, dia), exist_ok=True)
+        open(os.path.join(base, dia, "1-%s.jsonl" % ("0" * 32)), "w").write("x" * 1000)
+    borrados = diag.podar(ahora, dias=14, max_mb=500)
+    hoy = time.strftime("%Y-%m-%d", time.gmtime(ahora / 1000))
+    chequear("diag: la poda borra lo de más de 14 días y deja lo reciente", borrados == ["2026-10-01"]
+             and os.path.isdir(os.path.join(base, "2026-11-20")) and os.path.isdir(os.path.join(base, hoy)), borrados)
+    diag.podar(ahora, dias=14, max_mb=0)
+    chequear("★ diag: con el tope lleno se borra lo más viejo, pero NUNCA lo de hoy", os.path.isdir(os.path.join(base, hoy))
+             and not os.path.isdir(os.path.join(base, "2026-11-20")))
+    # por HTTP: apagado (prod) → 404; prendido → 200
+    from servidor import red
+    import threading
+    import urllib.request
+    import urllib.error
+    srv = red.servidor_http(("127.0.0.1", 0))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = "http://127.0.0.1:%d/eda/diag" % srv.server_address[1]
+
+    def post(cuerpo, cab):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, data=cuerpo, headers=cab, method="POST"), timeout=5) as rr:
+                return rr.status
+        except urllib.error.HTTPError as e:
+            return e.code
+    diag.ACTIVO = False
+    chequear("★ diag por HTTP: sin EDA_DIAG (prod) → 404, como cualquier ruta que no existe", post(b"{}", {}) == 404)
+    diag.ACTIVO = True
+    diag._RITMO.clear()
+    viejos = diag.tickets_de
+    try:
+        diag.tickets_de = buscar
+        hora = int(time.time() * 1000)
+        cuerpo = json.dumps({"t": hora, "e": "inicio"}).encode()
+        cab = {"X-EDA-Cuenta": "777", "X-EDA-Sesion": "f" * 32, "X-EDA-Lote": "1", "X-EDA-Hora": str(hora),
+               "X-EDA-Firma": diag.firma(T, hora, "f" * 32, 1, cuerpo), "Content-Type": "application/x-ndjson"}
+        # (recibir usa tickets_de por defecto: se cambia para la prueba)
+        diag.recibir.__defaults__ = (None, buscar)
+        chequear("diag por HTTP: con EDA_DIAG=1, un lote bien firmado → 200", post(cuerpo, cab) == 200)
+        cab["X-EDA-Lote"] = "2"
+        chequear("★ diag por HTTP: el revés: la firma no corresponde al cuerpo → 401", post(cuerpo + b" ", cab) == 401)
+    finally:
+        diag.tickets_de = viejos
+        diag.recibir.__defaults__ = (None, viejos)
+        srv.shutdown()
+        diag.ACTIVO = viejo_activo
+        shutil.rmtree(config.ESTADO, ignore_errors=True)
+        config.ESTADO = viejo_estado
 
 def pruebas_lista_servidores(chequear):
     """★ La lista de servidores (0x070B) con los jugadores de verdad."""

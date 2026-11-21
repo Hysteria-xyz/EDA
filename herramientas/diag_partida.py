@@ -22,6 +22,7 @@ clientes respecto de UTC (Perú: -5, por defecto). Sólo LEE: no cambia ningún 
 """
 import argparse
 import io
+import json
 import os
 import re
 import sys
@@ -69,16 +70,21 @@ def abrir_paquete(ruta):
 
     def nombre(a):                                  # (un recorte a mano: «server_test_0530-0550_UTC.log»)
         return "server.log" if a not in quiero and a.startswith("server") and a.endswith(".log") else a
-    r = {}
+    r = {"diag": {}}
     if os.path.isdir(ruta):
         for raiz, _, archivos in os.walk(ruta):
             for a in archivos:
+                if a.endswith(".jsonl") and os.path.basename(raiz) == "diag":
+                    r["diag"][a] = open(os.path.join(raiz, a), encoding="utf-8", errors="replace").read()
                 if nombre(a) in quiero and nombre(a) not in r:
                     r[nombre(a)] = open(os.path.join(raiz, a), encoding="utf-8", errors="replace").read()
     else:
         with tarfile.open(ruta) as t:
             for m in t.getmembers():
                 a = os.path.basename(m.name)
+                if m.isfile() and a.endswith(".jsonl") and "/diag/" in "/" + m.name:
+                    r["diag"][a] = t.extractfile(m).read().decode("utf-8", errors="replace")
+                    continue
                 if m.isfile() and nombre(a) in quiero and nombre(a) not in r:
                     r[nombre(a)] = t.extractfile(m).read().decode("utf-8", errors="replace")
     return r
@@ -161,6 +167,37 @@ def leer_cliente(nombre, ruta, dia_local, zona):
             lineas.append(Linea(t.astimezone(UTC), "%s/%s" % (nombre, tipo), cuerpo))
         lineas.reverse()
         out[tipo] = lineas
+    return out
+
+
+def leer_diag(archivos):
+    """★ (21-nov) lo que mandaron los clientes beta (servidor/diag.py): «<cuenta>-<sesion>.jsonl» → {cuenta: [Linea]}.
+    La hora de cada evento es la del reloj de SU PC: se corrige con «dr» (la diferencia que midió el server al recibir)."""
+    r = {}
+    for nombre, texto in archivos.items():
+        m = re.match(r"^(.+)-([0-9a-f]{32})\.jsonl$", nombre)
+        if not m:
+            continue
+        cuenta, sesion = m.group(1), m.group(2)
+        for ln in texto.splitlines():
+            try:
+                ev = json.loads(ln)
+            except ValueError:
+                continue
+            t = datetime.fromtimestamp((ev.get("t", 0) + ev.get("dr", 0)) / 1000.0, UTC)
+            resto = " ".join("%s=%s" % (k, v) for k, v in ev.items() if k not in ("t", "e", "r", "dr", "m"))
+            r.setdefault(cuenta, []).append(Linea(t, "%s/diag·%s" % (cuenta, sesion[:6]), ("%s %s" % (ev.get("e"), resto)).strip()))
+    for v in r.values():
+        v.sort(key=lambda ln: ln.t)
+    return r
+
+
+def de_la_cuenta(diag, cuenta):
+    """las líneas de diag de esa cuenta del server («en_10006352» ↔ el usuario «10006352» que manda la dll)"""
+    out = []
+    for c, ls in diag.items():
+        if cuenta and (c == cuenta or cuenta.endswith("_" + c)):
+            out += ls
     return out
 
 
@@ -384,12 +421,20 @@ def armar(paquete, partida_id=None, desde=None, hasta=None, clientes=(), zona=-5
         m = re.findall(r"#(\d+)", ln.texto)
         return not m or any(int(k) in nums for k in m) or not nums
 
+    diag = leer_diag(arch.get("diag", {}))
+    dg = {n: [ln for ln in de_la_cuenta(diag, c) if en(ln)] for n, c in miembros.items()}
     sv = [ln for ln in server if en(ln) and del_server(ln)]
     rl = [ln for ln in relay if en(ln)]
     cl = {n: {t: [ln for ln in ls if en(ln)] for t, ls in tipos.items()} for n, tipos in cli.items()}
     inicio = elegidas[0]["desde"] if elegidas else desde_
     h = hechos(server, nums, desde_, hasta_, inicio)
     an = anomalias(h, inicio, cl, elegidas[0]["id"] if elegidas else None) if nums else []
+    for n, ls in dg.items():
+        for ln in ls:
+            ev = ln.texto.split(" ", 1)[0]
+            if ev in ("caida", "congelado", "atrapado_carga", "server_corta", "tcp_silencio"):
+                an.append("%s #%s (%s), su cliente: %s (%s)" % ("⛔" if ev in ("caida", "atrapado_carga") else "⚠", n,
+                                                               miembros.get(n, "?"), ln.texto, hh(ln.t)))
     nombre = elegidas[0]["id"] if len(elegidas) == 1 else "intervalo-%s" % desde_.strftime("%Y%m%d-%H%M%S")
 
     res = ["# Diagnóstico de %s" % nombre, "",
@@ -418,6 +463,9 @@ def armar(paquete, partida_id=None, desde=None, hasta=None, clientes=(), zona=-5
                      or "descartado" in ln.texto][:40]
     res += ["", "## Relay", ""] + (["- %s" % x for x in resumen_relay] or ["- Nada del relay en la ventana "
                                                                          "(con P2P directo es lo normal)."])
+    res += ["", "## Diagnóstico automático de los clientes", ""] + (
+        ["- #%s (%s): %d eventos" % (n, miembros.get(n, "?"), len(ls)) for n, ls in sorted(dg.items()) if ls]
+        or ["- Ninguno en la ventana (clientes sin la dll con diagnóstico, o EDA_DIAG apagado)."])
     res += ["", "## Clientes", ""]
     if cl:
         for n, tipos in cl.items():
@@ -433,7 +481,8 @@ def armar(paquete, partida_id=None, desde=None, hasta=None, clientes=(), zona=-5
             ""]
     resumen = "\n".join(res)
 
-    todo = sorted(sv + rl + [ln for tipos in cl.values() for ls in tipos.values() for ln in ls], key=lambda ln: ln.t)
+    todo = sorted(sv + rl + [ln for tipos in cl.values() for ls in tipos.values() for ln in ls]
+                  + [ln for ls in dg.values() for ln in ls], key=lambda ln: ln.t)
     linea = "\n".join("%s  %-18s %s" % (ln.t.strftime("%Y-%m-%d %H:%M:%S"), ln.fuente, tapa(ln.texto)) for ln in todo)
     salida = salida or "%s.zip" % nombre
     with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as z:
@@ -445,6 +494,10 @@ def armar(paquete, partida_id=None, desde=None, hasta=None, clientes=(), zona=-5
             for t, ls in tipos.items():
                 z.writestr("cliente-%s-%s.log" % (n, t), "\n".join("%s %s" % (ln.t.strftime("%Y-%m-%d %H:%M:%S"),
                                                                               tapa(ln.texto)) for ln in ls) + "\n")
+        for n, ls in dg.items():
+            if ls:
+                z.writestr("diag-%s.log" % n, "\n".join("%s %s %s" % (ln.t.strftime("%Y-%m-%d %H:%M:%S"), ln.fuente,
+                                                                       tapa(ln.texto)) for ln in ls) + "\n")
         if "LEEME.txt" in arch:
             z.writestr("LEEME-del-server.txt", tapa(arch["LEEME.txt"]))
     return salida, resumen
@@ -504,6 +557,13 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
     os.makedirs(os.path.join(d, "eda-prueba-diagnostico"))
     open(os.path.join(d, "eda-prueba-diagnostico", "server.log"), "w").write(server)
     open(os.path.join(d, "eda-prueba-diagnostico", "relay.log"), "w").write(relay)
+    os.makedirs(os.path.join(d, "eda-prueba-diagnostico", "diag"))
+    t_caida = int(datetime(2026, 11, 21, 16, 57, 30, tzinfo=UTC).timestamp() * 1000)
+    with open(os.path.join(d, "eda-prueba-diagnostico", "diag", "2-" + "ab" * 16 + ".jsonl"), "w") as f:
+        f.write(json.dumps({"t": t_caida - 3000, "e": "escena", "a": "stage", "r": t_caida, "dr": 3000}) + "\n")
+        f.write(json.dumps({"t": t_caida - 3000, "e": "caida", "codigo": "C0000005", "sitio": "0x7F4626", "dr": 3000}) + "\n")
+    with open(os.path.join(d, "eda-prueba-diagnostico", "diag", "12-" + "cd" * 16 + ".jsonl"), "w") as f:
+        f.write(json.dumps({"t": t_caida, "e": "caida", "sitio": "0x1", "dr": 0}) + "\n")
     tgz = os.path.join(d, "paquete.tgz")
     with tarfile.open(tgz, "w:gz") as t:
         t.add(os.path.join(d, "eda-prueba-diagnostico"), arcname="eda-prueba-diagnostico")
@@ -527,13 +587,16 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
     chequear("el cliente: su hora de Perú pasa a UTC (11:56:53 → 16:56:53) y entra en la línea de tiempo",
              "16:56:53  jugador2/NetTrace" in zipfile.ZipFile(z).read("linea_de_tiempo.txt").decode())
     chequear("el congelamiento que vio la dll aparece en las anomalías", "CONGELADO 4000 ms" in res)
+    chequear("★ diagnóstico automático: la caída que mandó el cliente de #2 entra a las anomalías, con la hora del server",
+             "#2 (en_2), su cliente: caida codigo=C0000005 sitio=0x7F4626 (16:57:30)" in res, res.split("## Anomalías")[1][:600])
+    chequear("★ el revés: lo de la cuenta 12 no se confunde con la 2", "sitio=0x1" not in res)
     todo = "".join(zipfile.ZipFile(z).read(n).decode() for n in zipfile.ZipFile(z).namelist())
     chequear("★ tapadas: ninguna IP ni MAC de los registros queda en el .zip",
              "198.51.100.26" not in todo and "203.0.113.77" not in todo and "00:00:5E:00:53:01" not in todo and "IP-A" in todo)
     chequear("★ el ruido de la dll (escala2d) no entra", "ruido" not in todo)
     chequear("un solo .zip con RESUMEN, línea de tiempo y los recortes",
              set(zipfile.ZipFile(z).namelist()) >= {"RESUMEN.md", "linea_de_tiempo.txt", "server.log", "relay.log",
-                                                    "cliente-jugador2-NetTrace.log", "cliente-jugador2-dll.log"})
+                                                    "cliente-jugador2-NetTrace.log", "cliente-jugador2-dll.log", "diag-2.log"})
     # la carga cortada (21-nov 05:35): registro viejo, sin la línea «partida», con un 0x1005 durante la carga
     viejo = """2026-11-21 05:35:48 #1 → 104f (140 B)
 2026-11-21 05:35:48 #2 → 104f (140 B)

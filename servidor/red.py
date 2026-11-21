@@ -384,6 +384,8 @@ def servidor_http(direccion, solo_panel=False):
         def do_POST(self):
             if self._es_panel():
                 return self._panel("POST")
+            if self.path == "/eda/diag" and not solo_panel:
+                return self._diag()
             if self.path != "/eda/pase" or solo_panel:
                 return self._json(404, {"error": "No existe."})
             try:
@@ -408,6 +410,26 @@ def servidor_http(direccion, solo_panel=False):
                 return self._json(500, {"error": "interno"})
             log("http %s: ticket para la cuenta %s%s" % (self.client_address[0], config.PREFIJO_CUENTA, r["usuario"]))
             self._json(200, r)
+
+        def _diag(self):
+            """★ (21-nov) los diagnósticos de los clientes beta (servidor/diag.py). Sólo con EDA_DIAG=1: si no, 404."""
+            from servidor import diag
+            if not diag.ACTIVO:
+                return self._json(404, {"error": "No existe."})
+            try:
+                largo = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                largo = -1
+            if not 0 < largo <= diag.MAX_CUERPO:
+                return self._json(413 if largo > diag.MAX_CUERPO else 400, {"error": "largo"})
+            try:
+                codigo, datos = diag.recibir(dict(self.headers.items()), self.rfile.read(largo))
+            except Exception:                                 # noqa: BLE001
+                log("⛔ /eda/diag falló:\n%s" % traceback.format_exc())
+                codigo, datos = 500, {"error": "interno"}
+            if codigo != 200:
+                log("http %s: diag rechazado (%s)" % (self.client_address[0], datos.get("error")))
+            self._json(codigo, datos)
 
         def log_message(self, *a):                            # (lo importante ya se anota arriba)
             pass
