@@ -148,3 +148,14 @@ py jugar.py --sin-dll                           :: jugar sin ella (⚠ sin ella 
 Para diagnosticar Direct3D se puede usar **DXVK** (su panel en pantalla: cuadros, dibujos, uso de la
 placa) en lugar de esta dll; ver MEDICIONES §41. DXVK pide Vulkan, que muchas PCs modestas no tienen:
 por eso la solución es esta dll, que anda con cualquier D3D9.
+
+
+### Selector de Stage (candidata 0.5.1)
+
+Las imágenes de las flechas del mapa solapan parte de los botones y podían recibir el doble clic sin abrir el Stage. La DLL excluye esas imágenes del hit-test exclusivamente en la escena del selector, conservando sus dibujos y los rectángulos de los botones. No cambia el escalado, el mouse de combate ni los tiempos del doble clic.
+
+Se puede desactivar con `[mazino] selector_stage=0` en eda_d3d9.ini. Respeta también los interruptores generales de mejoras/mazino. El parche comprueba las dos llamadas y la firma de TestPoint antes de instalarse; con un EXE incompatible no se aplica. El registro dice `selector_stage: flechas sin captura de clics (2/2 llamadas)`.
+
+La versión numérica de la candidata es 0.5.1, identificada además por commit/build. Esta PR no declara una entrega estable ni publica etiquetas. No se atribuye al arreglo un parpadeo general que no se haya reproducido.
+
+Prueba de regresión: `zig cc -o prueba_selector prueba_selector.c` y ejecutar el resultado. Reproduce la imagen 14011 interceptando el borde del botón 14006; comprueba el destino corregido, centros, bordes y que otras escenas/controles se conserven.

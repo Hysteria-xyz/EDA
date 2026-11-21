@@ -1920,8 +1920,39 @@ static void poner_puente_chat(void)
     apuntar("  [mazino] messenger: el chat del server (0x1005) pasa por la dll (se queda sólo con «[MSN]»)");
 }
 
+/* Selector de Stage: las imágenes de conexión también son controles GUI. Sus
+ * rectángulos solapan los botones; si ganan el hit-test reciben un doble clic
+ * que no crea nada. Sólo se excluyen esas imágenes en la escena del selector.
+ * Dos call sites verificados; no se altera TestPoint para otros usuarios. */
+#include "eda_selector.h"
+typedef unsigned char (__thiscall *M_SELECTOR_PUNTO)(void *, float, float);
+static unsigned char __fastcall selector_punto(void *rect, void *no_usado, float x, float y)
+{
+    (void)no_usado;
+    BYTE *c = (BYTE *)rect - 12;
+    BYTE *escena = leer_ptr((void *)0x934554);
+    if (legible(c, 8) && selector_es_flecha((DWORD)(ULONG_PTR)(escena ? leer_ptr(escena) : NULL),
+                                          *(DWORD *)c, *(DWORD *)(c + 4)))
+        return 0;
+    return ((M_SELECTOR_PUNTO)(ULONG_PTR)0x775A70)(rect, x, y);
+}
+static void poner_selector(void)
+{
+    if (!GetPrivateProfileIntA("mazino", "selector_stage", 1, g_ini)) return;
+    /* Comprobar ambos antes de tocar cualquiera: una versión incompatible queda intacta. */
+    if (!firma(0x754B9F, "e8 cc 0e 02 00") || !firma(0x754EBC, "e8 af 0b 02 00")
+        || !firma(0x775A70, "d9 44 24 04 d8 19")) {
+        apuntar("  [mazino] selector_stage: firma incompatible; no se toca");
+        return;
+    }
+    int a = desviar_llamada(0x754B9F, 0x775A70, (void *)selector_punto, "selector_stage");
+    int b = desviar_llamada(0x754EBC, 0x775A70, (void *)selector_punto, "selector_stage");
+    apuntar("  [mazino] selector_stage: flechas sin captura de clics (%d/2 llamadas)", a + b);
+}
+
 static void poner_mazino(void)
 {
+    poner_selector();
     /* las funciones del juego para mandar un paquete: verificadas antes de usarlas */
     g_mz_paquetes_ok = firma(0x7425D0, "8b c1 33 c9") && firma(0x7426F0, "66 8b 54 24") && firma(0x7434F0, "53 55 8b 6c")
         && firma(0x7449F0, "64 a1 00 00") && firma(0x744790, "6a ff 68 46") && firma(0x743390, "57 8b b9 00")
