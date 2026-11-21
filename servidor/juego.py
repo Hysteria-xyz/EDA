@@ -70,7 +70,11 @@ def _responder(cmd, cuerpo, conexion):
     p = partida(conexion)
     p.setdefault("desde", time.time())                       # (21-nov) el comienzo de ESTA sesión (red.py ya lo pone)
     f = MANEJADORES.get(cmd)
+    antes = ASIGNADAS.get(conexion)
     r = f(cmd, cuerpo, conexion, c, p) if f else None
+    if cmd == 0x100F and ASIGNADAS.get(conexion) and ASIGNADAS.get(conexion) != antes:
+        # (21-nov, sólo registro) qué conexión es qué cuenta: para cruzar las pruebas entre casas
+        print("#%s es la cuenta %s" % (conexion, ASIGNADAS[conexion]), flush=True)
     if cmd in CAMBIAN_SALAS:
         escribir_relay()                                    # ★ el relay sabe quién está con quién (§47)
     return r
