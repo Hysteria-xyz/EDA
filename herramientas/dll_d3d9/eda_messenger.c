@@ -547,6 +547,7 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
     case WM_NCHITTEST: {
         POINT p = {(short)LOWORD(l), (short)HIWORD(l)};
         ScreenToClient(v, &p);
+        pnl_logico_p(&p);
         if (p.y < 52 && !(p.x > MSN_ANCHO - 36 && p.y < 34)) return HTCAPTION;   /* se arrastra por arriba */
         return HTCLIENT;
     }
@@ -556,6 +557,7 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
             opc_cursor_visible();
             GetCursorPos(&p);
             ScreenToClient(v, &p);
+            pnl_logico_p(&p);
             int k = LOWORD(l) == HTCLIENT ? m_ctl_en(p.x, p.y) : -1;
             SetCursor(LoadCursorW(NULL, (LPCWSTR)((HWND)w != v ? IDC_IBEAM : k >= 0 ? IDC_HAND : IDC_ARROW)));
             return TRUE;
@@ -571,21 +573,11 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         G.color_fondo((HDC)w, RGB(0, 0, 0));
         return (LRESULT)g_msn_pincel;
     }
-    case WM_PAINT: {
-        PAINTSTRUCT ps;
-        HDC d = BeginPaint(v, &ps), b = G.dc(d);
-        HBITMAP bm = G.mapa(d, MSN_ANCHO, MSN_ALTO);
-        HGDIOBJ viejo = G.usar(b, bm);
-        msn_pintar(b);
-        G.copiar(d, 0, 0, MSN_ANCHO, MSN_ALTO, b, 0, 0, SRCCOPY);
-        G.usar(b, viejo);
-        G.borrar(bm);
-        G.borrar_dc(b);
-        EndPaint(v, &ps);
-        return 0;
-    }
+    case WM_PAINT: pnl_pintar(v, MSN_ANCHO, MSN_ALTO, msn_pintar); return 0;
     case WM_MOUSEMOVE: {
-        int k = m_ctl_en((short)LOWORD(l), (short)HIWORD(l));
+        int mx = (short)LOWORD(l), my = (short)HIWORD(l);
+        pnl_logico(&mx, &my);
+        int k = m_ctl_en(mx, my);
         if (k >= 0 && g_mctl[k].tipo == M_FILA) k = -1;      /* (hover: sólo botones) */
         if (k != g_mencima) {
             g_mencima = k;
@@ -599,12 +591,14 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
         if (g_mencima >= 0) { g_mencima = -1; InvalidateRect(v, NULL, FALSE); }
         return 0;
     case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: {
-        int k = m_ctl_en((short)LOWORD(l), (short)HIWORD(l));
+        int mx = (short)LOWORD(l), my = (short)HIWORD(l);
+        pnl_logico(&mx, &my);
+        int k = m_ctl_en(mx, my);
         SetFocus(v);
         if (k < 0) return 0;
         MCTL c = g_mctl[k];
         switch (c.tipo) {
-        case M_X: DestroyWindow(v); return 0;
+        case M_X: panel_cerrar(v); return 0;
         case M_PESTANA: g_msn_pestana = c.id; g_msn_scroll = 0; break;
         case M_FILA:
             msn_elegir(c.id);
@@ -630,13 +624,14 @@ static LRESULT CALLBACK msn_proc(HWND v, UINT m, WPARAM w, LPARAM l)
     case WM_MOUSEWHEEL: {
         POINT p = {(short)LOWORD(l), (short)HIWORD(l)};
         ScreenToClient(v, &p);
+        pnl_logico_p(&p);
         int paso = GET_WHEEL_DELTA_WPARAM(w) > 0 ? 1 : -1;
         if (p.x < ML1) { g_msn_scroll -= paso; if (g_msn_scroll < 0) g_msn_scroll = 0; if (g_msn_scroll > MSN_AMIGOS) g_msn_scroll = MSN_AMIGOS; }
         else { g_msn_scroll_chat += paso; if (g_msn_scroll_chat < 0) g_msn_scroll_chat = 0; if (g_msn_scroll_chat > MSN_HIST) g_msn_scroll_chat = MSN_HIST; }
         InvalidateRect(v, NULL, FALSE);
         return 0;
     }
-    case WM_CLOSE: DestroyWindow(v); return 0;
+    case WM_CLOSE: panel_cerrar(v); return 0;
     case WM_DESTROY:
         panel_al_cerrar("Messenger");
         g_msn_ventana = NULL;
@@ -673,21 +668,32 @@ static DWORD WINAPI msn_hilo(LPVOID nada)
     RegisterClassW(&c);
     int x = 80, y = 60;
     RECT j;
+    pnl_calcular();                                          /* ★ (Punto 5) 1 = el tamaño de siempre */
     if (g_ventana_juego && GetWindowRect(g_ventana_juego, &j)) {     /* centrada en el juego */
-        x = (j.left + j.right - MSN_ANCHO) / 2;
-        y = (j.top + j.bottom - MSN_ALTO) / 2;
+        x = (j.left + j.right - PNL(MSN_ANCHO)) / 2;
+        y = (j.top + j.bottom - PNL(MSN_ALTO)) / 2;
     }
+    /* (las letras de los EDIT, al tamaño del panel: la de siempre si no hay escala) */
+    static HFONT f_edit;
+    static float f_edit_s;
+    if (g_pnl_s != 1.0f && f_edit_s != g_pnl_s) {
+        if (f_edit) G.borrar(f_edit);
+        f_edit = G.fuente(-PNL(12), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Tahoma");
+        f_edit_s = g_pnl_s;
+    }
+    HFONT fe = g_pnl_s != 1.0f && f_edit ? f_edit : F_NORMAL;
     /* (como Options: su dueño es EDA, sin «siempre encima») */
     HWND v = CreateWindowExW(WS_EX_TOOLWINDOW, L"EDA_Messenger", L"Messenger", WS_POPUP | WS_CLIPCHILDREN,
-                             x, y, MSN_ANCHO, MSN_ALTO, g_ventana_juego, NULL, yo, NULL);
+                             x, y, PNL(MSN_ANCHO), PNL(MSN_ALTO), g_ventana_juego, NULL, yo, NULL);
     if (!v) { InterlockedExchange(&g_msn_abriendo, 0); apuntar("  [mazino] messenger: ⚠ no se pudo crear la ventana (%lu)", GetLastError()); return 0; }
     g_msn_nick_e = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                                   ML0 + 9, MENTRADA_Y + 6, ML1 - 62 - ML0 - 18, 16, v, NULL, yo, NULL);
+                                   PNL(ML0 + 9), PNL(MENTRADA_Y + 6), PNL(ML1 - 62 - ML0 - 18), PNL(16), v, NULL, yo, NULL);
     g_msn_chat[0] = g_msn_confirmar[0] = 0;                   /* (se abre con la lista; la conversación, con CHAT) */
     g_msn_texto_e = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL,
-                                    MR0 + 6, MCHAT1 + 11, MR1 - 44 - MR0 - 12, 16, v, NULL, yo, NULL);
-    if (g_msn_nick_e) { SendMessageW(g_msn_nick_e, WM_SETFONT, (WPARAM)F_NORMAL, 0); SendMessageW(g_msn_nick_e, EM_LIMITTEXT, 22, 0); }
-    if (g_msn_texto_e) { SendMessageW(g_msn_texto_e, WM_SETFONT, (WPARAM)F_NORMAL, 0); SendMessageW(g_msn_texto_e, EM_LIMITTEXT, 140, 0); }
+                                    PNL(MR0 + 6), PNL(MCHAT1 + 11), PNL(MR1 - 44 - MR0 - 12), PNL(16), v, NULL, yo, NULL);
+    if (g_msn_nick_e) { SendMessageW(g_msn_nick_e, WM_SETFONT, (WPARAM)fe, 0); SendMessageW(g_msn_nick_e, EM_LIMITTEXT, 22, 0); }
+    if (g_msn_texto_e) { SendMessageW(g_msn_texto_e, WM_SETFONT, (WPARAM)fe, 0); SendMessageW(g_msn_texto_e, EM_LIMITTEXT, 140, 0); }
+    if (g_pnl_s != 1.0f) apuntar("  [mazino] messenger: escalado ×%.2f con la interfaz (%d×%d)", g_pnl_s, PNL(MSN_ANCHO), PNL(MSN_ALTO));
     g_msn_ventana = v;
     InterlockedExchange(&g_msn_abriendo, 0);
     InterlockedExchange(&g_panel_abierto, 1);
@@ -720,7 +726,7 @@ static DWORD WINAPI msn_hilo(LPVOID nada)
                 esc_tragada("Messenger");                      /* ★ (Punto 4) el juego no la ve al cerrar */
                 if (repetida) continue;
                 if (g_msn_confirmar[0]) { msn_quitar_no(); InvalidateRect(v, NULL, FALSE); }
-                else { apuntar("  [mazino] messenger: Esc → se cierra el Messenger"); DestroyWindow(v); }
+                else { apuntar("  [mazino] messenger: Esc → se cierra el Messenger"); panel_cerrar(v); }
                 continue;
             }
             if (mm.wParam == VK_RETURN && mm.hwnd == g_msn_texto_e) { msn_enviar(); continue; }

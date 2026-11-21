@@ -53,6 +53,14 @@ anillo=1
 ;     el login del launcher y la caja negra). Para probar si un problema es de la dll
 mejoras=1
 
+[pantalla]
+; ★ EXPERIMENTAL (Punto 5): la interfaz de 2009 (800×600) escalada y centrada en una pantalla más grande, con el
+;   3D del Stage a resolución nativa. 0 = como siempre (800×600). Con 1, «resolucion» dice el tamaño (p. ej.
+;   1920x1080); escala2d_stage=0 deja el HUD del Stage como hoy (arriba a la izquierda)
+escala2d=0
+resolucion=
+escala2d_stage=1
+
 [version]
 ; 1 = al arrancar, unos segundos arriba a la derecha: versión, compilación (commit) y entorno (TEST / PROD /
 ;     LOCAL, según el server de arriba). No toma el foco ni los clics. 0 = no se muestra (igual queda en
@@ -140,7 +148,7 @@ def compilar():
         raise SystemExit("⛔ no encuentro Zig 0.16.0: %s (se puede indicar con la variable ZIG)" % ZIG)
     os.makedirs(SALIDA, exist_ok=True)
     for f in ("eda_d3d9.c", "eda_opciones.c", "eda_teclas.c", "eda_messenger.c", "eda_version.c", "eda_aviso.c",
-              "d3d9.def"):
+              "eda_medir5.c", "eda_escala2d.c", "eda_rojo.c", "eda_graficos.c", "d3d9.def"):
         shutil.copy(os.path.join(AQUI, f), SALIDA)
     # ★ (19-nov) la identidad (versión, commit, sucio, fecha, build): la calcula version.py, nadie la escribe a mano
     sys.path.insert(0, AQUI)
@@ -150,7 +158,7 @@ def compilar():
     if os.path.exists(dll):
         os.remove(dll)
     r = subprocess.run([ZIG, "cc", "-target", "x86-windows-gnu", "-shared", "-O2", "-s", "-o", "d3d9.dll",
-                        "eda_d3d9.c", "d3d9.def", "-lkernel32", "-luser32", "-lwinmm", "-lws2_32", "-liphlpapi"],
+                        "eda_d3d9.c", "d3d9.def", "-lkernel32", "-luser32", "-lwinmm", "-lws2_32", "-liphlpapi", "-lgdi32"],
                        cwd=SALIDA, capture_output=True, text=True)
     if r.returncode or not os.path.isfile(dll):
         raise SystemExit("⛔ no compiló:\n" + (r.stderr or r.stdout)[-3000:])
