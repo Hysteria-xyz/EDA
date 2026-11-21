@@ -81,3 +81,22 @@ Pruebas realizadas: … (automáticas / en el juego, entorno, fecha)
 Texto del POP-UP: (py herramientas\version_cliente.py popup VERSIÓN)
 Publicación: pasos 1–6 de arriba · Reversión: versión mayor con los archivos anteriores
 ```
+
+## Borrador en curso: 2026.11.22.1 (dll 0.5.1) — qué pasó las pruebas
+
+Estado: **borrador** (no publicado). Contenido decidido por lo que pasó las pruebas, no por lo que se programó.
+
+| Qué | Dónde | Resultado |
+|---|---|---|
+| dll 0.5.1 (`cliente/apis-sin-resolver` de35fd4) | compilada por el buzón, reproducible | md5 `e2bf4df23ed43f7f13abe2f8c0916023` |
+| Reproducir la caída (reparación apagada) | EDA-PRUEBA-APIS modo 1, 21-nov 18:17 | ⛔ cae en `0x7F4626` (IsValidLocale), como en la partida de las 14:20 |
+| Camino de la caída con la reparación | modo 2, 18:18 | ✅ `setlocale("korean")` → «Korean_Korea.949» y vuelta a «C», sin errores |
+| Regresión jugando | modo 3, 18:19–18:21 | ✅ login, lobby, 1 Stage, 120 cuadros/s, sin errores, cierre normal |
+| Pruebas sin juego | `prueba_apis.c` / `prueba_apis.py` (CI) | ✅ 17 trampas + 3 llamadas mal resueltas; ninguna otra en la CRT |
+
+Lo que llevó a la 2ª corrección: con sólo las 17 trampas reparadas, el modo 2 se cayó con la pila corrida
+(`0x7F4610` llamaba a `RtlIntegerToChar` en vez de `IsValidCodePage`). Por eso la 0.5.1 corrige también las 3
+llamadas mal resueltas de la CRT de `documentacion/APIS_A_MANO.md`.
+
+Falta antes de publicar: la partida de DOS en el server TEST donde se vio la caída (14:20), con la dll 0.5.1.
+No entra en esta versión: el diagnóstico automático (todavía sin prueba de punta a punta en el juego).
