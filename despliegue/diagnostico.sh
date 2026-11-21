@@ -61,6 +61,10 @@ done
 # ★ (21-nov) los diagnósticos que mandaron los clientes beta en esas horas (servidor/diag.py): sólo eventos técnicos
 if [ -d "$E/diag" ]; then
 	mkdir -p "$D/diag"
-	find "$E/diag" -type f -name '*.jsonl' -mmin -"$((h * 60))" -exec cp {} "$D/diag/" \; 2>/dev/null || true
+	# (se GUARDAN por día: diag/<AAAA-MM-DD>/<cuenta>-<sesión>.jsonl. Una sesión que cruza la medianoche UTC —las
+	#  19:00 de Perú— queda en dos días con el MISMO nombre: se juntan, no se pisan)
+	find "$E/diag" -type f -name '*.jsonl' -mmin -"$((h * 60))" 2>/dev/null | sort | while read -r f; do
+		cat "$f" >> "$D/diag/$(basename "$f")"
+	done
 fi
 tar -C "$T" -czf - eda-prueba-diagnostico

@@ -72,10 +72,13 @@ def abrir_paquete(ruta):
         return "server.log" if a not in quiero and a.startswith("server") and a.endswith(".log") else a
     r = {"diag": {}}
     if os.path.isdir(ruta):
-        for raiz, _, archivos in os.walk(ruta):
-            for a in archivos:
-                if a.endswith(".jsonl") and os.path.basename(raiz) == "diag":
-                    r["diag"][a] = open(os.path.join(raiz, a), encoding="utf-8", errors="replace").read()
+        for raiz, _, archivos in sorted(os.walk(ruta)):
+            for a in sorted(archivos):
+                # (el paquete: diag/<cuenta>-<sesión>.jsonl; el estado del server: diag/<AAAA-MM-DD>/…; la misma
+                #  sesión en dos días se JUNTA)
+                partes = os.path.relpath(raiz, ruta).replace("\\", "/").split("/")
+                if a.endswith(".jsonl") and "diag" in partes:
+                    r["diag"][a] = r["diag"].get(a, "") + open(os.path.join(raiz, a), encoding="utf-8", errors="replace").read()
                 if nombre(a) in quiero and nombre(a) not in r:
                     r[nombre(a)] = open(os.path.join(raiz, a), encoding="utf-8", errors="replace").read()
     else:
@@ -83,7 +86,7 @@ def abrir_paquete(ruta):
             for m in t.getmembers():
                 a = os.path.basename(m.name)
                 if m.isfile() and a.endswith(".jsonl") and "/diag/" in "/" + m.name:
-                    r["diag"][a] = t.extractfile(m).read().decode("utf-8", errors="replace")
+                    r["diag"][a] = r["diag"].get(a, "") + t.extractfile(m).read().decode("utf-8", errors="replace")
                     continue
                 if m.isfile() and nombre(a) in quiero and nombre(a) not in r:
                     r[nombre(a)] = t.extractfile(m).read().decode("utf-8", errors="replace")
@@ -640,8 +643,83 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
     chequear("★ el revés: una partida sana (el máster termina y los dos reciben su PlayEnd) → ninguna anomalía",
              "Ninguna regla saltó." in res, res.split("## Anomalías detectadas")[1][:300] if "Ninguna" not in res else "")
     chequear("por intervalo horario: toma la partida que empezó adentro", "P?-20261121-180000" in res)
+    control_grupos(d, chequear)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
+
+
+def control_grupos(d, chequear):
+    """★ (21-nov) los diagnósticos de CUALQUIER jugador beta van a SU partida, solos: 3 jugadores en una, 2 en otra al
+    mismo tiempo, relojes de PC desparejos, una sesión que cruza la medianoche UTC (dos archivos de día) y una caída que
+    llega dos veces (por la red y desde el disco)."""
+    est = os.path.join(d, "estado-server")                 # (como queda en el server: diag/<día>/<cuenta>-<sesión>.jsonl)
+    server = """2026-11-21 23:57:00 #1 conectó 198.51.100.1:1
+#1 es la cuenta r2b_101
+#2 es la cuenta r2b_102
+#3 es la cuenta r2b_103
+#4 es la cuenta r2b_201
+#5 es la cuenta r2b_202
+2026-11-21 23:58:00 #1 ← 104e (0 B)
+partida P-20261121-235800-s1 empieza: sala 1 · #1=r2b_101 · #2=r2b_102 · #3=r2b_103
+2026-11-21 23:58:00 #1 → 104f (140 B)
+2026-11-21 23:58:00 #2 → 104f (140 B)
+2026-11-21 23:58:00 #3 → 104f (140 B)
+partida P-20261121-235830-s2 empieza: sala 2 · #4=r2b_201 · #5=r2b_202
+2026-11-21 23:58:30 #4 → 104f (140 B)
+2026-11-21 23:58:30 #5 → 104f (140 B)
+2026-11-21 23:58:05 #1 → 105e (4 B)
+2026-11-21 23:58:05 #2 → 105e (4 B)
+2026-11-21 23:58:05 #3 → 105e (4 B)
+2026-11-21 23:58:35 #4 → 105e (4 B)
+2026-11-21 23:58:35 #5 → 105e (4 B)
+2026-11-22 00:01:00 #1 ← 1064 (1 B)
+2026-11-22 00:01:00 #1 → 1073 (60 B)
+2026-11-22 00:01:00 #2 → 1073 (60 B)
+2026-11-22 00:01:00 #3 → 1073 (60 B)
+2026-11-22 00:02:00 #4 ← 1064 (1 B)
+2026-11-22 00:02:00 #4 → 1073 (60 B)
+2026-11-22 00:02:00 #5 → 1073 (60 B)
+"""
+    os.makedirs(est, exist_ok=True)
+    open(os.path.join(est, "server.log"), "w").write(server)
+    ms = lambda h: int(fecha(h).timestamp() * 1000)
+    def poner(dia, cuenta, sesion, eventos):
+        c = os.path.join(est, "diag", dia)
+        os.makedirs(c, exist_ok=True)
+        with open(os.path.join(c, "%s-%s.jsonl" % (cuenta, sesion * 32)), "a") as f:
+            for e in eventos:
+                f.write(json.dumps(e) + "\n")
+    # 101: su PC atrasa 7 minutos (dr = +420000): el congelado de su reloj 23:52:10 es 23:59:10 del server
+    poner("2026-11-21", "101", "a", [{"t": ms("2026-11-21 23:52:10"), "e": "congelado", "ms": 2500, "dr": 420000}])
+    # 103: la sesión cruza la medianoche UTC → dos archivos, uno por día; la caída en el del 22, y repetida (red + disco)
+    poner("2026-11-21", "103", "b", [{"t": ms("2026-11-21 23:58:02"), "e": "escena", "vt": "0x00899C20", "dr": 0}])
+    caida = {"t": ms("2026-11-22 00:00:30"), "m": 150000, "e": "caida", "codigo": "0xC0000005", "sitio": "0x007F4626",
+             "modulo": "sin_resolver", "dr": 0}
+    poner("2026-11-22", "103", "b", [caida, dict(caida)])
+    poner("2026-11-22", "103", "c", [dict(caida, dr=1000)])          # (la misma, desde el disco en el arranque siguiente)
+    # 201: en la OTRA partida, al mismo tiempo
+    poner("2026-11-22", "201", "d", [{"t": ms("2026-11-22 00:00:40"), "e": "atrapado", "vt": "0x0089A268", "dr": 0}])
+    # 999: no jugó ninguna de las dos
+    poner("2026-11-22", "999", "e", [{"t": ms("2026-11-22 00:00:20"), "e": "caida", "sitio": "0x00000999", "dr": 0}])
+    lista = partidas(leer_server(server))
+    chequear("grupos: dos partidas al mismo tiempo, cada una con sus jugadores (3 y 2)",
+             [x["id"] for x in lista] == ["P-20261121-235800-s1", "P-20261121-235830-s2"]
+             and lista[0]["miembros"] == {1: "r2b_101", 2: "r2b_102", 3: "r2b_103"}
+             and lista[1]["miembros"] == {4: "r2b_201", 5: "r2b_202"}, [x["id"] for x in lista])
+    _, a = armar(est, partida_id="P-20261121-235800-s1", salida=os.path.join(d, "ga.zip"))
+    an = a.split("## Anomalías")[1] if "## Anomalías" in a else a
+    chequear("grupos: el congelado del jugador 101 entra a SU partida con la hora corregida (23:52:10 de su PC → 23:59:10)",
+             "#1 (r2b_101), su cliente: congelado" in an and "23:59:10" in an, an[:500])
+    chequear("grupos: la caída del 103 (en el archivo del día siguiente: cruzó la medianoche) entra a su partida",
+             "#3 (r2b_103), su cliente: caida" in an and "00:00:30" in an)
+    chequear("grupos: la misma caída que llegó 3 veces (red, repetida y desde el disco) cuenta UNA",
+             an.count("su cliente: caida") == 1, an.count("su cliente: caida"))
+    chequear("grupos ★ el revés: lo del 201 (otra partida) y del 999 (ninguna) NO entra",
+             "r2b_201" not in an and "atrapado" not in an and "0x00000999" not in an)
+    _, b = armar(est, partida_id="P-20261121-235830-s2", salida=os.path.join(d, "gb.zip"))
+    bn = b.split("## Anomalías")[1] if "## Anomalías" in b else b
+    chequear("grupos: en la otra partida, lo del 201 sí y lo del 101/103 no",
+             "#4 (r2b_201), su cliente: atrapado" in bn and "r2b_101" not in bn and "r2b_103" not in bn, bn[:400])
 
 
 def main():
