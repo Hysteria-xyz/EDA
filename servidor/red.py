@@ -29,6 +29,7 @@ Variables (además de las de `servidor/config.py`):
                     Docker: «<IP de la máquina en esa red>:25902». Ver despliegue/LEEME.md
 """
 import os
+import queue
 import signal
 import socket
 import struct
@@ -102,18 +103,62 @@ def soltar(n):
         _usados.discard(n)
 
 
+# ★ (20-nov, multijugador) LO QUE SALE, POR UNA COLA DE CADA CONEXIÓN. Antes `enviar_a` hacía el `sendall`
+#   en el hilo de QUIEN mandaba (el de otro jugador, el reloj, un Timer): si el juego de un jugador no leía
+#   (colgado, cargando, una red lenta), el hilo de su COMPAÑERO quedaba parado hasta 5 s por mensaje (el
+#   timeout del socket) y sus propias respuestas se atrasaban: el lag/congelamiento pasaba de uno a otro.
+#   Y si el `sendall` se cortaba por el timeout a mitad de un paquete, el resto ya no encajaba (el cliente
+#   lee [largo][cuerpo]): se seguía mandando sobre un flujo roto. Ahora cada conexión tiene su escritor;
+#   mandar no espera nunca, y si no se puede mandar (o la cola crece sin que el cliente lea) la conexión se
+#   corta limpia, como un cierre normal (su sala, sus amigos, la lista).
+COLA_MAX = int(os.environ.get("EDA_COLA_MAX") or 2000)
+
+
+def escritor(n, con):
+    cola = con["cola"]
+    while True:
+        item = cola.get()
+        if item is None:
+            return
+        c, largo, p = item
+        try:
+            con["cli"].sendall(p)
+            log("#%d → %04x (%d B)" % (n, c, largo))
+        except OSError as e:
+            log("#%d no pude mandar %04x (%s): corto la conexión (el resto no encajaría)" % (n, c, e))
+            _cortar_ya(n, con)
+            return
+
+
+def _cortar_ya(n, con):
+    con["cortada"] = True
+    try:
+        con["cli"].shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+
+
 def enviar_a(n, c, cuerpo):
     con = CONEXIONES.get(n)
     if con is None:
         log("#%d ya no está: no le mando %04x" % (n, c))
         return
     p = P.armar(P.mensaje(c, cuerpo), con["clave"], con["campo2"])
-    try:
-        with con["lock"]:
-            con["cli"].sendall(p)
-        log("#%d → %04x (%d B)" % (n, c, len(cuerpo)))
-    except OSError as e:
-        log("#%d no pude mandar %04x (%s)" % (n, c, e))
+    if "cola" not in con:                                    # (una conexión sin escritor: como antes)
+        try:
+            with con["lock"]:
+                con["cli"].sendall(p)
+            log("#%d → %04x (%d B)" % (n, c, len(cuerpo)))
+        except OSError as e:
+            log("#%d no pude mandar %04x (%s)" % (n, c, e))
+        return
+    if con.get("cortada"):
+        return
+    if con["cola"].qsize() >= COLA_MAX:
+        log("#%d no lee: %d mensajes sin salir; corto la conexión" % (n, COLA_MAX))
+        _cortar_ya(n, con)
+        return
+    con["cola"].put((c, len(cuerpo), p))
 
 
 def cortar(n, espera=0):
@@ -166,7 +211,10 @@ def contestar(cli, n, pkt, guion):
         log("#%d paquete que no se abre (%s): ¿un exe con otra clave? (EDA_CLAVES)" % (n, e))
         return
     if n not in CONEXIONES:
-        CONEXIONES[n] = {"cli": cli, "clave": m["clave"], "campo2": m["campo2"], "lock": threading.Lock()}
+        con = {"cli": cli, "clave": m["clave"], "campo2": m["campo2"], "lock": threading.Lock(),
+               "cola": queue.Queue()}
+        CONEXIONES[n] = con
+        threading.Thread(target=escritor, args=(n, con), daemon=True).start()
         log("#%d clave: %s" % (n, m.get("de", "?")))
     else:
         # el cliente tira lo que no venga con SU servicio en la cabecera (`0x744910`)
@@ -191,8 +239,9 @@ def atender(cli, quien, n, guion):
     log("#%d conectó %s:%d" % (n, quien[0], quien[1]))
     # ★ la IP con que llegó (MEDICIONES §52): dos con la MISMA están en la misma casa / el mismo cíber, y
     #   se les da la dirección privada del otro (servidor/relay.py · dir_udp). (No va a ningún archivo.)
-    juego().partida(n)["ip_tcp"] = quien[0]
-    juego().partida(n)["desde"] = time.time()                  # (el «conectado desde» del panel)
+    with servidor.CANDADO:
+        juego().partida(n)["ip_tcp"] = quien[0]
+        juego().partida(n)["desde"] = time.time()              # (el «conectado desde» del panel)
     cli.settimeout(5.0)
     pendiente = b""
     ultimo = time.time()
@@ -220,8 +269,10 @@ def atender(cli, quien, n, guion):
                 pkt, pendiente = pendiente[:largo], pendiente[largo:]
                 contestar(cli, n, pkt, guion)
     finally:
+        con = CONEXIONES.pop(n, None)
+        if con and "cola" in con:
+            con["cola"].put(None)                             # (el escritor termina)
         cli.close()
-        CONEXIONES.pop(n, None)
         try:
             juego().cerrada(n)
         except Exception:                                     # noqa: BLE001

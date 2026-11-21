@@ -229,6 +229,8 @@ def _sacar_de_sala(s, num, conexion):
         if not s["en_stage"] and s.get("jugando"):
             s["jugando"] = False
             VIVO.LISTA_CAMBIO = True                    # (que el lobby la vea «Waiting»)
+    if "cargados" in s:
+        s["cargados"].discard(conexion)
     if not s["miembros"]:
         del SALAS[num]
         return []
@@ -236,7 +238,12 @@ def _sacar_de_sala(s, num, conexion):
         s["anfitrion"] = s["miembros"][0]
         s.get("listos", set()).discard(s["anfitrion"])  # (el anfitrión no «está listo»: larga)
     nuevo = numero(s, s["anfitrion"])
-    return [(0x1058, struct.pack("<BHB", yo, 3, nuevo), 0, n) for n in s["miembros"]]
+    r = [(0x1058, struct.pack("<BHB", yo, 3, nuevo), 0, n) for n in s["miembros"]]
+    # ★ (20-nov, multijugador) si se fue (o se le cortó el juego) mientras los demás esperaban en la
+    #   pantalla de carga, y los que quedan ya cargaron: la largada. Antes sólo se miraba al llegar un
+    #   0x105F, y como ya habían llegado todos, nadie la daba: los demás quedaban cargando para siempre.
+    from servidor.partida import largar_si_cargaron
+    return r + largar_si_cargaron(s)
 
 
 @maneja(0x1045)
@@ -641,6 +648,8 @@ def largar(cmd, cuerpo, conexion, c, p):
         return [(0x1050, struct.pack("<H", 0x138A), 0)]
     if s:
         s["jugando"], s["cargados"] = True, set()
+        s.pop("largada", None)                          # (20-nov: la largada se da UNA vez por stage)
+        s.pop("carga_desde", None)
         s["en_stage"] = set(miembros)                   # (Punto 3: «jugando» hasta que salgan TODOS)
         s["listos"] = set()                             # (al volver de la stage, todos «no listo»: `0x548AF0`)
     #   ⛔ probado (21:15) llenarlos con las habilidades de los atajos: NO las hace lanzar
