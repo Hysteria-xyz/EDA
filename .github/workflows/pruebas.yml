@@ -73,7 +73,7 @@ jobs:
           python3 prueba_version.py
           python3 canal.py control
           zig cc -target x86-windows-gnu -shared -O2 -s -o d3d9.dll eda_d3d9.c d3d9.def \
-            -lkernel32 -luser32 -lwinmm -lws2_32 -liphlpapi
+            -lkernel32 -luser32 -lwinmm -lws2_32 -liphlpapi -lgdi32
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           md5sum d3d9.dll ../../exe/d3d9.dll | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

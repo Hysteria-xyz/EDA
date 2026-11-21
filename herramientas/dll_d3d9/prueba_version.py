@@ -5,7 +5,7 @@ r"""prueba_version -- las pruebas del versionado de la dll, sin Windows, sin el 
 
   1. la versión es la del commit compilado (el último que tocó herramientas/dll_d3d9, no HEAD)
   2. con cambios sin commitear → sucio (LOCAL); archivos nuevos también; sin git → LOCAL
-  3. TEST / PROD / LOCAL salen del server (prueba_version.c, con gcc)
+  3. TEST / PROD / LOCAL salen del server (prueba_version.c, con gcc o zig cc)
   4. las líneas del aviso (prueba_version.c)
   5. identificar.py: el hash de la dll y la comparación con el manifiesto
   6. una dll antigua (sin marca) o distinta → se detecta
@@ -132,12 +132,29 @@ def pruebas_git():
         shutil.rmtree(raiz, ignore_errors=True)
 
 
+EXE = ".exe" if os.name == "nt" else ""
+
+
+def compilador():
+    """gcc o cc (Linux / GitHub Actions); si no hay, «zig cc» (la PC con Windows: $ZIG del buzón o el del PATH),
+    a 32 bits como la d3d9.dll. None si no hay ninguno."""
+    c = shutil.which("gcc") or shutil.which("cc")
+    if c:
+        return [c]
+    z = os.environ.get("ZIG")
+    z = z if z and os.path.exists(z) else shutil.which("zig")
+    if not z:
+        return None
+    return [z, "cc"] + (["-target", "x86-windows-gnu"] if os.name == "nt" else [])
+
+
 def pruebas_c():
     print("== 3, 4: entorno y aviso (prueba_version.c) ==")
-    cc = shutil.which("gcc") or shutil.which("cc")
+    cc = compilador()
     if not cc:
-        chequear("gcc disponible", False)
+        chequear("compilador de C disponible (gcc, cc o zig)", False)
         return
+    print("    compilador: " + " ".join(os.path.basename(c) if i == 0 else c for i, c in enumerate(cc)))
     for sucio in (0, 1):
         t = tempfile.mkdtemp(prefix="eda_c_")
         try:
@@ -146,8 +163,8 @@ def pruebas_c():
             open(os.path.join(t, "eda_version.h"), "w").write(version.header(ident))
             for n in ("eda_version.c", "prueba_version.c"):
                 shutil.copy(os.path.join(AQUI, n), t)
-            exe = os.path.join(t, "pv")
-            r = subprocess.run([cc, "-std=gnu11", "-Wall", "-Werror", "-I", t, "-o", exe, os.path.join(t, "prueba_version.c")],
+            exe = os.path.join(t, "pv" + EXE)
+            r = subprocess.run([*cc, "-std=gnu11", "-Wall", "-Werror", "-I", t, "-o", exe, os.path.join(t, "prueba_version.c")],
                                capture_output=True, text=True)
             chequear("compila (sucio=%d)" % sucio, r.returncode == 0, r.stderr[-400:])
             if r.returncode == 0:
@@ -162,8 +179,8 @@ def pruebas_c():
         shutil.copy(os.path.join(AQUI, "eda_version.c"), t)
         open(os.path.join(t, "m.c"), "w").write('#include <stdio.h>\n#include <string.h>\n#include "eda_version.c"\n'
                                                  'int main(void){puts(g_eda_id);return 0;}\n')
-        r = subprocess.run([cc, "-std=gnu11", "-o", os.path.join(t, "m"), os.path.join(t, "m.c")], capture_output=True, text=True)
-        salida = subprocess.run([os.path.join(t, "m")], capture_output=True, text=True).stdout if r.returncode == 0 else ""
+        r = subprocess.run([*cc, "-std=gnu11", "-o", os.path.join(t, "m" + EXE), os.path.join(t, "m.c")], capture_output=True, text=True)
+        salida = subprocess.run([os.path.join(t, "m" + EXE)], capture_output=True, text=True).stdout if r.returncode == 0 else ""
         chequear("sin eda_version.h → «sin-version» y sucio", "c=sin-version|s=1|" in salida, salida or r.stderr[-300:])
     finally:
         shutil.rmtree(t, ignore_errors=True)

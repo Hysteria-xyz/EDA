@@ -26,10 +26,12 @@
  */
 #include <winsock2.h>
 #include <windows.h>
+#include <tlhelp32.h>
 #include <iphlpapi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>                       /* (Punto 5: atan para la medición de FOV) */
 
 /* ── ★ (19-nov) QUÉ DLL ES Y A QUÉ SERVER VA: la identidad que escribe version.py al compilar (eda_version.c) ── */
 #include "eda_version.c"
@@ -374,9 +376,11 @@ static void contar_dibujo(void *dev)
     }
 }
 
+static void rojo_dibujo(DWORD dir, int clase);   /* (eda_rojo.c: diagnóstico del destello rojo, sólo mira) */
 static long WINAPI mi_dp(void *dev, DWORD tipo, UINT inicio, UINT prims)
 {
     contar_dibujo(dev);
+    rojo_dibujo((DWORD)(ULONG_PTR)__builtin_return_address(0), 0);
     SOMBRA *s = sombra_puesta(dev);
     if (s) {
         UINT n = vertices_de(tipo, prims);
@@ -391,6 +395,7 @@ static long WINAPI mi_dp(void *dev, DWORD tipo, UINT inicio, UINT prims)
 static long WINAPI mi_dip(void *dev, DWORD tipo, INT base, UINT minimo, UINT n, UINT desde_idx, UINT prims)
 {
     contar_dibujo(dev);
+    rojo_dibujo((DWORD)(ULONG_PTR)__builtin_return_address(0), 1);
     SOMBRA *s = sombra_puesta(dev);
     if (s) {
         INT primero = base + (INT)minimo;
@@ -406,6 +411,7 @@ static long WINAPI mi_dip(void *dev, DWORD tipo, INT base, UINT minimo, UINT n, 
 
 static void poner(void **vt, int i, void *nuevo, void **viejo);
 static void **g_vt_dev;                     /* la tabla del dispositivo (la re-afirma el vigía) */
+static int reafirmar(void **vt, int i, void *nuestro, void **real, const char *que);
 
 static long WINAPI mi_crear_vb(void *dev, UINT largo, DWORD uso, DWORD fvf, DWORD pool, void **vb, void *comp)
 {
@@ -436,6 +442,25 @@ static long WINAPI mi_crear_vb(void *dev, UINT largo, DWORD uso, DWORD fvf, DWOR
     return hr;
 }
 
+/* ★ (19-nov noche, medido 22:06:50) EL ANILLO Y EL RESET. Tras un cambio de resolución en vivo (RestartRender: el motor
+ *   suelta y vuelve a crear sus búferes de vértices) las copias del anillo seguían apuntando a los búferes VIEJOS; al
+ *   cambiar de escena (lobby → inventario) el anillo se apagó y subió su copia a un búfer ya liberado → EXCEPCIÓN en
+ *   d3d9 (NUESTRA-d3d9+0x84D5 ← +0xB8EB ← +0x7E73). Antes de un Reset los búferes del pool DEFAULT ya no valen: las copias
+ *   se olvidan SIN tocarlos (lo que tenían se dibuja otra vez con los búferes nuevos). */
+static void sombras_olvidar(void)
+{
+    int n = 0;
+    for (int i = 0; i < 32; i++)
+        if (g_sombras[i].vb || g_sombras[i].copia) {
+            if (g_sombras[i].copia) HeapFree(GetProcessHeap(), 0, g_sombras[i].copia);
+            g_sombras[i].vb = NULL;
+            g_sombras[i].copia = NULL;
+            g_sombras[i].abierto = 0;
+            n++;
+        }
+    g_st_vb = NULL;
+    if (n) apuntar("  ★ Reset: %d copias del anillo olvidadas (sus búferes se vuelven a crear)", n);
+}
 static void ajustar_pp(void *pp)
 {
     if (!g_rapido || !pp) return;
@@ -1273,12 +1298,21 @@ static void __attribute__((thiscall)) mi_vender(void *escena, DWORD serial)
 
 /* los botones Clan / Options / Messenger en las pantallas del costado (el juego no los une a nada) */
 static volatile LONG g_panel_abierto;                /* (Options abierta: más abajo, con el foco) */
+/* ── ★ (Punto 5) la medición de resolución (sólo con EDA_RES_PRUEBA) y la ESCALA 2D experimental ([pantalla]
+ *   escala2d=1, apagada por defecto): antes que la barra y el mouse, que la usan ── */
+static HWND g_ventana_juego;                             /* (definida más abajo, con el foco) */
+#include "eda_medir5.c"
+#include "eda_escala2d.c"
+#include "eda_rojo.c"
+#include "eda_graficos.c"                     /* ★ (Punto 6) calidad, brillo real, sin destello rojo */
+
 static void barra_xy(HWND h, int x, int y, const char *por, int ya800)
 {
     BYTE *esc = leer_ptr((void *)0x934554);
     int pc = pantalla_costado(esc);
     RECT r;
-    if (!ya800 && GetClientRect(h, &r) && r.right > 0 && r.bottom > 0) {        /* (en la pantalla de 800×600) */
+    if (!ya800 && e2d_activa()) e2d_ventana_a_ui(h, &x, &y);           /* ★ (Punto 5) la interfaz escalada */
+    else if (!ya800 && GetClientRect(h, &r) && r.right > 0 && r.bottom > 0) {   /* (en la pantalla de 800×600) */
         x = x * 800 / r.right;
         y = y * 600 / r.bottom;
     }
@@ -1416,8 +1450,12 @@ static int cursor_del_juego(int *x, int *y)
     int w = *(int *)(o + 0x330), hh = *(int *)(o + 0x334);
     float fx = *(float *)(o + 0x27DC), fy = *(float *)(o + 0x27E0);
     if (w < 320 || hh < 200 || w > 8192 || hh > 8192 || !(fx >= 0 && fx <= w) || !(fy >= 0 && fy <= hh)) return 0;
-    *x = (int)fx * 800 / w;
-    *y = (int)fy * 600 / hh;
+    /* ★ (Punto 5, 19-nov) SIN reescalar. Medido 18-nov 23:55 (backbuffer 1920×1080): el cursor del juego está en
+     *   los píxeles en que el juego DIBUJA su interfaz (591, 42 = sobre el botón Options) y «×800/1920» lo mandaba a
+     *   (246, 23): los botones Options y Messenger del inventario no respondían. A 800×600 era lo mismo (×1); con la
+     *   escala 2D el juego ya recibe el mouse en coordenadas de la interfaz. */
+    *x = (int)fx;
+    *y = (int)fy;
     return 1;
 }
 /* ★ (17-nov, PUNTO 2) UN SOLO CURSOR A LA VEZ. Medido en el exe: el cursor de EDA es un dibujo del juego que
@@ -1431,6 +1469,14 @@ static void cursor_juego_esconder(const char *quien)
 {
     int x, y;
     BYTE *o = leer_ptr((void *)0x94952C);
+    /* ★ (19-nov, Punto 5) EN EL STAGE, APUNTANDO, NO. Medido 13:52 (998eef72, 1280 y 1920): abrir Options / Messenger
+     *   apuntando y cerrarlo (con Esc, sin clic) dejaba la cámara mirando al piso. Esconder el cursor es escribir
+     *   (-4096,-4096) en el cursor del juego, y apuntando la cámara mira cuánto se aleja ese cursor de (400,300): un
+     *   «movimiento» de miles de píxeles. Apuntando el juego no dibuja su cursor: no hay nada que esconder. */
+    if (e2d_activa() && e2d_apuntando()) {
+        if (g_diagnostico) apuntar("  (diag) %s: en el Stage apuntando: el cursor del juego NO se esconde (la cámara no salta)", quien);
+        return;
+    }
     if (!cursor_del_juego(&x, &y)) {                     /* (ya fuera de la pantalla, o no se pudo leer) */
         if (g_diagnostico) apuntar("  (diag) %s: el cursor de EDA ya estaba escondido (o no se pudo leer)", quien);
         return;
@@ -1439,7 +1485,11 @@ static void cursor_juego_esconder(const char *quien)
      *   panel: el salto que se veía al abrir). En pantalla completa el juego tiene el mouse de Windows en SU 800×600
      *   (sin escalar) y el dibujo estirado: se lo pone en el punto estirado ANTES de que la flecha se vea. */
     RECT r;
-    if (g_ventana_juego && GetClientRect(g_ventana_juego, &r) && r.right > 0 && r.bottom > 0) {
+    if (e2d_activa() && g_ventana_juego) {                  /* ★ (Punto 5) la interfaz escalada y centrada */
+        POINT s = {x, y};
+        e2d_ui_a_ventana(g_ventana_juego, (int *)&s.x, (int *)&s.y);
+        if (ClientToScreen(g_ventana_juego, &s)) SetCursorPos(s.x, s.y);
+    } else if (g_ventana_juego && GetClientRect(g_ventana_juego, &r) && r.right > 0 && r.bottom > 0) {
         POINT s = {x * r.right / 800, y * r.bottom / 600};
         if (ClientToScreen(g_ventana_juego, &s)) SetCursorPos(s.x, s.y);
     }
@@ -1552,17 +1602,83 @@ static void dik_cambio(BYTE dik, int apretada, const char *por)
             g_dik_antes[i] = (BYTE)apretada;
         }
 }
+static void *g_di_raton;
+static int g_di_eje[3];
+static void di_raton_traza(const char *como, long x, long y, long z);
 static long WINAPI mi_diestado(void *d, DWORD largo, void *datos)
 {
     long hr = g_diestado_real(d, largo, datos);
     if (hr == 0 && datos && largo == 256 && g_mz_atajos)          /* el teclado: 256 bytes, uno por tecla */
         for (int i = 0; i < 3; i++) dik_cambio(DIK_ATAJO[i], ((BYTE *)datos)[DIK_ATAJO[i]] & 0x80, "teclado del juego");
+    if (hr == 0 && datos && largo != 256 && largo >= 8) e2d_di_mouse(((LONG *)datos)[0], ((LONG *)datos)[1]);   /* (diag 16:9) */
+    if (hr == 0 && datos && d == g_di_raton) {                       /* (diag 16:9) los ejes en SU formato */
+        LONG e[3] = {0, 0, 0};
+        for (int k = 0; k < 3; k++)
+            if (g_di_eje[k] >= 0 && (DWORD)g_di_eje[k] + 4 <= largo) e[k] = *(LONG *)((BYTE *)datos + g_di_eje[k]);
+        di_raton_traza("estado", e[0], e[1], e[2]);
+        if (g_e2d_resultados)                                         /* ★ (Punto 5) resultados: ejes en 0 */
+            for (int k = 0; k < 2; k++)
+                if (g_di_eje[k] >= 0 && (DWORD)g_di_eje[k] + 4 <= largo) *(LONG *)((BYTE *)datos + g_di_eje[k]) = 0;
+    }
     if (hr == 0 && datos && !entrada_ok()) { memset(datos, 0, largo); g_entrada_tapada++; }
     return hr;
+}
+/* (diag 16:9) el mouse de DirectInput del juego */
+static int g_di_eje[3] = {-1, -1, -1};                       /* (diag 16:9) dónde van X, Y, Z del mouse en SU formato */
+static long g_di_traza_n, g_di_quitados;
+static void di_raton_traza(const char *como, long x, long y, long z)
+{
+    if (!(x || y || z) || !e2d_trazando() || !g_e2d_stage_ahora || g_di_traza_n > 400) return;
+    g_di_traza_n++;
+    apuntar("  (escala2d) traza: DirectInput mouse %s (%ld, %ld, %ld) · apuntando %d · [0x917884] %d", como, x, y, z,
+            e2d_apuntando(), e2d_dword(0x917884));
+}
+typedef long (WINAPI *M_DIFORMATO)(void *, const void *);
+static M_DIFORMATO g_diformato_real;
+static long WINAPI mi_diformato(void *d, const void *f)
+{
+    if (d == g_di_raton && f && legible(f, 24)) {                   /* (diag 16:9) DIDATAFORMAT del mouse */
+        const DWORD *df = (const DWORD *)f;
+        const BYTE *o = (const BYTE *)(ULONG_PTR)df[5];
+        apuntar("  (diag 16:9) DirectInput mouse: formato de %lu B · %lu objetos · flags 0x%lX", df[3], df[4], df[2]);
+        for (DWORD i = 0; o && i < df[4] && i < 16 && legible(o + i * df[1], 12); i++) {
+            const DWORD *g = *(const DWORD *const *)(o + i * df[1]);
+            DWORD ofs = *(const DWORD *)(o + i * df[1] + 4), tipo = *(const DWORD *)(o + i * df[1] + 8);
+            DWORD g0 = g && legible(g, 4) ? g[0] : 0;
+            int eje = g0 == 0xA36D02E0u ? 0 : g0 == 0xA36D02E1u ? 1 : g0 == 0xA36D02E2u ? 2 : -1;
+            if (eje >= 0) g_di_eje[eje] = (int)ofs;
+            apuntar("  (diag 16:9)   objeto %lu: guid %08lX · ofs %lu · tipo 0x%08lX%s", i, g0, ofs, tipo,
+                    eje >= 0 ? (eje == 0 ? " (eje X)" : eje == 1 ? " (eje Y)" : " (eje Z)") : "");
+        }
+    }
+    return g_diformato_real(d, f);
 }
 static long WINAPI mi_didatos(void *d, DWORD tam, void *datos, DWORD *n, DWORD flags)
 {
     long hr = g_didatos_real(d, tam, datos, n, flags);
+    if (hr == 0 && d == g_di_raton && datos && n && tam >= 8 && !(flags & 1))   /* (diag 16:9) eventos del mouse */
+        for (DWORD i = 0; i < *n; i++) {
+            BYTE *e = (BYTE *)datos + i * tam;
+            DWORD ofs = *(DWORD *)e;
+            LONG v = *(LONG *)(e + 4);
+            if (ofs == 0) e2d_di_mouse(v, 0); else if (ofs == 4) e2d_di_mouse(0, v);
+            di_raton_traza("evento", (int)ofs == g_di_eje[0] ? v : 0, (int)ofs == g_di_eje[1] ? v : 0, (int)ofs == g_di_eje[2] ? v : 0);
+        }
+    /* ★ (19-nov, Punto 5) EN LOS RESULTADOS EL MOUSE NO GIRA LA CÁMARA. Medido 15:20:53 (traza: mouse real del dueño en
+     *   REWARD CHOICE, «apuntar» del juego = 0): la cámara del Stage gira con los EVENTOS del mouse de DirectInput
+     *   (formato propio de 24 B: botones en 0/4/8, Z 12, Y 16, X 20; −17 en X → giro −13°…−74°), no con el cursor.
+     *   En resultados se quitan sólo los eventos de los ejes X / Y (los botones y los mensajes de Windows siguen). */
+    if (hr == 0 && d == g_di_raton && datos && n && *n && tam >= 8 && !(flags & 1) && g_e2d_resultados) {
+        DWORD k = 0;
+        for (DWORD i = 0; i < *n; i++) {
+            BYTE *e = (BYTE *)datos + i * tam;
+            int ofs = (int)*(DWORD *)e;
+            if ((ofs == g_di_eje[0] || ofs == g_di_eje[1]) && ofs >= 0) { g_di_quitados++; continue; }
+            if (k != i) memmove((BYTE *)datos + k * tam, e, tam);
+            k++;
+        }
+        *n = k;
+    }
     if (hr == 0 && datos && n && g_mz_atajos && !(flags & 1 /* DIGDD_PEEK */) && tam >= 8)
         for (DWORD i = 0; i < *n; i++) {                           /* (eventos: dwOfs = tecla, dwData & 0x80 = abajo) */
             BYTE *e = (BYTE *)datos + i * tam;
@@ -1577,8 +1693,10 @@ static long WINAPI mi_dicrear(void *di, const void *guid, void **dev, void *unk)
 {
     long hr = g_dicrear_real(di, guid, dev, unk);
     if (hr == 0 && dev && *dev) {
+        if (guid && *(const DWORD *)guid == 0x6F1D2B60u) g_di_raton = *dev;   /* GUID_SysMouse */
         poner(VT(*dev), 9, (void *)mi_diestado, (void **)&g_diestado_real);     /* GetDeviceState */
         poner(VT(*dev), 10, (void *)mi_didatos, (void **)&g_didatos_real);      /* GetDeviceData */
+        poner(VT(*dev), 11, (void *)mi_diformato, (void **)&g_diformato_real);  /* SetDataFormat (diag 16:9) */
     }
     return hr;
 }
@@ -1603,7 +1721,15 @@ static void poner_entrada(void)
 
 static M_SETCUR g_setcur_real;
 static M_CLIP g_clip_real;
-static BOOL WINAPI mi_setcur(int x, int y) { return juego_al_frente() ? g_setcur_real(x, y) : TRUE; }
+static BOOL WINAPI mi_setcur(int x, int y)
+{
+    if (!juego_al_frente()) return TRUE;
+    /* ★ (19-nov, Punto 5) en los resultados (fase ≥ 5) el juego NO recentra el cursor aunque «apuntar» vuelva a 1
+     *   (medido 14:56:23 en la prueba del dueño): el mouse queda libre para las cartas y Confirm */
+    if ((DWORD)(ULONG_PTR)__builtin_return_address(0) == E2D_VUELTA_CENTRADO && g_e2d_res_fase) return TRUE;
+    e2d_setcur(&x, &y, (DWORD)(ULONG_PTR)__builtin_return_address(0));                                      /* ★ (Punto 5) de la interfaz a la ventana (si escala) */
+    return g_setcur_real(x, y);
+}
 static BOOL WINAPI mi_clip(const RECT *r) { return g_clip_real(juego_al_frente() ? r : NULL); }
 
 
@@ -1668,6 +1794,7 @@ static void f10_por_estado(void)
     antes = abajo;
 }
 
+static void reafirmar_ganchos(void);
 static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
 {
     BOOL hay = g_peek_real(m, h, a, b, r);
@@ -1708,6 +1835,7 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
             }
         }
         if (tapar) { m->message = WM_NULL; g_entrada_tapada++; }       /* (el juego no ve nada mientras Options está) */
+        else e2d_mouse(m);                                   /* ★ (Punto 5) el mouse, en coordenadas de la interfaz */
     }
     ++g_vueltas;
     if (g_mz_atajos && (g_vueltas & 3) == 0) f10_por_estado();   /* (una lectura del teclado: nada más) */
@@ -1718,6 +1846,13 @@ static BOOL WINAPI mi_peek(LPMSG m, HWND h, UINT a, UINT b, UINT r)
     if (g_panel_siguiente) panel_siguiente_tick();   /* (un panel a la vez: el que se pidió con el otro abierto) */
     if (g_ubicar && (g_vueltas & 127) == 0) opc_ubicar_tick();
     if ((g_pantalla_pedida >= 0 || g_sin_bordes) && (g_vueltas & 63) == 0) opc_pantalla_tick();
+    if (g_pan_vivo_w || g_pan_vivo_esperando || g_gr_rehacer) pan_vivo_tick();   /* ★ (Punto 5/6) resolución / antialias en vivo */
+    /* ★ (19-nov noche, Punto 5) LOS GANCHOS TAMBIÉN DESDE EL BUCLE DE MENSAJES. Medido 16:28:54 (dueño, TEST, 1,5 s
+     *   después de empezar el Stage): otro programa reescribió la tabla del dispositivo ENTERA, Present incluido. Con
+     *   Present ajeno, la revisión de cada cuadro (en el Present) no corre y sólo la vigía (cada 1 s) los recuperaba:
+     *   hasta 1 s de barra de habilidades sin escalar. PeekMessage es del juego (no está en esa tabla): se mira acá,
+     *   en el hilo del juego, entre cuadro y cuadro (comparar punteros; sólo escribe si cambiaron). */
+    if (g_vt_dev) reafirmar_ganchos();
     return hay;
 }
 
@@ -1811,6 +1946,10 @@ static void poner_mazino(void)
         g_setcur_real = (M_SETCUR)parchear_iat("user32.dll", "SetPhysicalCursorPos", (void *)mi_setcur);
         g_clip_real = (M_CLIP)parchear_iat("user32.dll", "ClipCursor", (void *)mi_clip);
         if (!g_setcur_real || !g_clip_real) apuntar("  [mazino] foco: ⚠ no encontré SetPhysicalCursorPos / ClipCursor en el exe");
+    }
+    if (g_e2d && !g_e2d_getcur_real) {                       /* ★ (Punto 5) sólo con escala2d=1 */
+        g_e2d_getcur_real = (E2D_GETCUR)parchear_iat("user32.dll", "GetPhysicalCursorPos", (void *)e2d_getcur);
+        apuntar("  (escala2d) GetPhysicalCursorPos del juego %s", g_e2d_getcur_real ? "en las coordenadas de la interfaz" : "⚠ no encontrado");
     }
     if (g_mz_opciones && !g_opc_cs_lista) { InitializeCriticalSection(&g_opc_cs); g_opc_cs_lista = 1; }
     if (g_mz_opciones && !consola_del_juego())
@@ -2021,7 +2160,7 @@ static void dibujar_contador(void *dev)
     ((M_UNO)vt[I_SETVS])(dev, NULL);
     ((M_UNO)vt[I_SETPS])(dev, NULL);
     ((M_PTR)vt[I_SETTEXTURE])(dev, 0, NULL);
-    ((M_RS)vt[I_SETFVF])(dev, 0x044, 0);                         /* XYZRHW | DIFFUSE */
+    ((long (WINAPI *)(void *, DWORD))vt[I_SETFVF])(dev, 0x044);                         /* XYZRHW | DIFFUSE */
     static const DWORD estados[][2] = {{7, 0} /* ZENABLE */, {14, 0} /* ZWRITE */, {15, 0} /* ALPHATEST */,
         {27, 0} /* ALPHABLEND */, {22, 1} /* CULL NONE */, {137, 0} /* LIGHTING */, {28, 0} /* FOG */,
         {52, 0} /* STENCIL */, {174, 0} /* SCISSOR */, {168, 0xF} /* COLORWRITE */, {8, 3} /* SOLID */};
@@ -2068,12 +2207,26 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
             apuntar("  %d cuadros/s · despertadas %ld · bloqueos a la copia %ld · subidas al anillo %ld (%ld B en promedio)"
                     " · fuente corregida %ld", g_fps, g_despertadas, g_convertidos, g_subidos,
                     g_subidos ? g_subidos_bytes / g_subidos : 0, g_desfasadas);
+            gr_resumen();
             if (g_medir_escritura)
                 apuntar("  escritura: %ld de %ld bloqueos CAMBIAN algo · promedio %ld B · máx %ld · empiezan en 0: %ld · siguen al anterior: %ld",
                         g_med_n, g_convertidos, g_med_n ? g_med_bytes / g_med_n : 0, g_med_max, g_med_desde0, g_med_siguiente);
         }
     }
-    if (g_mostrar) dibujar_contador(dev);
+    gr_brillo_dibujar(dev);                                  /* ★ (Punto 6) el brillo, sólo dentro del juego */
+    if (g_mostrar) { InterlockedExchange(&g_e2d_propio, 1); dibujar_contador(dev); InterlockedExchange(&g_e2d_propio, 0); }
+    e2d_cuadro(dev);                                         /* ★ (Punto 5) escena, backbuffer real, registro */
+    /* ★ (19-nov, Punto 5) LOS GANCHOS DE ESCALA, CADA CUADRO. Medido 13:12:32.7 (dueño, al empezar el Stage): otro
+     *   programa pisó SetTransform y compañía y la vigía (cada 1 s) los recuperó recién ~1 s después: en ese rato la
+     *   barra de habilidades se dibujó con la proyección de 800×600 sin escalar. Ahora se mira en el Present (una
+     *   comparación de 9 punteros, sin hilos ni timers): a lo sumo un cuadro. */
+    if (e2d_activa() && g_vt_dev) e2d_reafirmar(g_vt_dev, reafirmar);
+    if (g_vt_dev) gr_reafirmar(g_vt_dev, reafirmar);          /* ★ (Punto 6) el filtrado */
+    {                                                        /* ★ (diag) el destello rojo: sólo mira */
+        BYTE *esc_r = leer_ptr((void *)0x934554);
+        rojo_cuadro(dev, esc_r && (DWORD)(ULONG_PTR)leer_ptr(esc_r) == 0x00899C20);
+    }
+    if (g_medir5) medir5_present(dev);              /* ★ (Punto 5) sólo lectura, sólo en la prueba */
     aviso_cuadro(w);                                             /* ★ (19-nov) el aviso de arranque: crear / cerrar */
     long hr = g_present_real(dev, a, b, w, r);
     esperar_tope();
@@ -2087,9 +2240,25 @@ static long WINAPI mi_reset(void *dev, void *pp)
             ((M_SB)VT(g_bloque)[2])(g_bloque);                     /* Release (si no, Reset falla) */
         g_bloque = NULL;                                          /* (el de otro dispositivo: ni tocarlo) */
     }
+    rojo_soltar();                                           /* (diag rojo: lo suyo del pool DEFAULT) */
+    gr_soltar();                                             /* (el state block del brillo) */
+    sombras_olvidar();
     ajustar_pp(pp);
+    gr_ajustar_pp(pp);                                       /* ★ (Punto 6) el antialias */
+    e2d_dispositivo(NULL, pp);                               /* ★ (Punto 5) el tamaño nuevo (si escala2d) */
+    /* ★ (20-nov) lo que quedó PUESTO (texturas por etapa, streams, índices, destinos) se saca antes: si no, un recurso del
+     *   pool DEFAULT ya soltado por su dueño sigue vivo y el Reset da 0x8876086C (el cierre tras un Stage; ver
+     *   gr_reset_desligar). El Reset deja todo sin poner igual: para el motor es lo mismo. */
+    char puestos_diag[400];
+    int puestos = 0;
+    puestos_diag[0] = 0;
+    if (g_gr_desligar) puestos = gr_reset_desligar(dev, (void *)g_sss_real, (void *)g_e2d_rt_real, puestos_diag, sizeof(puestos_diag));
     long hr = g_reset_real(dev, pp);
     apuntar("Reset -> 0x%08lx", (unsigned long)hr);
+    if (puestos || hr)
+        apuntar("  ★ Reset: %s%d del pool DEFAULT seguían puestos y se sacaron antes:%s%s", g_gr_desligar ? "" : "(reset_desligar=0: NO se sacan) ",
+                puestos, puestos_diag[0] ? puestos_diag : " ninguno",
+                hr ? " · ⚠ igual FALLÓ: algún dueño todavía tiene un recurso DEFAULT (o un state block / swap chain extra)" : "");
     return hr;
 }
 
@@ -2107,7 +2276,20 @@ static long WINAPI mi_crear_dispositivo(void *d3d, UINT adaptador, DWORD tipo, H
                                         void *pp, void **dev)
 {
     ajustar_pp(pp);
+    g_gr_d3d = d3d;                                          /* ★ (Punto 6) para preguntar por el antialias */
+    g_gr_adaptador = adaptador;
+    gr_placa(d3d, adaptador);
+    gr_ajustar_pp(pp);
     long hr = g_creardev_real(d3d, adaptador, tipo, foco, flags, pp, dev);
+    if (hr != 0 && g_gr_aa_puesto > 0) {                     /* (con antialias no se pudo: sin él, como siempre) */
+        int pedido = g_gr_aa;
+        apuntar("  (gráficos) ⚠ CreateDevice con antialias %d× → 0x%08lx: otra vez SIN antialias", g_gr_aa_puesto, (unsigned long)hr);
+        g_gr_aa = 0;
+        gr_ajustar_pp(pp);
+        g_gr_aa = pedido;
+        g_gr_aa_max = 0;                                     /* (no se vuelve a intentar en esta sesión) */
+        hr = g_creardev_real(d3d, adaptador, tipo, foco, flags, pp, dev);
+    }
     apuntar("CreateDevice(adaptador %u, flags 0x%lx, swap %lu, pflags 0x%lx, intervalo 0x%lx) -> 0x%08lx",
             adaptador, (unsigned long)flags, (unsigned long)((DWORD *)pp)[6], (unsigned long)((DWORD *)pp)[11],
             (unsigned long)((DWORD *)pp)[13], (unsigned long)hr);
@@ -2124,6 +2306,8 @@ static long WINAPI mi_crear_dispositivo(void *d3d, UINT adaptador, DWORD tipo, H
         }
         apuntar("  enganchados Present y Reset · tope %d cuadros/s · contador %s · búferes rápidos %s",
                 g_tope, g_mostrar ? "sí" : "no", g_buferes ? "sí" : "no");
+        e2d_dispositivo(vt, pp);                             /* ★ (Punto 5) sólo con [pantalla] escala2d=1 */
+        gr_dispositivo(vt, *dev);                            /* ★ (Punto 6) filtrado, destello rojo */
     }
     return hr;
 }
@@ -2212,6 +2396,9 @@ static void leer_ajustes(HMODULE self)
     if (g_p2p && GetPrivateProfileIntA("p2p", "red_inmediata", 1, ini)) g_red = 1;
     /* (las variables EDA_* mandan sobre el .ini: para medir sin tocarlo) */
     if (GetEnvironmentVariableA("EDA_MEJORAS", v, sizeof(v))) g_mejoras = atoi(v);
+    medir5_leer_env();                               /* ★ (Punto 5) EDA_RES_PRUEBA: sólo la prueba */
+    e2d_leer_ini(ini);                               /* ★ (Punto 5/6) [pantalla]: la adaptación 2D, siempre */
+    gr_leer_ini(ini);                                /* ★ (Punto 6) [graficos] */
     if (GetEnvironmentVariableA("EDA_TOPE_FPS", v, sizeof(v))) g_tope = atoi(v);
     if (GetEnvironmentVariableA("EDA_MOSTRAR_FPS", v, sizeof(v))) g_mostrar = atoi(v);
     if (GetEnvironmentVariableA("EDA_MEDIR_ESCRITURA", v, sizeof(v))) g_medir_escritura = atoi(v);
@@ -2237,6 +2424,29 @@ static void leer_ajustes(HMODULE self)
  *   no volvió, sin Reset ni dispositivo nuevo: otro programa (un overlay: Discord, NVIDIA…) escribió SU gancho en la
  *   misma tabla. Se sumaba a lo de antes: el registro mudo a mitad de partida. El vigía mira la tabla cada segundo y,
  *   si cambió, se encadena: lo que encontró pasa a ser «el real» (así el overlay sigue andando) y el nuestro vuelve. */
+/* ★ (19-nov noche, diag) QUIÉN PISA LOS GANCHOS: en TEST, 1–2 s después de empezar cada Stage, la tabla entera vuelve
+ *   a las direcciones originales de d3d9.dll (en el server local, nunca). Sólo se mira: la primera vez se anotan los
+ *   módulos cargados en el proceso que no son de Windows (overlays, capturadores, inyectados). */
+static void modulos_listar(void)
+{
+    HANDLE h = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+    if (h == INVALID_HANDLE_VALUE) return;
+    MODULEENTRY32W me;
+    me.dwSize = sizeof(me);
+    int win = 0, otros = 0;
+    WCHAR sys[MAX_PATH];
+    UINT ns = GetWindowsDirectoryW(sys, MAX_PATH);
+    for (BOOL ok = Module32FirstW(h, &me); ok; ok = Module32NextW(h, &me)) {
+        if (ns && CompareStringOrdinal(me.szExePath, (int)ns, sys, (int)ns, TRUE) == CSTR_EQUAL) { win++; continue; }
+        otros++;
+        char n[MAX_PATH * 3];
+        WideCharToMultiByte(CP_UTF8, 0, me.szExePath, -1, n, sizeof(n), NULL, NULL);
+        apuntar("  (diag ganchos)   módulo 0x%08lX (%lu KB): %s", (unsigned long)(ULONG_PTR)me.modBaseAddr,
+                (unsigned long)(me.modBaseSize / 1024), n);
+    }
+    CloseHandle(h);
+    apuntar("  (diag ganchos) módulos cargados: %d de Windows (no se listan) · %d otros (arriba)", win, otros);
+}
 static int reafirmar(void **vt, int i, void *nuestro, void **real, const char *que)
 {
     void *ahora = vt[i];
@@ -2246,7 +2456,13 @@ static int reafirmar(void **vt, int i, void *nuestro, void **real, const char *q
     *real = ahora;
     vt[i] = nuestro;
     VirtualProtect(&vt[i], sizeof(void *), prot, &prot);
-    apuntar("  ⚠ otro programa pisó el gancho de %s (0x%08lX): encadenado, el nuestro vuelve", que, (unsigned long)(ULONG_PTR)ahora);
+    static LONG avisos;                                  /* (si otro programa peleara cada cuadro: el registro no se llena) */
+    if (InterlockedIncrement(&avisos) <= 60)
+        apuntar("  ⚠ otro programa pisó el gancho de %s (0x%08lX): encadenado, el nuestro vuelve", que, (unsigned long)(ULONG_PTR)ahora);
+    {
+        static LONG listados;
+        if (g_diagnostico && InterlockedIncrement(&listados) == 1) modulos_listar();
+    }
     return 1;
 }
 static void reafirmar_ganchos(void)
@@ -2260,6 +2476,44 @@ static void reafirmar_ganchos(void)
         reafirmar(vt, 100, (void *)mi_sss, (void **)&g_sss_real, "SetStreamSource");
         reafirmar(vt, 81, (void *)mi_dp, (void **)&g_dp_real, "DrawPrimitive");
         reafirmar(vt, 82, (void *)mi_dip, (void **)&g_dip_real, "DrawIndexedPrimitive");
+    }
+    e2d_reafirmar(vt, reafirmar);                            /* ★ (Punto 5) sólo si escala2d los puso */
+}
+
+/* ★ (20-nov) diag del «Close de Capítulos no responde» (1920 pantalla completa; a 800 y 1280 en ventana sí) y de la zona
+ *   arriba a la derecha donde «el clic no llega a la ventana del juego» (19-nov, sin clic en el registro): ¿qué ventana
+ *   VISIBLE está ENCIMA del juego en ese cuarto de arriba a la derecha? Sólo mira (GetWindow / GetWindowRect /
+ *   GetWindowLong), desde la vigía cada 10 s, y anota cada ventana UNA vez. Sin WS_EX_TRANSPARENT una ventana invisible
+ *   a la vista (layered con alfa 0, o excluida de la captura) igual se queda con los clics. */
+static void ventanas_encima_diag(void)
+{
+    static HWND vistas[32];
+    static int nv;
+    HWND j = g_ventana_juego;
+    RECT rj, zona, x, r;
+    if (!j || !GetWindowRect(j, &rj)) return;
+    zona.left = rj.left + (rj.right - rj.left) * 3 / 4;
+    zona.right = rj.right;
+    zona.top = rj.top;
+    zona.bottom = rj.top + (rj.bottom - rj.top) * 2 / 3;
+    DWORD yo = GetCurrentProcessId();
+    int vueltas = 0;
+    for (HWND w = GetWindow(j, GW_HWNDPREV); w && vueltas < 400; w = GetWindow(w, GW_HWNDPREV), vueltas++) {
+        if (!IsWindowVisible(w) || !GetWindowRect(w, &r) || !IntersectRect(&x, &r, &zona)) continue;
+        int ya = 0;
+        for (int i = 0; i < nv; i++) if (vistas[i] == w) ya = 1;
+        if (ya) continue;
+        if (nv < 32) vistas[nv++] = w;
+        char clase[80] = "?", nombre[MAX_PATH] = "?";
+        GetClassNameA(w, clase, sizeof(clase));
+        DWORD pid = 0, largo = MAX_PATH;
+        GetWindowThreadProcessId(w, &pid);
+        HANDLE p = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, FALSE, pid);
+        if (p) { if (!QueryFullProcessImageNameA(p, 0, nombre, &largo)) lstrcpyA(nombre, "?"); CloseHandle(p); }
+        LONG ex = GetWindowLongW(w, GWL_EXSTYLE);
+        apuntar("  (diag ventanas) ENCIMA del juego, arriba a la derecha: «%s» · %s (pid %lu%s) · (%ld,%ld)-(%ld,%ld) · exstyle 0x%08lX%s%s",
+                clase, nombre, (unsigned long)pid, pid == yo ? " = EDA" : "", r.left, r.top, r.right, r.bottom, (unsigned long)ex,
+                (ex & WS_EX_LAYERED) ? " · layered" : "", (ex & WS_EX_TRANSPARENT) ? " · deja pasar los clics" : " · ⚠ SE QUEDA con los clics");
     }
 }
 
@@ -2301,6 +2555,7 @@ static DWORD WINAPI vigia(LPVOID nada)
                 if (g_diagnostico) apuntar("  (vigía) escena 0x%08lX → anillo %s", (unsigned long)vt, quiero ? "prendido" : "apagado");
             }
         }
+        if (vuelta % 40 == 39) ventanas_encima_diag();                /* ★ (20-nov) cada 10 s: quién tapa arriba a la derecha */
         if (++vuelta % 40 == 0 && g_diagnostico) {                    /* cada 10 s, sólo con [general] diagnostico=1 */
             apuntar("  (vigía) 10 s: Present %ld · dibujos %ld · mensajes %ld (otro hilo %ld) · copia %ld · anillo %d · escena 0x%08lX · entrada tapada %ld",
                     InterlockedExchange(&c_present, 0), InterlockedExchange(&c_dibujos, 0), InterlockedExchange(&c_peek, 0),
