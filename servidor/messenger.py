@@ -384,7 +384,7 @@ def abrir_opciones():
     import sys
     from servidor import config
     ruta = os.path.join(os.path.dirname(config.RAIZ), "EDA-Opciones.py")
-    if sys.platform != "win32" or not os.path.exists(ruta):
+    if sys.platform != "win32" or os.environ.get("EDA_SIN_PANELES") == "1" or not os.path.exists(ruta):
         return "Opciones: abre EDA-Opciones en tu PC."
     py = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
     try:
@@ -504,7 +504,7 @@ def abrir_atajos():
         return False
     ruta = os.path.join(os.path.dirname(config.RAIZ), "EDA-Atajos.py")
     pid = os.path.join(config.ESTADO, "atajos.pid")
-    if sys.platform != "win32" or not os.path.exists(ruta):
+    if sys.platform != "win32" or os.environ.get("EDA_SIN_PANELES") == "1" or not os.path.exists(ruta):
         return False
     if proceso_vivo(pid) and os.path.getmtime(ruta) <= os.path.getmtime(pid):
         return False
@@ -618,7 +618,7 @@ def abrir_panel(nombre):
     import subprocess
     import sys
     ruta = os.path.join(os.path.dirname(config.RAIZ), "EDA-Messenger.py")
-    if sys.platform != "win32" or not os.path.exists(ruta):
+    if sys.platform != "win32" or os.environ.get("EDA_SIN_PANELES") == "1" or not os.path.exists(ruta):
         return False
     pid = os.path.join(config.ESTADO, "messenger_panel.pid")
     if proceso_vivo(pid):                                   # ★ 14-nov: el botón abre Y cierra

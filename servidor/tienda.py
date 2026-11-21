@@ -25,14 +25,16 @@ def comprar(cmd, cuerpo, conexion, c, p):
                if 5 + 2 * k + 2 <= len(cuerpo)]
     # ★ (PR #5, Urek-Mazinoo) se cobra el ORO y el CASH de cada producto (antes sólo el oro), se pide
     #   que el pedido entero se haya leído, y que entre en la bolsa (150 casilleros: 18–167)
+    # ★ (20-nov, Paso 6, decisión del dueño) EDA usa SÓLO ORO: el cash de Product.xml (SellCash, 0 en los 66
+    #   productos) ni se cobra ni se compara; al cliente va cash = 0 (la estructura del paquete no cambia). El
+    #   «cash» guardado en las cuentas viejas se conserva tal cual (ni se borra ni se convierte).
     costo_oro = sum(tabla[x][0] for x in pedidos if x in tabla)
-    costo_cash = sum(tabla[x][1] for x in pedidos if x in tabla)
     inv = inventario(c)
     cupos = 150 - len({it[2] for it in inv if 18 <= it[2] < 168})
     cantidad_items = sum(len(tabla[x][2]) for x in pedidos if x in tabla)
     if (not pedidos or len(pedidos) != n or any(x not in tabla for x in pedidos)
-            or costo_oro > c["plata"] or costo_cash > c["cash"] or cantidad_items > cupos):
-        return [(0x1040, struct.pack("<HIIBHH", 0, c["plata"], c["cash"], 0, 0, 0), 0)]
+            or costo_oro > c["plata"] or cantidad_items > cupos):
+        return [(0x1040, struct.pack("<HIIBHH", 0, c["plata"], 0, 0, 0, 0), 0)]
     nuevos = []
     for x in pedidos:
         for tipo, cant in tabla[x][2]:
@@ -44,9 +46,8 @@ def comprar(cmd, cuerpo, conexion, c, p):
             nuevos.append(registro_item(it[3], tipo, cant, it[2], verificado))
     c["items"] = inv
     c["plata"] -= costo_oro
-    c["cash"] -= costo_cash
     guardar(c)
-    return [(0x1040, struct.pack("<HIIBHH", 1, c["plata"], c["cash"], len(pedidos),
+    return [(0x1040, struct.pack("<HIIBHH", 1, c["plata"], 0, len(pedidos),
                                  len(nuevos), 0)
              + b"".join(struct.pack("<H", x) for x in pedidos)
              + b"".join(r + f for r, f in nuevos), 0)]

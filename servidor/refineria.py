@@ -14,7 +14,8 @@ def reparar(cmd, cuerpo, conexion, c, p):
     if not (len(cuerpo) >= 6):
         return None
     # ★ REPAIR (medido 21:37: «Repair All» → «22500 Gold will be used» → Confirm): 0x1039 =
-    #   u32 · u16 1 = TODO (0 = «Repair Each»: le siguen los seriales, 🟡). El precio lo calcula
+    #   u32 · u16 1 = TODO · 0 = «Repair Each» + u32 el serial de ESE ítem (uno solo: el cliente lo arma en
+    #   `0x54A6ED`–`0x54A70A`, [ítem+4] con `0x7437D0`; verificado en el exe 20-nov). El precio lo calcula
     #   el cliente igual: Σ (MAXSOLID − durabilidad) × REPAIRGOLD de ItemTypeList.xml (2500 × 1
     #   + 5000 × 4 = 22500, medido).
     #   0x103A (`0x54A7A0`): u16 1 · u32 ORO (→ +0x2C5) · u8 N · N × (u32 serial · u16 la

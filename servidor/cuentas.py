@@ -11,7 +11,7 @@ from servidor import config
 from servidor.estado import ASIGNADAS
 
 
-INICIO = {"nombre": "rui", "clase": 1, "monedas": 3, "plata": 5678, "cash": 1234, "exp": 0,
+INICIO = {"nombre": "rui", "clase": 1, "monedas": 3, "plata": 5678, "cash": 0, "exp": 0,
           "partidas": 0, "abandonos": 0, "terminadas": [],
           # ★ El set de grado 1 de Warrior (`ITEMTYPELIST`, USECLASS=1): ningún equipo de Warrior
           #   pide menos de nivel 2 (LEVEL_RESTRICT=2) → con nivel 1 dice «Can't equip» con razón.

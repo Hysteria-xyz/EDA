@@ -178,7 +178,7 @@ def cuerpo_cuenta(c, conexion=0, elegido_al_frente=False):
     # ★ +6 u32 → cuenta+0x2B8 = el ID con que el cliente se registra en el punch (`0x3006`). Pisa
     #   el del 0x1010: en 0 los dos clientes se anotaban como «jugador 0» (relay, 20:03)
     struct.pack_into("<I", b, 6, conexion or 0)
-    struct.pack_into("<I", b, 0x0F, c["cash"])
+    struct.pack_into("<I", b, 0x0F, 0)                       # ★ (Paso 6) cash: EDA usa sólo oro (lo guardado no se toca)
     struct.pack_into("<I", b, 0x13, c["plata"])
     struct.pack_into("<H", b, 0x17, c["monedas"])          # monedas de revivir (+0x2C9)
     b[0x19] = 5                                             # lugares habilitados
