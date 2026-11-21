@@ -1345,7 +1345,70 @@ def pruebas_multijugador(chequear):
     chequear("★ multi: B ya salió de la stage → no le llega NADA de la stage de A (antes: 0x105D/1060/1062/1066/106D)",
              not fuera, fuera)
     limpiar(66, [A, B])
+    pruebas_estres(chequear)
     pruebas_red_cola(chequear)
+
+
+def pruebas_estres(chequear):
+    """★ (20-nov) Sin interbloqueos ni estado roto con el candado: 6 jugadores en 6 hilos hacen al azar lo que
+    hace la gente (crear, entrar, listo, F9, cargar, salir, cortarse) mientras el reloj corre, ~1,5 s."""
+    import random
+    import threading
+    from servidor.juego import tick
+    jug = list(range(701, 707))
+    errores, hechos, fin = [], [0], time.monotonic() + 1.5
+    sala_base = bytearray(0x59)
+    struct.pack_into("<I", sala_base, 0x28, 1011)
+    sala_base[0x2F] = 3
+
+    def jugar(n):
+        rnd = random.Random(n)
+        try:
+            while time.monotonic() < fin:
+                op = rnd.randrange(8)
+                if op == 0:
+                    responder(0x101D, bytes(4) + bytes(sala_base), n)
+                elif op == 1 and SALAS:
+                    num = rnd.choice(list(SALAS.keys()) or [0])
+                    responder(0x101F, struct.pack("<IH", 0, num if isinstance(num, int) else 0) + bytes(20), n)
+                elif op == 2:
+                    s = SALAS.get(partida(n).get("sala"))
+                    if s and n in s["miembros"]:
+                        responder(0x1047, bytes([s.get("numeros", {}).get(n, 0), 1]), n)
+                elif op == 3:
+                    responder(0x104E, b"", n)
+                elif op == 4:
+                    responder(0x105F, bytes(4), n)
+                elif op == 5:
+                    responder(0x1045, b"", n)
+                elif op == 6 and rnd.random() < 0.2:
+                    cerrada(n)
+                else:
+                    responder(0x105C, b"\1" * 8, n)
+                hechos[0] += 1
+        except Exception as e:                              # noqa: BLE001
+            errores.append(repr(e))
+
+    def reloj():
+        try:
+            while time.monotonic() < fin:
+                tick(jug)
+                time.sleep(0.01)
+        except Exception as e:                              # noqa: BLE001
+            errores.append("tick: " + repr(e))
+    hs = [threading.Thread(target=jugar, args=(n,), daemon=True) for n in jug] + [threading.Thread(target=reloj, daemon=True)]
+    [h.start() for h in hs]
+    [h.join(10) for h in hs]
+    colgados = [h for h in hs if h.is_alive()]
+    chequear("★ estrés: 6 jugadores + el reloj en 7 hilos, sin interbloqueos (todos terminan)", not colgados,
+             "%d operaciones" % hechos[0])
+    chequear("estrés: ninguna excepción", not errores, errores[:3])
+    malos = [(k, m) for k, s in SALAS.items() for m in s["miembros"] if partida(m).get("sala") != k]
+    dobles = [k for k, s in SALAS.items() if len(set(s["miembros"])) != len(s["miembros"]) or not s["miembros"]]
+    chequear("estrés: cada miembro apunta a su sala, sin repetidos ni salas vacías", not malos and not dobles,
+             (malos[:3], dobles[:3]))
+    for n in jug:
+        cerrada(n)
 
 
 def pruebas_red_cola(chequear):

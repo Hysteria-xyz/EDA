@@ -224,13 +224,16 @@ def contestar(cli, n, pkt, guion):
     log("#%d ← %04x (%d B)%s" % (n, cmd, len(m["mensaje"]),
                                   ("\n" + m["mensaje"].hex(" ")) if LOG_HEX else ""))
     resp = None
-    try:
-        resp = juego().responder(cmd, m["mensaje"][4:], n)
-    except Exception:                                         # noqa: BLE001
-        log("#%d ⛔ servidor/ falló con %04x:\n%s" % (n, cmd, traceback.format_exc()))
-    if resp is not None:
-        despachar(n, resp)
-        return
+    # ★ (20-nov) contestar y ENCOLAR de a uno (servidor.CANDADO): así lo que el server decide en un orden sale a
+    #   cada jugador en ese mismo orden, aunque dos hilos contesten a la vez. Encolar no espera (ver `escritor`).
+    with servidor.CANDADO:
+        try:
+            resp = juego().responder(cmd, m["mensaje"][4:], n)
+        except Exception:                                     # noqa: BLE001
+            log("#%d ⛔ servidor/ falló con %04x:\n%s" % (n, cmd, traceback.format_exc()))
+        if resp is not None:
+            despachar(n, resp)
+            return
     for r in guion.get("%04x" % cmd, []):
         c, cuerpo = r.split(":", 1)
         enviar_a(n, int(c, 16), bytes.fromhex(cuerpo))
@@ -287,9 +290,10 @@ def reloj():
     while True:
         time.sleep(1.0)
         try:
-            resp = juego().tick(sorted(CONEXIONES))
-            if resp:
-                despachar(None, resp)
+            with servidor.CANDADO:
+                resp = juego().tick(sorted(CONEXIONES))
+                if resp:
+                    despachar(None, resp)
         except Exception:                                     # noqa: BLE001
             log("⛔ tick falló:\n%s" % traceback.format_exc())
             time.sleep(10)
@@ -340,8 +344,20 @@ def servidor_http(direccion, solo_panel=False):
                 if not 0 <= largo <= panel.TOPE_CUERPO:
                     raise ValueError("largo")
                 return self.rfile.read(largo) if largo else b""
+            # ★ (20-nov) el cuerpo se lee ANTES del candado (un cliente HTTP lento no frena el juego) y el panel
+            #   mira las salas y partidas de a uno con el juego (sin «el diccionario cambió mientras se recorría»)
             try:
-                codigo, datos = panel.atender(metodo, self.path, self.headers, leer_cuerpo, PUERTA_PANEL)
+                cuerpo, error_cuerpo = leer_cuerpo(), None
+            except ValueError as e:
+                cuerpo, error_cuerpo = b"", e
+
+            def cuerpo_leido():
+                if error_cuerpo is not None:
+                    raise error_cuerpo
+                return cuerpo
+            try:
+                with servidor.CANDADO:
+                    codigo, datos = panel.atender(metodo, self.path, self.headers, cuerpo_leido, PUERTA_PANEL)
             except Exception:                                 # noqa: BLE001
                 log("⛔ %s %s falló:\n%s" % (metodo,self.path.split("?")[0], traceback.format_exc()))
                 codigo, datos = 500, {"error": "Error interno del servidor del juego."}
