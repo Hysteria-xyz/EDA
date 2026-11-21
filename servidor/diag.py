@@ -4,12 +4,15 @@ POST /eda/diag (el HTTP del server, EDA_PUERTO + 1; afuera, por HTTPS con Caddy)
 cualquier ruta que no existe). Lo manda la d3d9.dll del jugador, sola, en segundo plano: el jugador no hace nada.
 
 Autenticación SIN mandar el ticket: el cliente ya tiene el ticket de su sesión (el launcher se lo pasa al exe) y el server
-lo tiene en su base del login (`config.PORTERIA`; acá sólo se LEE, el login no cambia). Cada lote lleva:
+lo tiene en su base del login (`config.PORTERIA`; acá sólo se LEE, el login no cambia). El ticket NO es la clave: de él se
+deriva una clave SÓLO para esto, K = HMAC-SHA256(ticket, "eda-diag-v1") (así ninguna firma del diagnóstico sirve para
+otra cosa, y el ticket nunca viaja ni se guarda). Cada lote lleva:
     X-EDA-Cuenta  el usuario (el mismo número que va en el login)
     X-EDA-Sesion  32 hex al azar que la dll elige al arrancar (NO es de la PC: cambia cada vez)
-    X-EDA-Lote    1, 2, 3…  (siempre mayor: un lote repetido o viejo se rechaza)
+    X-EDA-Lote    1, 2, 3…  (siempre mayor: un lote repetido o viejo se rechaza, también después de reiniciar)
     X-EDA-Hora    ms UTC de cuando lo mandó (±10 min)
-    X-EDA-Firma   hex de HMAC-SHA256(clave = ticket, «hora\nsesion\nlote\nsha256(cuerpo)»)
+    X-EDA-Firma   hex de HMAC-SHA256(K, «eda-diag-v1\ncuenta\nhora\nsesion\nlote\nsha256(cuerpo)»)
+Afuera va SÓLO por HTTPS (la dll no manda por http salvo a 127.0.0.1, para probar en la misma PC).
 El cuerpo: líneas JSON (≤ 64 KB, ≤ 500), cada una un evento chico: {"t": ms UTC, "m": ms desde el arranque, "e": "…", …}.
 Los eventos que manda la dll (eda_diag.c): inicio, fin, server_conecta, server_corta, tcp_silencio, escena, carga_fin,
 atrapado_carga, congelado, descongelado, fps, foco, caida (una excepción: código, módulo y sitio, como la caja negra).
@@ -74,9 +77,36 @@ def tickets_de(cuenta, ahora=None):
         db.close()
 
 
-def firma(ticket, hora, sesion, lote, cuerpo):
-    msg = "%s\n%s\n%s\n%s" % (hora, sesion, lote, hashlib.sha256(cuerpo).hexdigest())
-    return hmac.new(ticket.encode("utf-8"), msg.encode("ascii"), hashlib.sha256).hexdigest()
+DOMINIO = "eda-diag-v1"
+
+
+def clave(ticket):
+    """La clave del diagnóstico, derivada del ticket (nunca el ticket mismo)."""
+    return hmac.new(ticket.encode("utf-8"), DOMINIO.encode("ascii"), hashlib.sha256).digest()
+
+
+def firma(ticket, hora, sesion, lote, cuerpo, cuenta=""):
+    msg = "%s\n%s\n%s\n%s\n%s\n%s" % (DOMINIO, cuenta, hora, sesion, lote, hashlib.sha256(cuerpo).hexdigest())
+    return hmac.new(clave(ticket), msg.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _ultimo_lote(cuenta, sesion):
+    """el último lote aceptado de esa sesión: en memoria y en disco (un reinicio del server no reabre los viejos)"""
+    k = (cuenta, sesion)
+    if k not in _ULTIMO_LOTE:
+        try:
+            _ULTIMO_LOTE[k] = int(open(os.path.join(carpeta(), "lotes", "%s-%s" % k)).read().strip() or 0)
+        except (OSError, ValueError):
+            _ULTIMO_LOTE[k] = 0
+    return _ULTIMO_LOTE[k]
+
+
+def _anotar_lote(cuenta, sesion, lote):
+    _ULTIMO_LOTE[(cuenta, sesion)] = lote
+    d = os.path.join(carpeta(), "lotes")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "%s-%s" % (cuenta, sesion)), "w") as f:
+        f.write(str(lote))
 
 
 def limpiar_evento(ev):
@@ -116,10 +146,11 @@ def _recibir(cab, cuerpo, ahora_ms, buscar_tickets):
     if abs(ahora_ms - hora) > VENTANA_MS:
         raise Rechazo(401, "hora")
     dada = cab.get("x-eda-firma", "")
-    if not any(hmac.compare_digest(firma(t, hora, sesion, lote, cuerpo), dada) for t in buscar_tickets(cuenta)):
+    if not re.match(r"^[0-9a-f]{64}$", dada) or not any(
+            hmac.compare_digest(firma(t, hora, sesion, lote, cuerpo, cuenta), dada) for t in buscar_tickets(cuenta)):
         raise Rechazo(401, "firma")
     with _CANDADO:
-        if lote <= _ULTIMO_LOTE.get((cuenta, sesion), 0):
+        if lote <= _ultimo_lote(cuenta, sesion):
             raise Rechazo(409, "lote")
         ritmo = [x for x in _RITMO.get(cuenta, []) if ahora_ms - x < 60000]
         if len(ritmo) >= POR_MINUTO:
@@ -139,7 +170,7 @@ def _recibir(cab, cuerpo, ahora_ms, buscar_tickets):
             if ev:
                 ev["r"], ev["dr"] = ahora_ms, ahora_ms - hora
                 buenos.append(ev)
-        _ULTIMO_LOTE[(cuenta, sesion)] = lote
+        _anotar_lote(cuenta, sesion, lote)
         dia = time.strftime("%Y-%m-%d", time.gmtime(ahora_ms / 1000))
         d = os.path.join(carpeta(), dia)
         os.makedirs(d, exist_ok=True)
@@ -163,6 +194,11 @@ def podar(ahora_ms=None, dias=None, max_mb=None):
     hoy = time.strftime("%Y-%m-%d", time.gmtime(ahora_ms / 1000))
     limite = time.strftime("%Y-%m-%d", time.gmtime(ahora_ms / 1000 - dias * 86400))
     borrados = []
+    lotes = os.path.join(base, "lotes")
+    if os.path.isdir(lotes):                        # (las marcas de lote de sesiones de más de 1 día ya no hacen falta)
+        for a in os.listdir(lotes):
+            if os.path.getmtime(os.path.join(lotes, a)) < ahora_ms / 1000 - 86400:
+                os.remove(os.path.join(lotes, a))
     fechas = sorted(x for x in os.listdir(base) if re.match(r"^\d{4}-\d{2}-\d{2}$", x))
     for x in fechas:
         if x < limite:

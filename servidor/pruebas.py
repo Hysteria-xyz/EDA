@@ -1838,11 +1838,11 @@ def pruebas_diag_recepcion(chequear):
     ahora = 1_795_300_000_000
     ses = "0123456789abcdef0123456789abcdef"
 
-    def lote(n, eventos, cuenta="777", hora=None, ticket=T, sesion=ses, cuerpo=None):
+    def lote(n, eventos, cuenta="777", hora=None, ticket=T, sesion=ses, cuerpo=None, firma_cuenta=None):
         cuerpo = cuerpo if cuerpo is not None else "\n".join(json.dumps(e) for e in eventos).encode()
         hora = ahora if hora is None else hora
         cab = {"X-EDA-Cuenta": cuenta, "X-EDA-Sesion": sesion, "X-EDA-Lote": str(n), "X-EDA-Hora": str(hora),
-               "X-EDA-Firma": diag.firma(ticket, hora, sesion, n, cuerpo)}
+               "X-EDA-Firma": diag.firma(ticket, hora, sesion, n, cuerpo, firma_cuenta or cuenta)}
         return diag.recibir(cab, cuerpo, ahora, buscar)
     ev = [{"t": ahora - 5000, "m": 12345, "e": "escena", "a": "stage"},
           {"t": ahora - 4000, "e": "caida", "codigo": "C0000005", "sitio": "0x7F4626", "modulo": "exe"},
@@ -1859,6 +1859,14 @@ def pruebas_diag_recepcion(chequear):
     chequear("★ diag: el revés: un lote repetido o viejo → 409", lote(1, ev)[0] == 409)
     chequear("★ diag: el revés: firmado con OTRO ticket → 401", lote(2, ev, ticket="otro")[0] == 401)
     chequear("★ diag: el revés: otra cuenta con la firma de ésta → 401", lote(2, ev, cuenta="888")[0] == 401)
+    tickets["888"] = [T]                          # (aunque las dos cuentas tuvieran el mismo ticket)
+    chequear("★ diag: el revés: la firma lleva la cuenta: firmada para 777 y mandada como 888 → 401",
+             lote(2, ev, cuenta="888", firma_cuenta="777")[0] == 401)
+    tickets.pop("888")
+    chequear("★ diag: el ticket NO es la clave (clave derivada «eda-diag-v1»): firmar con el ticket a secas no sirve",
+             diag.clave(T) != T.encode() and lote(2, ev, ticket=diag.clave(T).hex())[0] == 401)
+    diag._ULTIMO_LOTE.clear()                     # (como si el server se hubiera reiniciado)
+    chequear("★ diag: después de un reinicio, un lote viejo sigue rechazado (la marca está en disco)", lote(1, ev)[0] == 409)
     chequear("★ diag: el revés: la hora a más de 10 min → 401", lote(2, ev, hora=ahora - 11 * 60 * 1000)[0] == 401)
     chequear("★ diag: el revés: un cuerpo de más de 64 KB → 413", lote(2, [], cuerpo=b"x" * (65 * 1024))[0] == 413)
     chequear("★ diag: el revés: una sesión con otra forma → 400", lote(2, ev, sesion="mi-pc")[0] == 400)
@@ -1901,7 +1909,7 @@ def pruebas_diag_recepcion(chequear):
         hora = int(time.time() * 1000)
         cuerpo = json.dumps({"t": hora, "e": "inicio"}).encode()
         cab = {"X-EDA-Cuenta": "777", "X-EDA-Sesion": "f" * 32, "X-EDA-Lote": "1", "X-EDA-Hora": str(hora),
-               "X-EDA-Firma": diag.firma(T, hora, "f" * 32, 1, cuerpo), "Content-Type": "application/x-ndjson"}
+               "X-EDA-Firma": diag.firma(T, hora, "f" * 32, 1, cuerpo, "777"), "Content-Type": "application/x-ndjson"}
         # (recibir usa tickets_de por defecto: se cambia para la prueba)
         diag.recibir.__defaults__ = (None, buscar)
         chequear("diag por HTTP: con EDA_DIAG=1, un lote bien firmado → 200", post(cuerpo, cab) == 200)
