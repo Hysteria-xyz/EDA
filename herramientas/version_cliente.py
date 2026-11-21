@@ -14,6 +14,7 @@ Y agrega lo que faltaba: `NOVEDADES.json` (en la raíz del repo), UNA entrada po
     py herramientas\version_cliente.py novedades NUEVO\eda.json
         agrega al manifiesto el bloque «novedades» de su versión (va FIRMADO con el resto: ver documentacion/VERSIONES.md)
     py herramientas\version_cliente.py popup VERSION        el texto del POP-UP de esa versión
+    py herramientas\version_cliente.py noticia VERSION      ★ la NOTICIA del panel que el launcher abre sola después de instalar
     py herramientas\version_cliente.py control              las pruebas (con sus reveses)
 
 La regla (que `revisar` hace cumplir):
@@ -180,6 +181,20 @@ def texto_popup(e):
     return "\n".join(t)
 
 
+def noticia(e):
+    """★ (21-nov) el POP-UP del launcher de R2Beat: una NOTICIA del panel (`launcher_contenido`) con el formato de
+    noticias.js (# título, - lista, **negrita**; todo se escapa allá). El id `eda-<versión>` y la etiqueta `parche` son
+    los que abre solo launcher/popup-novedades/novedades.js después de instalar (una vez: `noticias_vistas`)."""
+    t = ["**Nueva versión instalada: EDA %s**" % e["version"]]
+    if e.get("resumen"):
+        t.append(e["resumen"])
+    for k, nombre in (("corregidos", "Errores corregidos"), ("mejoras", "Mejoras"), ("avisos", "Avisos importantes")):
+        if e.get(k):
+            t += ["", "# " + nombre] + ["- " + x for x in e[k]]
+    return {"id": "eda-%s" % e["version"], "juego": "eda", "etiqueta": "parche", "fijada": False, "imagen": "",
+            "fecha": e.get("fecha", ""), "titulo": "EDA %s: nueva versión instalada" % e["version"], "texto": "\n".join(t)}
+
+
 def bloque_novedades(e):
     """lo que va en el manifiesto (texto plano, sin HTML: el launcher lo pinta)"""
     return {k: e[k] for k in ("version", "fecha", "resumen", "corregidos", "mejoras", "avisos") if k in e}
@@ -262,6 +277,11 @@ def control():
     b = bloque_novedades(nov["2026.11.22.1"])
     chequear("el bloque del manifiesto lleva sólo texto (sin «dll» ni «borrador»)",
              set(b) == {"version", "fecha", "resumen", "corregidos", "avisos"})
+    n = noticia(nov["2026.11.22.1"])
+    chequear("la noticia del POP-UP: id eda-<versión>, juego eda, etiqueta parche, y en orden: versión, corregidos, avisos",
+             n["id"] == "eda-2026.11.22.1" and n["juego"] == "eda" and n["etiqueta"] == "parche"
+             and n["texto"].index("Nueva versión instalada") < n["texto"].index("# Errores corregidos")
+             < n["texto"].index("# Avisos importantes") and "# Mejoras" not in n["texto"])
     real = leer_novedades()
     chequear("NOVEDADES.json del repo se lee y cada entrada publicada es válida",
              all(not entrada_valida(e) for e in real.values() if not e.get("borrador")))
@@ -277,6 +297,12 @@ def main(a):
         if not e:
             raise SystemExit("⛔ NOVEDADES.json no tiene %s" % a[1])
         print(texto_popup(e))
+        return 0
+    if a[:1] == ["noticia"] and len(a) == 2:
+        e = leer_novedades().get(a[1])
+        if not e:
+            raise SystemExit("⛔ NOVEDADES.json no tiene %s" % a[1])
+        print(json.dumps(noticia(e), ensure_ascii=False, indent=1))
         return 0
     if a[:1] == ["novedades"] and len(a) == 2:
         m = json.load(open(a[1], encoding="utf-8"))
