@@ -102,6 +102,11 @@ def termino_su_stage(s, conexion):
     if not s:
         return
     s.setdefault("en_stage", set()).discard(conexion)
+    if s.get("partida_id") and s.get("jugando"):
+        quedan = sorted(s["en_stage"] & set(s["miembros"]))
+        print("partida %s: #%s terminó su stage%s" % (s["partida_id"], conexion,
+              " · siguen en la stage: %s" % ", ".join("#%s" % m for m in quedan) if quedan else " · ya no queda nadie"),
+              flush=True)
     if not (s["en_stage"] & set(s["miembros"])):
         if s.get("jugando"):
             # ★ (Punto 3, 18-nov 12:58) el lobby se ENTERA de que vuelve a «Waiting» (con el próximo tick, como

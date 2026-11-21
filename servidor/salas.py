@@ -2,6 +2,7 @@ r"""servidor/salas.py -- el LOBBY y las SALAS: listas, entrar, crear, chat, list
 """
 import os
 import struct
+import time
 
 from servidor import config
 from servidor.config import P
@@ -671,6 +672,11 @@ def largar(cmd, cuerpo, conexion, c, p):
         s.pop("carga_desde", None)
         s["en_stage"] = set(miembros)                   # (Punto 3: «jugando» hasta que salgan TODOS)
         s["listos"] = set()                             # (al volver de la stage, todos «no listo»: `0x548AF0`)
+        # ★ (21-nov, diagnóstico) el ID de ESTA partida: una línea del registro con quién juega, para juntar
+        #   después todo lo de la partida (herramientas/diag_partida.py). Sin IP ni nada de la cuenta salvo su nombre
+        s["partida_id"] = time.strftime("P-%Y%m%d-%H%M%S", time.gmtime()) + "-s%d" % p.get("sala", 0)
+        print("partida %s empieza: sala %s · %s" % (s["partida_id"], p.get("sala"), " · ".join(
+            "#%s=%s" % (n, ASIGNADAS.get(n, "?")) for n in miembros)), flush=True)
     #   ⛔ probado (21:15) llenarlos con las habilidades de los atajos: NO las hace lanzar
     #   (el MP no baja con F1). Son de los OTROS (`0x61C230` los copia a su miembro). En cero.
     lista = b"".join(bytes([numero(s, n)]) + bytes(67) for n in miembros)
