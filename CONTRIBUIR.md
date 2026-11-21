@@ -36,9 +36,10 @@ programás, también sirve un issue con una foto y lo que dice la consola.
 | `main` (prod) | lo mismo: **1 aprobación** de otro colaborador (desde el 19-nov; antes eran 2), o Rui |
 
 - El trabajo **`privado`** de las pruebas falla si el PR trae algo con forma de dato privado: una IP
-  pública desconocida (la de tu VPS o tu casa), una IP de tu red (`192.168.N.x`), una MAC de verdad,
-  una ruta de tu carpeta de usuario o un correo. En las pruebas usá IPs de documentación
-  (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`), `192.168.x.x` en los textos y MACs `02:00:00:00:00:0N`.
+  pública desconocida (la de tu VPS o tu casa), una privada `172.16–31.x` (la red interna de un server),
+  una MAC de verdad, una ruta de tu carpeta de usuario o un correo. En las pruebas usá IPs de documentación
+  (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`) para las públicas, cualquier `192.168.x.x` para las locales
+  (desde el 21-nov pasan todas: son de redes locales, no llevan a nadie) y MACs `02:00:00:00:00:0N`.
 - **Los finales de línea** los ordena git solo (`.gitattributes`: todo en LF). No hay que configurar nada.
   Cómo trabaja cada agente y qué cambia de un entorno a otro: `documentacion/ENTORNOS.md`.
 

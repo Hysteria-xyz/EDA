@@ -6,8 +6,9 @@ privado y no está en la lista de lo permitido.
   · una IP PÚBLICA que no sea de las conocidas: los servers de Softnyx de 2009, las de documentación
     (192.0.2.x, 198.51.100.x, 203.0.113.x) y las de prueba que ya usan las pruebas. Así cae la IP de
     un VPS o la de una casa sin tener que escribirla acá.
-  · una IP de una red de CASA (192.168.N.x con N distinto de 0 y 1, 172.16–31.x): en los textos se
-    escribe 192.168.x.x.
+  · una IP PRIVADA del rango 172.16–31.x (la red interna de un server, de Docker). ★ (21-nov) Las
+    192.168.x.x y las 10.x.x.x pasan TODAS: son de redes locales, iguales en miles de casas, no llevan a
+    nadie, y las pruebas las necesitan para armar «dos jugadores en la misma casa».
   · una MAC de VERDAD (las inventadas tienen prendido el bit de «local»: 02:…, AA:…; y la de
     documentación, 00:00:5E:00:53:xx).
   · una ruta de la carpeta de un usuario de Windows o de Linux, y un correo (salvo los noreply).
@@ -15,8 +16,8 @@ privado y no está en la lista de lo permitido.
     python herramientas/revisar_publico.py [carpeta]   # revisa (sale 1 si encuentra algo)
     python herramientas/revisar_publico.py control     # ★ con su revés
 
-Si te marca algo: para una IP de prueba usá 192.0.2.x / 198.51.100.x / 203.0.113.x; para la de tu casa,
-192.168.x.x; para una MAC, 02:00:00:00:00:0N; para una ruta, una relativa al proyecto.
+Si te marca algo: para una IP pública de prueba usá 192.0.2.x / 198.51.100.x / 203.0.113.x; para una
+local, cualquier 192.168.x.x; para una MAC, 02:00:00:00:00:0N; para una ruta, una relativa al proyecto.
 """
 import ipaddress
 import os
@@ -57,12 +58,10 @@ def ip_mala(texto):
     if ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_reserved or str(ip).startswith("0."):
         return None
     if ip.is_private:
-        a, b, c, _ = (int(x) for x in texto.split("."))
-        if a == 192 and b == 168 and c in (0, 1):
-            return None                                       # las genéricas de los ejemplos
-        if a == 10:
-            return None
-        return "una IP de una red de casa (escribí 192.168.x.x)"
+        a, b = (int(x) for x in texto.split(".")[:2])
+        if (a == 192 and b == 168) or a == 10:
+            return None                                       # ★ (21-nov) redes locales: no llevan a nadie
+        return "una IP privada 172.16–31.x (para una local de prueba usá 192.168.x.x)"
     return "una IP pública que no está entre las conocidas"
 
 
@@ -116,7 +115,9 @@ def control():
         ("el Broker de 2009 en 218.145.66.187, versión 2026.11.13.2", 0),
         ("MAC inventada 02:00:00:00:00:01 y la de documentación 00:00:5E:00:53:01", 0),
         ("★ revés: el VPS en 203.0.114.9", 1),
-        ("★ revés: mi casa 192.168.44.20", 1),
+        ("dos de la misma casa: 192.168.50.10 y 192.168.7.7; otra red local, 10.0.0.5", 0),
+        ("★ revés: la red interna de un server, 172.20.3.4", 1),
+        ("★ revés: una pública al lado de una local: 192.168.44.20 y 203.0.114.9", 1),
         ("★ revés: mi MAC B0:12:34:56:78:9A", 1),
         ("★ revés: C:\\%s\\alguien\\juego" % _US, 1),
         ("★ revés: escribime a alguien@correo.com", 1),
