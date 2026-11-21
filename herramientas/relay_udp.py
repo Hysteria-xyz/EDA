@@ -113,6 +113,22 @@ def desde_misma_direccion(origen, destino, sala_de, socks):
     return otros[0] if len(otros) == 1 else None
 
 
+def viejas(conocidos, nuevos, desde_de, cuando_de):
+    """★ (21-nov) De las conexiones de las que el relay sabe algo (`conocidos`), las que hay que OLVIDAR al leer
+    un relay.json nuevo (`nuevos`: conexión → «desde», el comienzo de su sesión en el server):
+      · la que ya no está en el mapa: su sesión se cerró;
+      · la que tiene OTRO «desde» que el que se conocía y cuya dirección se aprendió ANTES de ese «desde»: es
+        una sesión nueva que reusa el número (lo aprendido después se queda: su 0x3006 puede llegar antes que
+        el mapa). → [(conexión, motivo)]"""
+    r = []
+    for n in sorted(conocidos):
+        if n not in nuevos:
+            r.append((n, "se cerró su sesión"))
+        elif nuevos[n] and nuevos[n] != desde_de.get(n) and cuando_de.get(n, 0) < nuevos[n] - 1:
+            r.append((n, "sesión nueva con el mismo número"))
+    return r
+
+
 def main(ip="0.0.0.0"):
     punch = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     punch.bind((ip, RELAY_BASE))
@@ -130,6 +146,27 @@ def main(ip="0.0.0.0"):
 
     anotar("relay escuchando %s:%d (+1+n por jugador)" % (ip, RELAY_BASE))
     ultimo_mapa = 0
+    desde_de = {}                    # ★ (21-nov) conexión → desde cuándo es ESA sesión (relay.json, «desde»)
+    cuando_de = {}                   # conexión → cuándo se aprendió su dirección (dir_de)
+
+    def olvidar(n, motivo):
+        """★ (21-nov) la dirección aprendida de `n` era de OTRA sesión con el mismo número: fuera (memoria y
+        punch.json). Medido en el server de prueba: punch.json tenía para la conexión 1 el puerto de una sesión
+        de una hora antes, y el server se lo dio al invitado como dirección del anfitrión."""
+        viejo = dir_de.pop(n, None)
+        for d in [d for d, k in de_dir.items() if k == n]:
+            del de_dir[d]
+        real_de.pop(n, None)
+        cuando_de.pop(n, None)
+        if punch_vio.pop(n, None) is not None or viejo:
+            anotar("jugador %d: %s → se olvida su dirección vieja%s" % (n, motivo, " (%s:%d)" % viejo if viejo else ""))
+            escribir_punch()
+
+    def escribir_punch():
+        try:
+            json.dump({str(k): [v[0], v[1], v[2]] for k, v in punch_vio.items()}, open(PUNCH, "w"))
+        except OSError:
+            pass
     # ★ cuántos datagramas de PARTIDA pasan por acá (con P2P directo tienen que ser 0): se anota
     #   un resumen cada 30 s, si hubo alguno
     reenviados, desde = {}, time.time()
@@ -150,12 +187,19 @@ def main(ip="0.0.0.0"):
                 mapa = {int(k): v for k, v in json.load(open(MAPA)).items()}
                 falsa_de = {n: (v["falsa"] if isinstance(v, dict) else v) for n, v in mapa.items()}
                 sala_de = {n: v.get("sala") or [] for n, v in mapa.items() if isinstance(v, dict)}
+                # ★ (21-nov) las sesiones: la que se cerró y la que reusa un número se olvidan (lo aprendido
+                #   DESPUÉS de que empezó la sesión nueva se queda: su 0x3006 puede llegar antes que el mapa)
+                nuevos = {n: (v.get("desde") if isinstance(v, dict) else None) for n, v in mapa.items()}
+                for n, motivo in viejas(set(dir_de) | set(punch_vio) | set(real_de), nuevos, desde_de, cuando_de):
+                    olvidar(n, motivo)
+                desde_de = nuevos
                 for n, v in mapa.items():
                     # de respaldo (misma PC / LAN): la dirección que declaró en su 0x100F
                     if isinstance(v, dict) and v.get("udp") and n not in dir_de:
                         ip_n, puerto_n = v["udp"]
                         d = (socket.inet_ntoa(ip_n.to_bytes(4, "big")), puerto_n)
                         dir_de[n], de_dir[d] = d, n
+                        cuando_de[n] = time.time()
                         anotar("jugador %d declaró %s:%d" % (n, d[0], d[1]))
                 for n in falsa_de:
                     if n not in socks:
@@ -194,13 +238,14 @@ def main(ip="0.0.0.0"):
                         # ⚠ el server REUSA los números de conexión (`servidor/red.py`): uno nuevo
                         #   en el mismo número no tiene la MAC del anterior
                         real_de.pop(n, None)
+                    viejo = dir_de.get(n)
+                    if viejo and viejo != quien:
+                        de_dir.pop(viejo, None)
                     dir_de[n], de_dir[quien] = quien, n
-                    if punch_vio.get(n) != quien:
-                        punch_vio[n] = quien
-                        try:
-                            json.dump({str(k): list(v) for k, v in punch_vio.items()}, open(PUNCH, "w"))
-                        except OSError:
-                            pass
+                    cuando_de[n] = time.time()
+                    if (punch_vio.get(n) or (None, None))[:2] != quien:
+                        punch_vio[n] = (quien[0], quien[1], time.time())   # ★ (21-nov) con su hora: la sesión
+                        escribir_punch()
                 continue
             destino = next(k for k, v in socks.items() if v is s)
             origen = desde_misma_direccion(de_dir.get(quien), destino, sala_de, socks)
@@ -212,6 +257,7 @@ def main(ip="0.0.0.0"):
                     if viejo:
                         de_dir.pop(viejo, None)
                     dir_de[n], de_dir[quien], origen = quien, n, n
+                    cuando_de[n] = time.time()
             if origen is None or destino not in dir_de or origen not in socks:
                 anotar("descartado: de %s:%d para %d (origen %s)" % (quien[0], quien[1], destino, origen))
                 continue
@@ -286,8 +332,97 @@ def control():
              desde_misma_direccion(1, 1, {}, socks) is None)
     chequear("★ el revés: con dos candidatos en la sala, tampoco",
              desde_misma_direccion(1, 1, {1: [1, 2, 3]}, {1: 0, 2: 0, 3: 0}) is None)
+    # ★ (21-nov) las sesiones: lo aprendido de un número de conexión no pasa a la sesión siguiente
+    t = 1_800_000_000.0
+    chequear("viejas: la conexión que ya no está en el mapa se olvida (se cerró)",
+             viejas({1, 2}, {2: t}, {2: t}, {2: t - 50}) == [(1, "se cerró su sesión")])
+    chequear("viejas: OTRO «desde» y la dirección aprendida antes → se olvida (sesión nueva, mismo número)",
+             viejas({1}, {1: t}, {1: t - 3600}, {1: t - 3000}) == [(1, "sesión nueva con el mismo número")])
+    chequear("★ el revés: su 0x3006 llegó DESPUÉS del comienzo de la sesión nueva → se queda",
+             viejas({1}, {1: t}, {1: t - 3600}, {1: t + 2}) == [])
+    chequear("★ el revés: el mismo «desde» de siempre → no se toca nada",
+             viejas({1}, {1: t}, {1: t}, {1: t - 3000}) == [])
+    chequear("★ el revés: un mapa viejo sin «desde» → no se olvida por sesión", viejas({1}, {1: None}, {}, {}) == [])
+    ok.append(control_sesiones(chequear))
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
+
+
+def control_sesiones(chequear):
+    """★ (21-nov) Con el relay DE VERDAD (otro proceso, UDP por 127.0.0.1, su estado en una carpeta temporal):
+    lo del server de prueba (punch.json con el puerto de una sesión anterior del mismo número) no se repite."""
+    import random
+    import subprocess
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="relay_ctl_")
+    base = random.randint(41000, 59000)
+    mapa_f, punch_f, log_f = (os.path.join(tmp, x) for x in ("relay.json", "punch.json", "relay.log"))
+
+    def mapa(d):
+        json.dump(d, open(mapa_f + ".tmp", "w"))
+        os.replace(mapa_f + ".tmp", mapa_f)
+        os.utime(mapa_f, (time.time() + 0.01 * random.random(), time.time() + 0.01 * random.random()))
+
+    def punch():
+        try:
+            return json.load(open(punch_f))
+        except (OSError, ValueError):
+            return None
+
+    def esperar(cond, s=4.0):
+        fin = time.time() + s
+        while time.time() < fin:
+            if cond():
+                return True
+            time.sleep(0.05)
+        return False
+
+    def p3006(sock, n):
+        sock.sendto(b"\x08\x00\x06\x30" + n.to_bytes(4, "little"), ("127.0.0.1", base))
+    d1 = time.time()
+    otro = {"falsa": "02:00:00:00:00:02", "sala": [], "desde": d1}
+    mapa({"1": {"falsa": "02:00:00:00:00:01", "sala": [], "desde": d1}, "2": otro})
+    env = dict(os.environ, EDA_ESTADO=tmp, EDA_RELAY_BASE=str(base))
+    pr = subprocess.Popen([sys.executable, os.path.abspath(__file__), "127.0.0.1"], env=env,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    a, b, c = (socket.socket(socket.AF_INET, socket.SOCK_DGRAM) for _ in range(3))
+    for x in (a, b, c):
+        x.bind(("127.0.0.1", 0))
+    bien = []
+    try:
+        time.sleep(0.6)
+        p3006(a, 1)
+        p3006(c, 2)
+        e = esperar(lambda: (punch() or {}).get("1") and (punch() or {}).get("2"))
+        v = (punch() or {}).get("1")
+        bien.append(bool(e and v[:2] == ["127.0.0.1", a.getsockname()[1]] and len(v) > 2 and v[2] >= d1 - 1))
+        chequear("relay real: el 0x3006 queda en punch.json CON SU HORA (de esta sesión)", bien[-1])
+        time.sleep(1.3)
+        mapa({"1": {"falsa": "02:00:00:00:00:01", "sala": [], "desde": time.time()}, "2": otro})
+        e = esperar(lambda: punch() is not None and "1" not in punch())
+        txt = open(log_f, encoding="utf-8").read() if os.path.exists(log_f) else ""
+        bien.append(bool(e and "sesión nueva con el mismo número" in txt and "2" in punch()))
+        chequear("relay real: otra sesión con el número 1 → su dirección vieja se olvida (punch.json y log); la del 2 no", bien[-1])
+        p3006(b, 1)
+        e = esperar(lambda: ((punch() or {}).get("1") or [0, 0])[1] == b.getsockname()[1])
+        bien.append(e)
+        chequear("relay real: el 0x3006 de la sesión nueva (otro puerto) es el que queda", e)
+        mapa({"1": {"falsa": "02:00:00:00:00:01", "sala": [], "desde": json.load(open(mapa_f))["1"]["desde"]}, "2": otro})
+        time.sleep(1.0)
+        bien.append(((punch() or {}).get("1") or [0, 0])[1] == b.getsockname()[1])
+        chequear("★ el revés: el mismo mapa otra vez (misma sesión) → no se olvida nada", bien[-1])
+        mapa({"2": otro})
+        e = esperar(lambda: punch() is not None and "1" not in punch())
+        txt = open(log_f, encoding="utf-8").read()
+        bien.append(bool(e and "se cerró su sesión" in txt
+                         and (punch().get("2") or [0, 0])[1] == c.getsockname()[1]))
+        chequear("relay real: al cerrarse la sesión (fuera del mapa) se borra SÓLO la suya", bien[-1])
+    finally:
+        pr.kill()
+        pr.wait()
+        for x in (a, b, c):
+            x.close()
+    return all(bien)
 
 
 if __name__ == "__main__":

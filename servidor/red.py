@@ -187,14 +187,21 @@ def cortar(n, espera=0):
 
 
 def despachar(n, resp):
-    """resp: [(comando, cuerpo, ms de espera[, conexión destino])] — sin destino, a `n`."""
-    for r in resp:
-        c, cuerpo, espera = r[0], r[1], r[2]
-        destino = r[3] if len(r) > 3 else n
-        if espera:
-            threading.Timer(espera / 1000.0, enviar_a, (destino, c, cuerpo)).start()
-        else:
-            enviar_a(destino, c, cuerpo)
+    """resp: [(comando, cuerpo, ms de espera[, conexión destino])] — sin destino, a `n`.
+    ★ (21-nov) Pasa por `juego.ordenar_salida` (servidor/salida.py): mientras un juego carga la stage, lo que
+    le cortaría la carga (0x1003–0x100B, p. ej. el chat 0x1005) se guarda y sale después de su 0x105E."""
+    with servidor.CANDADO:
+        try:
+            resp = juego().ordenar_salida(n, resp)
+        except Exception:                                     # noqa: BLE001
+            log("⛔ ordenar_salida falló (se manda como antes):\n%s" % traceback.format_exc())
+        for r in resp:
+            c, cuerpo, espera = r[0], r[1], r[2]
+            destino = r[3] if len(r) > 3 else n
+            if espera:
+                threading.Timer(espera / 1000.0, despachar, (destino, [(c, cuerpo, 0, destino)])).start()
+            else:
+                enviar_a(destino, c, cuerpo)
 
 
 def juego():
@@ -556,10 +563,21 @@ def prueba_multi(destino):
     a.mandar(0x105F, bytes(4))
     r = dict(a.esperar(0x105E, 2.5))
     chequear("★ el revés: con el otro todavía cargando, el anfitrión NO larga", 0x105E not in r)
+    # ★ (21-nov, lo del server de prueba) el otro escribe en el chat mientras el anfitrión carga: al anfitrión NO
+    #   le puede llegar el 0x1005 antes de su 0x105E (le termina el hilo de carga y no larga nunca)
+    texto = "hola".encode("utf-16-le")
+    b.mandar(0x100D, struct.pack("<BIII", 1, 0xFFFFFFFF, 0, len(texto)) + texto)
+    antes = a.esperar(0x1005, 1.5)
+    chequear("★ chat del otro durante la carga: al anfitrión no le llega todavía (se guarda)",
+             0x1005 not in dict(antes), [hex(c) for c, _ in antes])
     b.s.close()                                               # (al otro se le corta el juego en la carga)
     t0 = time.time()
-    r = dict(a.esperar(0x105E, 8))
+    vistos = a.esperar(0x105E, 8)
+    r = dict(vistos)
     chequear("★ al otro se le cortó el juego → el anfitrión larga (0x105E)", 0x105E in r, "%.1f s" % (time.time() - t0))
+    vistos += a.esperar(0x1005, 2)
+    orden = [c for c, _ in vistos if c in (0x105E, 0x1005)]
+    chequear("★ y el chat guardado le llega DESPUÉS de su 0x105E", orden[:2] == [0x105E, 0x1005], [hex(c) for c in orden])
     a.s.close()
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1

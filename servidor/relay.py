@@ -65,12 +65,22 @@ def identidad_de(conexion):
 
 def punch_de(conexion):
     """(IP como entero, puerto) PÚBLICOS con que el server de punch vio a ese jugador (su 0x3006, lo
-    anota `herramientas/relay_udp.py` en punch.json), o None."""
+    anota `herramientas/relay_udp.py` en punch.json), o None.
+    ★ (21-nov) Sólo si es de ESTA sesión: punch.json va por número de conexión y los números se reusan
+    mientras el relay sigue andando. Medido en el server de prueba (21-nov 05:35 UTC): para la conexión 1
+    decía el puerto 19745, visto a las 04:26 en OTRA sesión; el anfitrión de esta salía por el 18113, y al
+    invitado se le dio el viejo → -1000 ms. Ahora cada entrada lleva su hora y vale sólo si es posterior al
+    comienzo de la sesión (`desde`); una entrada sin hora (la de un relay viejo) no vale."""
     try:
-        ip, puerto = json.load(open(config.PUNCH_MAPA)).get(str(conexion))
+        e = json.load(open(config.PUNCH_MAPA)).get(str(conexion))
     except (OSError, ValueError, TypeError):
         return None
-    return struct.unpack(">I", bytes(int(x) for x in ip.split(".")))[0], puerto
+    if not isinstance(e, list) or len(e) < 3:
+        return None
+    desde = (partida(conexion).get("desde") or 0) if conexion is not None else 0
+    if e[2] < desde - 1:
+        return None
+    return struct.unpack(">I", bytes(int(x) for x in e[0].split(".")))[0], e[1]
 
 
 def publica_de(conexion):
@@ -104,6 +114,8 @@ def dir_udp(conexion, para=None):
     if conexion is None:
         return None
     p = partida(conexion)
+    if config.P2P == "auto" and relay() and para is not None:
+        return _dir_auto(conexion, para)
     if config.P2P == "directo" and mac_de(conexion) and (para is None or mac_de(para)):
         mio = punch_de(conexion) or publica_de(conexion)
         suyo = (punch_de(para) or publica_de(para)) if para is not None else None
@@ -133,5 +145,41 @@ def escribir_relay():
             for n in s["miembros"]:
                 sala_de[n] = list(s["miembros"])
         json.dump({str(n): {"falsa": identidad_de(n), "udp": partida(n).get("udp"),
-                            "sala": sala_de.get(n, [])}
+                            "sala": sala_de.get(n, []),
+                            # ★ (21-nov) desde cuándo es esta sesión: con un número reusado, el relay
+                            #   olvida la dirección que aprendió de la sesión anterior
+                            "desde": partida(n).get("desde")}
                    for n in ASIGNADAS}, open(config.RELAY_MAPA, "w"))
+
+
+def estable(conexion):
+    """★ (21-nov) ¿La dirección pública de `conexion` es CONFIABLE para el directo? Su 0x3006 (punch, de ESTA
+    sesión) y su 0x3002 (la pública del 0x100F) salieron por el MISMO puerto público: su NAT mantiene el puerto.
+    El anfitrión nunca manda el 0x3006 (MEDICIONES §47): para él no se puede saber."""
+    a, b = punch_de(conexion), publica_de(conexion)
+    return bool(a and b and a == b)
+
+
+def ruta(a, b):
+    """★ (21-nov) El camino de la PAREJA a–b, el MISMO en los dos sentidos (nunca uno directo y el otro por el
+    relay): «casa» (las privadas: misma IP pública), «directo» (las públicas, sólo si las dos son confiables:
+    `estable`) o «relay». Con EDA_P2P=auto."""
+    if not (mac_de(a) and mac_de(b)):
+        return "relay"
+    pa, pb = partida(a), partida(b)
+    if pa.get("privada") and pb.get("privada") and misma_casa(a, b, punch_de(a), punch_de(b)):
+        return "casa"
+    if estable(a) and estable(b):
+        return "directo"
+    return "relay"
+
+
+def _dir_auto(conexion, para):
+    camino = ruta(conexion, para)
+    p = partida(conexion)
+    if camino == "casa":
+        return tuple(p["privada"])
+    if camino == "directo":
+        return punch_de(conexion)
+    return relay()[0], config.RELAY_BASE + 1 + conexion
+

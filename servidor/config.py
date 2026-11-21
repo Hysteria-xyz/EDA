@@ -47,8 +47,11 @@ PUNCH_PUERTO = int(os.environ.get("EDA_PUNCH_PUERTO") or 25001)   # `herramienta
 #     la privada si comparten IP pública) y su MAC real como identidad; el relay sólo para quien no
 #     mandó su MAC (un juego lanzado sin comillas). La latencia es la de ellos dos, no la del server.
 #   "relay" = todo pasa por el relay del server (lo de antes; para NAT que no se dejan atravesar).
+#   ★ (21-nov) "auto" = por PAREJA y el mismo camino en los dos sentidos: misma casa → las privadas; las dos
+#     públicas confiables (su 0x3006 de esta sesión y su 0x3002 por el mismo puerto) → directo; si no → relay.
+#     (El anfitrión nunca manda su 0x3006: con él, relay.) Ver `servidor/relay.ruta`.
 P2P = os.environ.get("EDA_P2P", "directo")
-PUNCH_MAPA = os.path.join(ESTADO, "punch.json")   # conexión → [IP, puerto] que vio el punch (relay_udp.py)
+PUNCH_MAPA = os.path.join(ESTADO, "punch.json")   # conexión → [IP, puerto, hora] que vio el punch (relay_udp.py; ★ 21-nov: con hora)
 # ★ P2P ENTRE CASAS (MEDICIONES §53, servidor/nat.py): cada juego se presenta al relay al conectarse
 #   (0x0607 → su 0x3002) y el server le dice su dirección PÚBLICA (0x0609), como el original. Así el
 #   server sabe la pública de TODOS (el anfitrión no pasa por el punch) y les da la del otro: los

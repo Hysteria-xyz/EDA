@@ -31,7 +31,7 @@ if __package__ in (None, ""):                              # `py servidor\juego.
 from servidor import config                                  # noqa: E402
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO, partida   # noqa: E402
 from servidor.cuentas import NOMBRES, leer, ruta_cuenta, nivel   # noqa: E402
-from servidor.salas import avisar_lista, avisar_usuarios, _sacar_de_sala     # noqa: E402
+from servidor.salas import avisar_lista, avisar_usuarios, _sacar_de_sala, reanunciar     # noqa: E402
 from servidor.partida import cerrar_por_bajas, cuerpo_1072, fin_de_stage, game_over, vigilar_cargas  # noqa: E402
 from servidor.registro import MANEJADORES                    # noqa: E402
 from servidor.relay import escribir_relay                    # noqa: E402
@@ -39,6 +39,7 @@ from servidor.relay import escribir_relay                    # noqa: E402
 from servidor import entrada, inventario, tienda, habilidades, refineria, personajes   # noqa: E402,F401
 from servidor import nat                                     # noqa: E402
 from servidor import messenger                               # noqa: E402
+from servidor import salida                                  # noqa: E402
 from servidor import CANDADO as _CANDADO                     # noqa: E402
 
 
@@ -67,6 +68,7 @@ def _responder(cmd, cuerpo, conexion):
         return []
     c = leer(conexion)
     p = partida(conexion)
+    p.setdefault("desde", time.time())                       # (21-nov) el comienzo de ESTA sesión (red.py ya lo pone)
     f = MANEJADORES.get(cmd)
     r = f(cmd, cuerpo, conexion, c, p) if f else None
     if cmd in CAMBIAN_SALAS:
@@ -111,6 +113,7 @@ def _tick(conexiones):
         VIVO.LISTA_CAMBIO = False
         r += avisar_lista() + avisar_usuarios()
     r += [x for x in vigilar_cargas(SALAS) if x[3] in conexiones]   # (20-nov: nadie queda cargando para siempre)
+    r += [x for x in reanunciar(SALAS) if x[3] in conexiones]      # (21-nov: una dirección que cambió, otra vez)
     for n in conexiones:
         p = PARTIDAS.get(n)
         if p and p.get("game_over_en") and time.time() >= p["game_over_en"]:
@@ -129,6 +132,12 @@ def _tick(conexiones):
             p["cartas_hasta"] = None
             r.append((0x1072, cuerpo_1072(n, p), 0, n))
     return r
+
+
+def ordenar_salida(n, resp):
+    """★ (21-nov) lo que sale, en orden, sin cortar la carga de la stage (servidor/salida.py)"""
+    with _CANDADO:
+        return salida.ordenar(n, resp)
 
 
 def cerrada(conexion):

@@ -93,7 +93,7 @@ def miembro(c, indice, completo=False, conexion=None, para=None, listo=False):
     return bytes(m)
 
 
-def pares(s, espera=0):
+def pares(s, espera=0, anotar=True):
     """★ 0x1059 «Peer Public IP» (`0x550BE0`) a CADA miembro de la sala: las direcciones UDP de
     todos, para el P2P (el ping de la sala, la partida). 7 B: u8 N · 4 B 🟡 · u8 → +0x2DE · u8 →
     +0x2DF; y N × 7 B: u8 id · u32 IP · u16 puerto, COMO ENTEROS (el cliente les hace htonl /
@@ -115,13 +115,32 @@ def pares(s, espera=0):
                 #   existe (medido 17:25)
                 regs.append(struct.pack("<BIH", i, udp[0], udp[1]))
                 # ★ (MEDICIONES §53) qué camino le tocó a cada par, en el registro del server (sin la IP)
-                if dest is not None:
+                if dest is not None and anotar:
                     camino = ("relay" if relay.relay() and udp[1] == config.RELAY_BASE + 1 + n
                               else "casa (privada)" if udp == tuple(partida(n).get("privada") or ())
                               else "directo (pública)")
                     print("sala: a #%s le doy #%s por %s" % (dest, n, camino), flush=True)
         cuerpo = struct.pack("<B4xBB", len(regs), 0, 0) + b"".join(regs)
+        s.setdefault("anunciado", {})[dest] = cuerpo         # (21-nov) lo último que se le dio: ver `reanunciar`
         r.append((0x1059, cuerpo, espera, dest))
+    return r
+
+
+def reanunciar(salas):
+    """★ (21-nov) Del `tick`: si en una sala que ESPERA (no jugando) la dirección de alguien cambió (su NAT le dio
+    otro puerto, llegó su 0x3006 de esta sesión, o se olvidó una vieja), se les vuelve a dar el 0x1059 a los que
+    les cambió. Antes se daba una sola vez, al entrar: con una dirección que cambiaba, el otro le seguía hablando
+    a la vieja."""
+    r = []
+    for s in list(salas.values()):
+        if s.get("jugando") or len(s["miembros"]) < 2 or "anunciado" not in s:
+            continue
+        antes = dict(s["anunciado"])
+        nuevos = pares(s, anotar=False)
+        for x in nuevos:
+            if antes.get(x[3]) != x[1]:
+                print("sala: a #%s le cambió una dirección de su sala: 0x1059 otra vez" % x[3], flush=True)
+                r.append(x)
     return r
 
 
