@@ -148,7 +148,7 @@ def compilar():
         raise SystemExit("⛔ no encuentro Zig 0.16.0: %s (se puede indicar con la variable ZIG)" % ZIG)
     os.makedirs(SALIDA, exist_ok=True)
     for f in ("eda_d3d9.c", "eda_opciones.c", "eda_teclas.c", "eda_messenger.c", "eda_version.c", "eda_aviso.c",
-              "eda_medir5.c", "eda_escala2d.c", "eda_rojo.c", "eda_graficos.c", "d3d9.def"):
+              "eda_medir5.c", "eda_escala2d.c", "eda_rojo.c", "eda_graficos.c", "eda_selector.h", "d3d9.def"):
         shutil.copy(os.path.join(AQUI, f), SALIDA)
     # ★ (19-nov) la identidad (versión, commit, sucio, fecha, build): la calcula version.py, nadie la escribe a mano
     sys.path.insert(0, AQUI)
