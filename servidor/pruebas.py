@@ -69,8 +69,15 @@ def control():
     responder(0x105F, b"\0" * 4, 99)
     for _ in range(10):
         responder(0x1061, b"\0" * 8, 99)
+    oro_antes = leer(99)["plata"]
     r = responder(0x1064, b"\0", 99)
     cmds = [x[0] for x in r]
+    tpo = tabla_premios()
+    if tpo:
+        esc_ = partida(99).get("escenario")
+        oro_xml = sum(d_ for t_, d_, _ in tpo.get(esc_, (0, []))[1] if t_ == 0)
+        chequear("(Paso 6) al terminar el Stage el oro sube SÓLO lo de StageReward (Type 0: %d), sin 100 + 10 × bajas"
+                 % oro_xml, leer(99)["plata"] - oro_antes == oro_xml, leer(99)["plata"] - oro_antes)
     chequear("0x1064 → 1073 + 106E + 106F", cmds == [0x1073, 0x106E, 0x106F], cmds)
     premio = partida(99).get("premio", [])
     largo = 29 + sum(21 + (36 if es_equipo(t) else 0) for t in premio)
@@ -292,6 +299,8 @@ def control():
                  and d["items"][-1][2] >= 18)
         chequear("0x1040 = 15 + 2 + 21 + 36 (equipo: con ficha)", len(r[0][1]) == 15 + 2 + 21 + 36,
                  len(r[0][1]))
+        chequear("(Paso 6) la compra no toca el cash guardado y al cliente va cash = 0 (+6)",
+                 d.get("cash") == antes.get("cash") and struct.unpack_from("<I", r[0][1], 6)[0] == 0)
         d["plata"] = precio - 1
         guardar(d)
         r = responder(0x103F, bytes.fromhex("00000000010100"), 203)
@@ -498,6 +507,16 @@ def control():
         r = responder(0x1039, struct.pack("<IH", 0x186, 1), 203)
         chequear("★ el revés: con todo sano no hay nada que arreglar → resultado 0",
                  r[0][1][:2] == b"\0\0" and leer(203)["plata"] == 30000 - esperado)
+        # ★ REPAIR EACH, como lo arma el cliente (`0x54A6ED`): u32 · u16 0 · u32 el serial de ESE ítem
+        d = leer(203)
+        d["durabilidad"] = {str(w): 7500, str(w + 1): 5000}
+        plata = d["plata"]
+        guardar(d)
+        uno = (tt[1][0] - 7500) * tt[1][1]
+        r = responder(0x1039, struct.pack("<IHI", 0x186, 0, w), 203)
+        chequear("Repair Each (u16 0 + el serial): arregla SÓLO ese ítem y cobra %d" % uno,
+                 struct.unpack_from("<HIB", r[0][1]) == (1, plata - uno, 1)
+                 and leer(203)["durabilidad"] == {str(w): 10000, str(w + 1): 5000})
     else:
         falta_xml("ItemTypeList.xml", config.TIPOS_XML)
     # ★ REFINE SPIRIT STONE: Phase (3 × 21001 → 21021) y Level (2 × 21001 → 21002)
@@ -640,10 +659,17 @@ def control():
     chequear("★ el revés: /oro inválido devuelve aviso y mantiene el oro",
              leer(203)["plata"] == 77777 and "Uso: /oro".encode("utf-16-le") in r[0][1])
 
-    # /cash
+    # /cash: deshabilitado (Paso 6: EDA usa sólo oro); el cash guardado NO se toca
+    d = leer(203)
+    d["cash"] = 1234                                         # (una cuenta vieja con cash)
+    guardar(d)
     r = responder(0x100D, _chat_payload("/cash 9999"), 203)
-    chequear("/cash 9999 actualiza el cash a 9999",
-             leer(203)["cash"] == 9999 and "9999".encode("utf-16-le") in r[0][1])
+    chequear("(Paso 6) /cash está deshabilitado: avisa y NO cambia el cash guardado (1234)",
+             leer(203)["cash"] == 1234 and "no existe".encode("utf-16-le") in r[0][1])
+    r = responder(0x1011, b"\1\0\0\0", 203)
+    chequear("(Paso 6) 0x1012: cash = 0 al cliente (+0x0F) aunque la cuenta guarde 1234; el oro en +0x13",
+             struct.unpack_from("<I", r[0][1], 0x0F)[0] == 0
+             and struct.unpack_from("<I", r[0][1], 0x13)[0] == leer(203)["plata"] and leer(203)["cash"] == 1234)
 
     # /nivel
     r = responder(0x100D, _chat_payload("/nivel 15"), 203)
@@ -983,6 +1009,8 @@ def control():
     PARTIDAS.clear()
     ASIGNADAS.clear()
     pruebas_personajes(chequear)
+    pruebas_cazadora(chequear)
+    pruebas_150_variantes(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
     pruebas_panel(chequear)
@@ -1118,6 +1146,93 @@ def pruebas_personajes(chequear):
         config.NIVEL_INICIAL = real
         ASIGNADAS.pop(n, None)
         ASIGNADAS.pop(141, None)
+
+
+def pruebas_cazadora(chequear):
+    """★ (20-nov, Paso 4) La CAZADORA (Hunter, clase 2) recién creada, contra los datos del cliente: su set
+    de grado 1 es de SU clase (USECLASS 2) y lo puede equipar a su nivel; sus habilidades son de su clase (o de
+    todas) y alcanzan a su nivel; F1–F8 = sus activas de arma 0. Lo mismo para el Warrior (control)."""
+    from servidor.personajes import personaje_nuevo
+    try:
+        t = open(config.TIPOS_XML, "rb").read()
+        x = open(config.HABILIDADES_XML, "rb").read()
+    except OSError:
+        print("  (sin ItemTypeList.xml / Skill.xml: se saltea la prueba de la Cazadora)")
+        return
+    tipos = {}
+    for m in re.finditer(rb"<ITEMTYPE ([^>]*)>", t):
+        v = dict(re.findall(rb'(\w+)="([^"]*)"', m.group(1)))
+        tipos[int(v[b"ID"])] = (int(v[b"USECLASS"]), int(v[b"LEVEL_RESTRICT"]))
+    habs = {}
+    for clase_xml, a in re.findall(rb"<(ACTIVE|PASSIVE)_SKILL ([^>]*)>", x):
+        v = dict(re.findall(rb'(\w+)="([^"]*)"', a))
+        habs[(clase_xml == b"ACTIVE", int(v[b"ID"]))] = (clase_xml == b"ACTIVE", int(v[b"CLASS"]),
+                                                          int(v.get(b"WEAPON", b"9")), int(v[b"ACQUIRE_LEVEL"]))
+    for clase, nombre in ((2, "Cazadora"), (1, "Warrior")):
+        pj = personaje_nuevo(clase, 25, "prueba", 0)
+        niv = nivel(pj["exp"])
+        equipo_ = [it for it in pj["items"] if es_equipo(it[0])]
+        chequear("%s: nivel 25 y 8 piezas de equipo puestas (casilleros 0–11)" % nombre,
+                 niv == 25 and len(equipo_) == 8 and all(it[2] < 12 for it in equipo_))
+        chequear("%s: todo su equipo es de SU clase y lo puede usar a su nivel" % nombre,
+                 all(it[0] in tipos and tipos[it[0]][0] == clase and tipos[it[0]][1] <= niv for it in equipo_),
+                 [(it[0], tipos.get(it[0])) for it in equipo_])
+        ids = [(h[1] == 1, h[2]) for h in pj["habilidades"]]           # (activas e ID: las pasivas repiten IDs)
+        propias = [i for i, h in habs.items() if h[1] in (clase, 65535) and h[3] <= niv]
+        chequear("%s: tiene TODAS las habilidades de su clase (y comunes) de su nivel, ninguna ajena" % nombre,
+                 sorted(ids) == sorted(propias) and all(habs[i][1] in (clase, 65535) for i in ids))
+        atajos = sorted((h[4], (h[1] == 1, h[2])) for h in pj["habilidades"] if h[4])
+        chequear("%s: F1–F8 = sus activas de arma 0 (1..8 sin repetir)" % nombre,
+                 [a for a, _ in atajos] == list(range(1, len(atajos) + 1)) and 0 < len(atajos) <= 8
+                 and all(habs[i][0] and habs[i][2] == 0 and habs[i][1] == clase for _, i in atajos), atajos)
+    chequear("★ el revés: el set de la Cazadora NO es del Warrior (201 ≠ 1)",
+             tipos.get(201, (0,))[0] == 2 and tipos.get(1, (0,))[0] == 1)
+
+
+def pruebas_150_variantes(chequear):
+    """★ (20-nov) Las 50 stages × Fácil/Normal/Difícil (150 variantes) contra los datos del cliente, para que el
+    barrido en el juego sea lo mínimo: catálogo (bajas y EXP), premio de StageReward.xml con ítems que existen en
+    ItemTypeList.xml, sólo ORO (Paso 6: el oro del premio es el Type 0, el cash no se toca) y la carta."""
+    from servidor.partida import premio_de_carta
+    tp = tabla_premios()
+    try:                                                     # (todos los tipos: equipo, consumibles, libros…)
+        tipos = {int(i) for i in re.findall(rb'<ITEMTYPE ID="(\d+)"', open(config.TIPOS_XML, "rb").read())}
+    except OSError:
+        tipos = set()
+    if not tp or not tipos:
+        print("  (sin StageReward.xml / ItemTypeList.xml: se saltea la prueba de las 150 variantes)")
+        return
+    malos_cat, sin_premio, items_malos, oro_mal, carta_mal, premio_malo = [], [], [], [], [], []
+    for esc, (rp, kp, te, mc) in sorted(ESCENARIOS.items()):
+        if mc <= 0 or te <= 0:
+            malos_cat.append(esc)
+        if esc not in tp:
+            sin_premio.append(esc)
+            continue
+        lista = tp[esc][1]
+        items_malos += [(esc, d) for t_, d, _ in lista if t_ == 2 and d != NADA and d not in tipos]
+        c = {"items": [], "plata": 0, "exp": 0, "cash": 777}
+        dar_premio(c, esc)
+        premio_malo += [(esc, it[0]) for it in c["items"] if it[0] not in tipos]
+        if c["plata"] != sum(d for t_, d, _ in lista if t_ == 0) or c["cash"] != 777:
+            oro_mal.append(esc)
+        x = premio_de_carta(esc)
+        if x is not None and (x[0] not in tipos or x[0] == NADA):
+            carta_mal.append((esc, x))
+    chequear("150 variantes en el catálogo (escenarios.json)", len(ESCENARIOS) == 150, len(ESCENARIOS))
+    chequear("todas con bajas (MONSTER_CNT > 0) y EXP total > 0", not malos_cat, malos_cat[:10])
+    chequear("todas con su premio en StageReward.xml", not sin_premio, sin_premio[:10])
+    chequear("los ítems de StageReward.xml que NO existen en el cliente están sólo en variantes Normal",
+             bool(items_malos) and all(e % 10 == 2 for e, _ in items_malos),
+             (sorted({d for _, d in items_malos}), len(items_malos), sorted({e for e, _ in items_malos})[:5]))
+    chequear("★ el revés: ninguna de las 150 variantes pone en la bolsa un ítem que el cliente no conoce",
+             not premio_malo, premio_malo[:10])
+    c = {"items": [], "plata": 0, "exp": 0}
+    nuevos = dar_premio(c, 1032)
+    chequear("★ el revés: el premio de 1032 NO pone el 26004 (desconocido para el cliente) en la bolsa",
+             26004 not in [it[0] for it in nuevos] and 26004 not in [it[0] for it in c["items"]])
+    chequear("(Paso 6) el premio da sólo ORO (= Σ Type 0) y no toca el cash", not oro_mal, oro_mal[:10])
+    chequear("la carta de cada stage es un ítem que existe (o nada)", not carta_mal, carta_mal[:10])
 
 
 def pruebas_nat(chequear):

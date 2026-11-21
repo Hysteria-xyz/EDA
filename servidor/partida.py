@@ -4,6 +4,7 @@ y el premio. Y el «estoy vivo» (0x1001), que es por donde sale lo pendiente po
 import json
 import os
 import random
+import re
 import struct
 import time
 
@@ -13,6 +14,25 @@ from servidor.estado import SALAS, partida, numero
 from servidor.cuentas import guardar, nivel
 from servidor.datos import ESCENARIOS, NADA, PRECIOS, RANKRATE, puntos_de, tabla_premios
 from servidor.objetos import inventario, libre_en_bolsa, registro_item, serial_nuevo
+
+
+_EXISTEN = None
+
+
+def existe_en_cliente(tipo):
+    """★ (20-nov) ¿el cliente conoce ese tipo de ítem (ItemTypeList.xml)? StageReward.xml pide ítems que el
+    cliente no define: el 26004 en las 17 variantes Normal 1032 … 1202 (datos/ del repo) y 26004–26006 en las 47
+    variantes Normal 1032 … 1502 (el XML que guardó el juego del dueño). ItemTypeList.xml está completo (sus
+    propios NUM: 192 equipos, 60 piedras, 6 pociones = 26001–26003 y 26101–26103, 46 libros, 4 varios = 308), la
+    tienda (Product.xml) no los vende y el exe no los nombra: no se inventan. Se saltean y el resto del premio
+    (oro, EXP, los demás ítems) sigue igual. Sin el XML, se da por bueno (como antes)."""
+    global _EXISTEN
+    if _EXISTEN is None:
+        try:
+            _EXISTEN = {int(i) for i in re.findall(rb'<ITEMTYPE ID="(\d+)"', open(config.TIPOS_XML, "rb").read())}
+        except OSError:
+            _EXISTEN = set()
+    return not _EXISTEN or tipo in _EXISTEN
 
 
 def dar_premio(c, escenario, elegir=None):
@@ -29,7 +49,7 @@ def dar_premio(c, escenario, elegir=None):
             c["plata"] += dato
         elif tipo_p == 1:
             c["exp"] += dato
-        elif tipo_p == 2 and dato != NADA:
+        elif tipo_p == 2 and dato != NADA and existe_en_cliente(dato):
             try:
                 # un libro de habilidad llega SIN verificar (para eso está el Skill Check Scroll)
                 cas = libre_en_bolsa(inv)
@@ -49,7 +69,7 @@ def premio_de_carta(escenario):
     ítems (Type 2) que no son «None» (40071); 🟡 sin pesos, el XML no trae probabilidades.
     Devuelve (tipo de ítem, cantidad) o None si la stage no tiene ítems."""
     _, lista = tabla_premios().get(escenario, (0, []))
-    items = [(d, max(1, n)) for t, d, n in lista if t == 2 and d != NADA]
+    items = [(d, max(1, n)) for t, d, n in lista if t == 2 and d != NADA and existe_en_cliente(d)]
     return random.choice(items) if items else None
 
 
@@ -384,7 +404,9 @@ def fin_de_stage(cmd, cuerpo, conexion, c, p):
     muertos = p.get("muertos", 0)
     frac = min(1.0, muertos / float(mc)) if mc > 0 else 1.0
     exp_ganada = max(1, int(round(te * frac)))
-    plata_ganada = 100 + 10 * muertos              # 🟡 la plata: inventada
+    # ★ (20-nov, Paso 6, decisión del dueño) sin el oro inventado (100 + 10 × bajas): el oro del Stage es SÓLO el
+    #   de StageReward.xml (Type 0, dar_premio), el que el cliente muestra en AWARD (`0x5FEA50`)
+    plata_ganada = 0
     rango_xml = next((5 - i for i, corte in enumerate(RANKRATE) if frac >= corte), 1)
     antes = nivel(c["exp"])
     c["exp"] += exp_ganada

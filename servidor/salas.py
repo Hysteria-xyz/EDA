@@ -301,7 +301,7 @@ def listo(cmd, cuerpo, conexion, c, p):
 
 @maneja(0x100D)
 def chat(cmd, cuerpo, conexion, c, p):
-    """★ CHAT (lobby / sala) + COMANDOS GM (/oro, /cash, /nivel, /item, /ayuda)"""
+    """★ CHAT (lobby / sala) + COMANDOS GM (/oro, /nivel, /item, /ayuda)"""
     if not (len(cuerpo) >= 13):
         return None
     # C→S (medido 18:19): u8 tipo (1) · u32 destino (FFFFFFFF = todos) · u32 0 · u32 largo en
@@ -338,12 +338,8 @@ def chat(cmd, cuerpo, conexion, c, p):
                 guardar(c)
                 return _aviso(f"Oro actualizado a {c['plata']}")
             return _aviso("Uso: /oro <cantidad>")
-        elif sub == "cash":
-            if len(partes) >= 2 and partes[1].isdigit():
-                c["cash"] = max(0, min(int(partes[1]), 2_000_000_000))
-                guardar(c)
-                return _aviso(f"Cash actualizado a {c['cash']}")
-            return _aviso("Uso: /cash <cantidad>")
+        elif sub == "cash":                                  # ★ (Paso 6) EDA usa sólo oro
+            return _aviso("El cash no existe en EDA: todo se compra con oro (/oro <cantidad>).")
         elif sub in ("nivel", "lvl", "level"):
             if len(partes) >= 2 and partes[1].isdigit():
                 n = max(1, min(int(partes[1]), len(EXPS)))
@@ -393,7 +389,7 @@ def chat(cmd, cuerpo, conexion, c, p):
             guardar(c)
             return _aviso("Bolsa limpiada (equipo y atajos conservados)")
         elif sub in ("ayuda", "help"):
-            return _aviso(f"Comandos GM: /oro <n>, /cash <n>, /monedas <n>, /nivel <1-{len(EXPS)}>, /item <id> [cant], /stats <5 valores>, /limpiar · Messenger: /messenger")
+            return _aviso(f"Comandos GM: /oro <n>, /monedas <n>, /nivel <1-{len(EXPS)}>, /item <id> [cant], /stats <5 valores>, /limpiar · Messenger: /messenger")
         return _aviso(f"Comando desconocido: /{sub}. Usa /ayuda")
 
     # ⚠ medido con Frida (18:23): el TIPO lo lee en B+2 (con el tipo en B+0 leía 0xFF). La
