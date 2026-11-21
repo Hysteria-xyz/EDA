@@ -53,6 +53,31 @@ static const API_SITIO API_SITIOS[] = {
     {0x7F7BD1, "SetEnvironmentVariableA"}, /* _putenv */
 };
 #define API_N (int)(sizeof(API_SITIOS) / sizeof(API_SITIOS[0]))
+
+/* ★ (21-nov, 2ª parte) LAS LLAMADAS QUE EL DESEMPACADO RESOLVIÓ MAL: el sitio SÍ tiene `call [casillero]`, pero el
+ * casillero de la tabla de importaciones es OTRA función (la emulación de ASProtect la confundió). Medido 17:33:47
+ * (EDA-PRUEBA-APIS modo probar, con la reparación de arriba): setlocale("korean") pasó IsValidLocale y se cayó igual,
+ * con EIP en la PILA (0xC0000096): 0x7F4610 llama a [0x9DA360] = ntdll!RtlIntegerToChar (4 argumentos, saca 16 bytes)
+ * en vez de IsValidCodePage (1 argumento): la pila queda corrida 12 bytes y el `ret` salta a cualquier lado. Con la
+ * trampa sin reparar no se veía porque el juego se caía ANTES, en 0x7F4626.
+ * La lista: las correcciones de documentacion/APIS_A_MANO.md («CORRIGE», 13-nov) que son de la CRT (gemela en
+ * msvcr71.dll). Las otras siete (RegOpenKeyExA, SetThreadPriority, CryptVerifySignatureA) cambian lo que hace el
+ * JUEGO: quedan para cuando cada una tenga su prueba. Se toca SÓLO si en el sitio están exactamente FF 15 + el
+ * casillero equivocado; se cambian los 4 bytes del casillero por un puntero de esta dll a la función correcta. */
+typedef struct { unsigned long sitio, casillero_malo; const char *dll, *fn, *mala; } API_MAL;
+static const API_MAL API_MALAS[] = {
+    {0x7F4610, 0x9DA360, "kernel32.dll", "IsValidCodePage", "RtlIntegerToChar"},          /* __get_qualified_locale */
+    {0x7F48D5, 0x9DA24C, "kernel32.dll", "SetConsoleCtrlHandler", "SetProcessPreferredUILanguages"},   /* signal() */
+    {0x7E3789, 0x88A148, "kernel32.dll", "GetDriveTypeA", "LoadLibraryA"},                /* _validdrive */
+};
+#define API_NM (int)(sizeof(API_MALAS) / sizeof(API_MALAS[0]))
+
+/* ¿en `p` está exactamente `call dword ptr [casillero]`? */
+static int api_es_llamada(const unsigned char *p, unsigned long casillero)
+{
+    return p[0] == 0xFF && p[1] == 0x15 && p[2] == (casillero & 0xFF) && p[3] == ((casillero >> 8) & 0xFF)
+           && p[4] == ((casillero >> 16) & 0xFF) && p[5] == ((casillero >> 24) & 0xFF);
+}
 /* el EDA_limpio.exe conocido (md5 0799387e…): su PE */
 #define API_EXE_BASE 0x00400000u
 #define API_EXE_SELLO 0x4A858317u
@@ -81,6 +106,7 @@ static void api_instruccion(unsigned char out[6], unsigned long puntero)
 #if !EDA_APIS_SOLO_DATOS
 static int g_apis = 1, g_apis_probar, g_apis_reparadas;
 static void *g_api_ptr[API_N];                       /* el puntero de cada sitio: lo lee el `call [ptr]` del juego */
+static void *g_api_mal_ptr[API_NM];
 static volatile LONG g_apis_probado;
 
 static int api_exe_conocido(void)
@@ -129,6 +155,34 @@ static void reparar_apis(void)
     apuntar("  [apis] %d llamadas sin resolver del exe reparadas (%s)%s%s", hechas, cuales[0] ? cuales : "ninguna",
             ya ? " · ya estaban bien: " : "", ya ? "sí" : "");
     if (otras) apuntar("  [apis] ⚠ %d sitio(s) de la lista no se tocaron (ver arriba)", otras);
+    /* ★ las mal resueltas: el casillero equivocado → un puntero a la correcta (sólo los 4 bytes del casillero) */
+    int corregidas = 0, fallas = 0;
+    cuales[0] = 0;
+    for (int i = 0; i < API_NM; i++) {
+        const API_MAL *m = &API_MALAS[i];
+        BYTE *p = (BYTE *)(ULONG_PTR)m->sitio;
+        HMODULE dll = GetModuleHandleA(m->dll);
+        void *f = dll ? (void *)GetProcAddress(dll, m->fn) : NULL;
+        if (!legible(p, 6) || !f) { fallas++; continue; }
+        if (!api_es_llamada(p, m->casillero_malo)) {
+            fallas++;
+            apuntar("  [apis] ⚠ 0x%lX (%s): no está la llamada equivocada esperada: no se toca", m->sitio, m->fn);
+            continue;
+        }
+        g_api_mal_ptr[i] = f;
+        BYTE nuevo[6];
+        DWORD prot;
+        api_instruccion(nuevo, (unsigned long)(ULONG_PTR)&g_api_mal_ptr[i]);
+        if (!VirtualProtect(p, 6, PAGE_EXECUTE_READWRITE, &prot)) { fallas++; continue; }
+        memcpy(p + 2, nuevo + 2, 4);
+        VirtualProtect(p, 6, prot, &prot);
+        FlushInstructionCache(GetCurrentProcess(), p, 6);
+        corregidas++;
+        if (lstrlenA(cuales) < 400) wsprintfA(cuales + lstrlenA(cuales), "%s0x%lX %s (era %s)", corregidas > 1 ? " · " : "",
+                                               m->sitio, m->fn, m->mala);
+    }
+    apuntar("  [apis] %d llamadas mal resueltas corregidas (%s)", corregidas, cuales[0] ? cuales : "ninguna");
+    if (fallas) apuntar("  [apis] ⚠ %d llamada(s) mal resuelta(s) no se tocaron (ver arriba)", fallas);
 }
 
 /* ★ la prueba de la caída SIN jugar: el `setlocale` del juego (CRT de VC 7.1, 0x7E545B, cdecl) con «korean», y de vuelta
