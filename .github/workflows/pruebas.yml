@@ -74,6 +74,8 @@ jobs:
           python3 canal.py control
           zig cc -o prueba_selector prueba_selector.c
           ./prueba_selector
+          python3 prueba_apis.py
+          gcc -std=gnu11 -o /tmp/prueba_apis prueba_apis.c && /tmp/prueba_apis ../../exe/EDA_limpio.exe
           zig cc -target x86-windows-gnu -shared -O2 -s -o d3d9.dll eda_d3d9.c d3d9.def \
             -lkernel32 -luser32 -lwinmm -lws2_32 -liphlpapi -lgdi32
           echo '```' >> "$GITHUB_STEP_SUMMARY"

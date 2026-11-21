@@ -76,6 +76,18 @@ aviso=1
 activo=1
 
 #####################################################################
+# LAS LLAMADAS A WINDOWS QUE EL EXE TODAVÍA TIENE SIN RESOLVER (21-nov)
+#####################################################################
+[apis]
+; 1 = al arrancar, la dll pone en EDA_limpio.exe la llamada original de 17 sitios de la CRT que quedaron
+;     «sin resolver» al desempacar (IsValidLocale, GetCPInfo, GetStringTypeA…). Sin esto el juego se cae al
+;     llegar a uno (medido: 0x7F4626 en una stage). Sólo si el exe es el conocido y en el sitio está la trampa.
+reparar=1
+; 1 = PRUEBA: en el primer cuadro la dll llama al setlocale del juego con «korean» y lo restituye (el camino
+;     de la caída del 21-nov). Dejar en 0 para jugar
+probar_locale=0
+
+#####################################################################
 # P2P: que los juegos se encuentren (sin pasar por el server)
 #####################################################################
 [p2p]

@@ -1103,6 +1103,8 @@ static int desviar_llamada(DWORD sitio, DWORD esperado, void *nuevo, const char 
     return 1;
 }
 
+#include "eda_apis.c"                          /* ★ (21-nov) las llamadas a Windows sin resolver del exe (la caída 0x7F4626) */
+
 /* ── la selección múltiple ── */
 typedef struct { DWORD serial; BYTE *celda; } MARCA;
 static MARCA g_marcas[64];
@@ -2214,6 +2216,7 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
     QueryPerformanceCounter(&ahora);
     InterlockedIncrement(&c_present);
     InterlockedIncrement(&g_presents_total);
+    if (g_apis_probar && !g_apis_probado) apis_probar_locale();   /* (sólo con [apis] probar_locale=1: una vez) */
     if (g_anillo_deseado >= 0) aplicar_pedido_anillo();
     g_cuadros++;
     if (g_avisado_sin_present) { apuntar("  (medir) vuelve el Present (dispositivo 0x%08lX)", (unsigned long)(ULONG_PTR)dev); g_avisado_sin_present = 0; }
@@ -2427,6 +2430,12 @@ static void leer_ajustes(HMODULE self)
     if (g_p2p && GetPrivateProfileIntA("p2p", "red_inmediata", 1, ini)) g_red = 1;
     /* (las variables EDA_* mandan sobre el .ini: para medir sin tocarlo) */
     if (GetEnvironmentVariableA("EDA_MEJORAS", v, sizeof(v))) g_mejoras = atoi(v);
+    /* ★ (21-nov) [apis]: las llamadas sin resolver del exe (eda_apis.c). Va SIEMPRE, también con mejoras=0: es la
+     *   instrucción original del juego, no una mejora */
+    g_apis = GetPrivateProfileIntA("apis", "reparar", 1, ini);
+    g_apis_probar = GetPrivateProfileIntA("apis", "probar_locale", 0, ini);
+    if (GetEnvironmentVariableA("EDA_REPARAR_APIS", v, sizeof(v))) g_apis = atoi(v);
+    if (GetEnvironmentVariableA("EDA_PROBAR_LOCALE", v, sizeof(v))) g_apis_probar = atoi(v);
     medir5_leer_env();                               /* ★ (Punto 5) EDA_RES_PRUEBA: sólo la prueba */
     e2d_leer_ini(ini);                               /* ★ (Punto 5/6) [pantalla]: la adaptación 2D, siempre */
     gr_leer_ini(ini);                                /* ★ (Punto 6) [graficos] */
@@ -2620,6 +2629,7 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
             sys, g_mejoras, g_tope, g_mostrar, g_caja, g_rui, g_estricto, g_red, g_buferes, g_hysteria, g_letras32,
             g_ping_verde, g_mazino);
     if (!g_mejoras) apuntar("  [general] mejoras=0: el video y la red del juego quedan como en 2009 (sólo server, login y caja negra)");
+    reparar_apis();                                  /* ★ (21-nov) antes que nada del exe corra: ver eda_apis.c */
     /* ★ la red inmediata: desde YA (el juego puede abrir su socket UDP antes de crear el D3D). Acá
      *   la tabla de importaciones del exe ya está resuelta (los DllMain corren después). */
     if (g_mejoras && g_red && g_tope > 0) {
