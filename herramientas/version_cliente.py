@@ -42,7 +42,12 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOVEDADES = os.path.join(RAIZ, "NOVEDADES.json")
 DEL_USUARIO = ("autoexec.cfg", "eda_d3d9.ini")
 MARCA = re.compile(rb"EDA-ID\|v=([0-9.]{1,16})\|c=([0-9A-Za-z-]{1,40})\|s=([01])\|f=([^|\x00]{1,40})\|b=([0-9A-Za-z-]{1,40})\|")
-VERSION = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})\.(\d{1,3})$")
+VERSION = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})(?:\.(\d{1,3}))?$")
+# ★ (21-nov 19:30) lo que el launcher YA aceptó: «2026.11.19» y «2026.11.21» (tres números, en launcher.json eda_ver_ok).
+#   El launcher trae la biblioteca `semver` de Rust, que sólo acepta TRES números y sin ceros a la izquierda: si la usa
+#   para la versión de EDA, «2026.11.22.1» (cuatro) o «2026.12.05» (cero) darían «número de versión inválido» y no se
+#   bajaría nada. Hasta que el dueño del launcher confirme cómo la compara, `revisar` lo AVISA.
+SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 LIMITES = {"resumen": 280, "item": 160, "items": 8}
 
 
@@ -53,8 +58,8 @@ class Regla(Exception):
 def v_release(v):
     m = VERSION.match(str(v))
     if not m:
-        raise Regla("versión «%s»: va AAAA.MM.DD.N (p. ej. 2026.11.22.1)" % v)
-    return tuple(int(x) for x in m.groups())
+        raise Regla("versión «%s»: va AAAA.MM.DD.N (p. ej. 2026.11.22.1) o AAAA.MM.DD (la que publicó TEST el 21-nov)" % v)
+    return tuple(int(x or 0) for x in m.groups())          # (sin .N = .0: 2026.11.21 < 2026.11.21.1 < 2026.11.22)
 
 
 def v_dll(v):
@@ -122,6 +127,10 @@ def revisar(nuevo, anterior=None, carpeta=None, novedades=None):
                      % (nuevo["version"], anterior["version"]))
     info.append("Versión anterior: %s" % (anterior["version"] if anterior else "(ninguna dada)"))
     info.append("Versión nueva:    %s" % nuevo["version"])
+    if not SEMVER.match(str(nuevo["version"])):
+        info.append("⚠ «%s» no tiene la forma de las que el launcher ya aceptó (tres números sin ceros a la izquierda, "
+                    "como 2026.11.21): confirmar con el dueño del launcher que la compara bien antes de publicar"
+                    % nuevo["version"])
     e = novedades.get(nuevo["version"])
     if not e:
         p.append("NOVEDADES.json no tiene la entrada de %s" % nuevo["version"])
@@ -241,6 +250,11 @@ def control():
              any("no es MAYOR" in x for x in p))
     p, _ = revisar(nuevo("2026.11.18.9", m), viejo, t, nov)
     chequear("★ el revés: una versión MENOR → no", any("no es MAYOR" in x for x in p))
+    p, info = revisar(nuevo(dll_md5=m), dict(viejo, version="2026.11.21"), t, nov)
+    chequear("la anterior con el formato que publicó TEST (2026.11.21, tres números) se acepta y compara bien",
+             not p and "⚠ «2026.11.22.1» no tiene la forma" in info, p)
+    p, _ = revisar(nuevo("2026.11.21", m), dict(viejo, version="2026.11.21.1"), t, nov)
+    chequear("★ el revés: 2026.11.21 es MENOR que 2026.11.21.1", any("no es MAYOR" in x for x in p))
     p, _ = revisar(nuevo("22-nov", m), viejo, t, nov)
     chequear("★ el revés: una versión con otro formato → no", any("AAAA.MM.DD.N" in x for x in p))
     p, _ = revisar(nuevo("2026.11.22.2", m), viejo, t, nov)

@@ -100,5 +100,9 @@ commit 04e141d): 0.5.1 (selector) + 0.5.2 (las llamadas sin resolver / mal resue
 
 La versión ANTERIOR es **2026.11.21** (TEST, publicada el 21-nov ~19:00 con la dll 0.5.1 del selector: el launcher de la
 PC de pruebas la bajó a las 19:02). Por eso las novedades de 2026.11.22.1 ya NO repiten el arreglo del selector.
+⚠ **El formato, a confirmar con el dueño del launcher antes de publicar:** lo que el launcher ya aceptó tiene TRES números
+(`2026.11.19`, `2026.11.21`). El launcher trae la biblioteca `semver` de Rust, que sólo acepta tres números sin ceros a
+la izquierda. Si compara la versión de EDA con ella, `2026.11.22.1` daría «número de versión inválido» y no se bajaría
+nada. Si no lo confirma: publicar como **`2026.11.22`** (mayor que 2026.11.21, y válida para los dos). `revisar` lo avisa.
 Si se publica otro día, la versión es la de ESE día: `AAAA.MM.DD.1` (o `.2`, `.3`… si ya salió una ese día), siempre
 mayor que la anterior; `version_cliente.py revisar` lo exige.

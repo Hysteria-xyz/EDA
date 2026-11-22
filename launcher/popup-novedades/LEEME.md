@@ -74,5 +74,7 @@ node launcher/popup-novedades/probar_popup.js <ruta>\Launcher.exe noticia.json
 
 ## Lo que falta confirmar con el código del launcher (no lo tenemos)
 
+- **El número de versión de EDA.** La regla de EDA es `AAAA.MM.DD.N` (`2026.11.22.1`). Lo que el launcher ya aceptó tiene tres números (`2026.11.21`). Hay que confirmar si la comparación de `eda_ver_ok` usa `semver` (sólo tres números, sin ceros a la izquierda): de eso depende si la próxima sale como `2026.11.22.1` o como `2026.11.22`.
+
 - **Progreso:** que el backend llame a `LU.edaProg(porcentaje, …)` mientras baja EDA, y `LU.edaProg(null)` + `LU.eda({estado: 'listo', …})` al terminar bien. Así lo hace el MOCK de `launcher.js`. Si el backend avisa de otra forma, alcanza con cambiar las dos envolturas de `novedades.js`.
 - **Una prueba en el launcher compilado:** con una versión de TEST, ver que el popup salga una vez y no vuelva a salir al reabrir el launcher.
