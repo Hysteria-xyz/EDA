@@ -302,13 +302,12 @@ def _sacar_de_sala(s, num, conexion):
         s.get("listos", set()).discard(s["anfitrion"])  # (el anfitrión no «está listo»: larga)
     nuevo = numero(s, s["anfitrion"])
     r = [(0x1058, struct.pack("<BHB", yo, 3, nuevo), 0, n) for n in s["miembros"]]
-    # ★ (22-nov) si el máster se fue o se desconectó en plena stage (ya largada), el guion Lua que corría en
-    #   su cliente queda cortado a mitad de oleada (medido en TEST 22-nov: 162832 clavada en 76/78 bajas sin
-    #   0x1064, 163025 a 14 FPS con 0 bajas): se cierra la stage de forma limpia para los que siguen en ella.
-    #   Si se fue durante la pantalla de carga (antes de la largada), los que ya cargaron largan con el nuevo máster.
-    from servidor.partida import cerrar_stage_por_master, largar_si_cargaron
-    if era_master_stage:
-        return r + cerrar_stage_por_master(s, conexion)
+    # ★ (22-nov) si el máster se fue o se desconectó en plena stage (ya largada), la stage SIGUE con el nuevo
+    #   anfitrión (0x1058 tipo 3 prende +0x168 en su cliente) y desde ahí rige la guardia de stage trabada (90 s
+    #   sin bajas nuevas). Si se fue durante la pantalla de carga (antes de la largada), los que ya cargaron largan.
+    from servidor.partida import activar_guardia_traspaso, largar_si_cargaron
+    if era_master_stage and s.get("en_stage"):
+        activar_guardia_traspaso(s, conexion)
     return r + largar_si_cargaron(s)
 
 
@@ -723,6 +722,9 @@ def largar(cmd, cuerpo, conexion, c, p):
         s["jugando"], s["cargados"] = True, set()
         s.pop("largada", None)                          # (20-nov: la largada se da UNA vez por stage)
         s.pop("carga_desde", None)
+        s.pop("traspaso_master", None)
+        s.pop("ultima_baja_stage", None)
+        s["bajas_stage"] = set()
         s["en_stage"] = set(miembros)                   # (Punto 3: «jugando» hasta que salgan TODOS)
         s["muertos_stage"] = 0                          # (21-nov: las bajas de la partida, del máster)
         s["listos"] = set()                             # (al volver de la stage, todos «no listo»: `0x548AF0`)

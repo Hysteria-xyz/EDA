@@ -120,20 +120,20 @@ def _tick(conexiones):
         VIVO.LISTA_CAMBIO = False
         r += avisar_lista() + avisar_usuarios()
     r += [x for x in vigilar_cargas(SALAS) if x[3] in conexiones]   # (20-nov: nadie queda cargando para siempre)
-    r += [x for x in vigilar_master(SALAS) if x[3] in conexiones]   # (22-nov: máster colgado en plena stage → cierre)
+    r += [x for x in vigilar_master(SALAS) if x[3] in conexiones]   # (22-nov: máster colgado → traspaso; stage trabada → cierre)
     r += [x for x in reanunciar(SALAS) if x[3] in conexiones]      # (21-nov: una dirección que cambió, otra vez)
     for n in conexiones:
         p = PARTIDAS.get(n)
         if p and p.get("game_over_en") and time.time() >= p["game_over_en"]:
             r += game_over(leer(n), p, n)
         if p:                                               # el cierre por bajas, al segundo
-            r += [x[:3] + (n,) for x in cerrar_por_bajas(p, n)]
+            r += [x if len(x) > 3 else x + (n,) for x in cerrar_por_bajas(p, n)]
         espera = segundos_fin_rapido() if p and p.get("inicio") else None
         if (espera is not None and not p.get("resultado_guardado") and not p.get("game_over_en")
                 and time.time() - p["inicio"] >= espera):
             print("🧪 fin_rapido: la stage %s termina a los %g s (atajo de prueba)"
                   % (p.get("escenario"), espera), flush=True)
-            r += [x[:3] + (n,) for x in fin_de_stage(0x1064, b"", n, leer(n), p)]
+            r += [x if len(x) > 3 else x + (n,) for x in fin_de_stage(0x1064, b"", n, leer(n), p)]
         # ★ vencido el tiempo de las cartas sin elegir (p. ej. con 0 puntos no se puede elegir
         #   ninguna: medido 19:22, el reloj llega a 0 y la pantalla se queda) → AWARD RESULTS
         if p and p.get("cartas_hasta") and time.time() >= p["cartas_hasta"]:
