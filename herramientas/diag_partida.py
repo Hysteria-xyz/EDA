@@ -22,6 +22,7 @@ clientes respecto de UTC (Perú: -5, por defecto). Sólo LEE: no cambia ningún 
 """
 import argparse
 import io
+import json
 import os
 import re
 import sys
@@ -69,16 +70,24 @@ def abrir_paquete(ruta):
 
     def nombre(a):                                  # (un recorte a mano: «server_test_0530-0550_UTC.log»)
         return "server.log" if a not in quiero and a.startswith("server") and a.endswith(".log") else a
-    r = {}
+    r = {"diag": {}}
     if os.path.isdir(ruta):
-        for raiz, _, archivos in os.walk(ruta):
-            for a in archivos:
+        for raiz, _, archivos in sorted(os.walk(ruta)):
+            for a in sorted(archivos):
+                # (el paquete: diag/<cuenta>-<sesión>.jsonl; el estado del server: diag/<AAAA-MM-DD>/…; la misma
+                #  sesión en dos días se JUNTA)
+                partes = os.path.relpath(raiz, ruta).replace("\\", "/").split("/")
+                if a.endswith(".jsonl") and "diag" in partes:
+                    r["diag"][a] = r["diag"].get(a, "") + open(os.path.join(raiz, a), encoding="utf-8", errors="replace").read()
                 if nombre(a) in quiero and nombre(a) not in r:
                     r[nombre(a)] = open(os.path.join(raiz, a), encoding="utf-8", errors="replace").read()
     else:
         with tarfile.open(ruta) as t:
             for m in t.getmembers():
                 a = os.path.basename(m.name)
+                if m.isfile() and a.endswith(".jsonl") and "/diag/" in "/" + m.name:
+                    r["diag"][a] = r["diag"].get(a, "") + t.extractfile(m).read().decode("utf-8", errors="replace")
+                    continue
                 if m.isfile() and nombre(a) in quiero and nombre(a) not in r:
                     r[nombre(a)] = t.extractfile(m).read().decode("utf-8", errors="replace")
     return r
@@ -86,19 +95,25 @@ def abrir_paquete(ruta):
 
 def leer_server(texto):
     """Las líneas del server con su hora UTC (las que salen sin hora —los print— toman la de la anterior)."""
-    out, ultima = [], None
+    # ★ (21-nov) el ORDEN del registro se conserva dentro del mismo segundo (+1 µs por línea): «0x1005 → 104f» en el
+    #   mismo segundo NO es «un 0x1005 durante la carga» (falsa alarma medida en EDA-PRUEBA-DIAG)
+    out, ultima, k = [], None, 0
     for crudo in texto.splitlines():
         s = crudo.rstrip("\r")
+        nueva = None
         m = R_DOCKER.match(s)
         if m:
-            ultima = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
+            nueva = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
             s = s[m.end():]
         m = R_FECHA.match(s)
         if m:
-            ultima = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+            nueva = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
             s = s[m.end():]
+        if nueva is not None and nueva != ultima:
+            ultima, k = nueva, 0
         if ultima is not None and s.strip():
-            out.append(Linea(ultima, "server", s.strip()))
+            k += 1
+            out.append(Linea(ultima + timedelta(microseconds=k), "server", s.strip()))
     return out
 
 
@@ -164,6 +179,43 @@ def leer_cliente(nombre, ruta, dia_local, zona):
     return out
 
 
+def leer_diag(archivos):
+    """★ (21-nov) lo que mandaron los clientes beta (servidor/diag.py): «<cuenta>-<sesion>.jsonl» → {cuenta: [Linea]}.
+    La hora de cada evento es la del reloj de SU PC: se corrige con «dr» (la diferencia que midió el server al recibir)."""
+    r, vistos = {}, set()
+    for nombre, texto in sorted(archivos.items()):
+        m = re.match(r"^(.+)-([0-9a-f]{32})\.jsonl$", nombre)
+        if not m:
+            continue
+        cuenta, sesion = m.group(1), m.group(2)
+        for ln in texto.splitlines():
+            try:
+                ev = json.loads(ln)
+            except ValueError:
+                continue
+            # (la dll manda una caída por la red y también la deja en disco para el próximo arranque: la misma
+            #  línea puede llegar 2 veces, incluso en otra sesión → se cuenta una)
+            clave = (cuenta, json.dumps({k: v for k, v in ev.items() if k not in ("r", "dr")}, sort_keys=True))
+            if clave in vistos:
+                continue
+            vistos.add(clave)
+            t = datetime.fromtimestamp((ev.get("t", 0) + ev.get("dr", 0)) / 1000.0, UTC)
+            resto = " ".join("%s=%s" % (k, v) for k, v in ev.items() if k not in ("t", "e", "r", "dr", "m"))
+            r.setdefault(cuenta, []).append(Linea(t, "%s/diag·%s" % (cuenta, sesion[:6]), ("%s %s" % (ev.get("e"), resto)).strip()))
+    for v in r.values():
+        v.sort(key=lambda ln: ln.t)
+    return r
+
+
+def de_la_cuenta(diag, cuenta):
+    """las líneas de diag de esa cuenta del server («en_10006352» ↔ el usuario «10006352» que manda la dll)"""
+    out = []
+    for c, ls in diag.items():
+        if cuenta and (c == cuenta or cuenta.endswith("_" + c)):
+            out += ls
+    return out
+
+
 # ── las partidas ─────────────────────────────────────────────────────────────────────────────────────────────
 
 def partidas(server):
@@ -198,6 +250,17 @@ def ventana_de(partida, todas, server, antes=90, despues=60):
     """[desde, hasta] de la partida: desde 90 s antes de la carga (la sala y las direcciones P2P) hasta 60 s
     después de que el último salió de la stage (o de que se cerró), o hasta la partida siguiente de los mismos."""
     desde = partida["desde"] - timedelta(seconds=antes)
+    # ★ (21-nov) no antes de que arrancó el server (los #n vuelven a empezar: el #1 de antes es OTRO) ni de lo que siguió
+    #   a la partida anterior de los mismos (medido en EDA-PRUEBA-DIAG: el fin de la partida anterior caía en esta)
+    reinicio = max((ln.t for ln in server if ln.t <= partida["desde"] and "EDA server en " in ln.texto), default=None)
+    if reinicio and reinicio > desde:
+        desde = reinicio
+    previa = max((p for p in todas if p["desde"] < partida["desde"] and set(p["miembros"]) & set(partida["miembros"])),
+                 key=lambda p: p["desde"], default=None)
+    if previa:
+        _, fin_previa = ventana_de(previa, todas, server, antes, 0)
+        if fin_previa > desde:
+            desde = min(fin_previa, partida["desde"])
     siguiente = next((p["desde"] for p in todas if p["desde"] > partida["desde"]
                       and set(p["miembros"]) & set(partida["miembros"])), None)
     fin = None
@@ -307,7 +370,8 @@ def anomalias(h, inicio, clientes, partida_id):
         if hueco[0] >= 45:
             a.append("⚠ #%s estuvo %d s sin mandarle NADA al server en la stage (desde %s; el «estoy vivo» es cada "
                      "20 s)." % (n, hueco[0], hh(hueco[1])))
-        if fin_n and not vivos and (fin_n - largada).total_seconds() > 60:
+        # (sólo con 2 o más: jugando SOLO el juego no manda 0x1001 en la stage — medido en EDA-PRUEBA-DIAG, 2 min sin él)
+        if fin_n and not vivos and (fin_n - largada).total_seconds() > 60 and len(h) >= 2:
             a.append("⚠ #%s no mandó ningún «estoy vivo» (0x1001) en la stage." % n)
     for nombre, tipos in clientes.items():
         nt = tipos.get("NetTrace", [])
@@ -384,12 +448,20 @@ def armar(paquete, partida_id=None, desde=None, hasta=None, clientes=(), zona=-5
         m = re.findall(r"#(\d+)", ln.texto)
         return not m or any(int(k) in nums for k in m) or not nums
 
+    diag = leer_diag(arch.get("diag", {}))
+    dg = {n: [ln for ln in de_la_cuenta(diag, c) if en(ln)] for n, c in miembros.items()}
     sv = [ln for ln in server if en(ln) and del_server(ln)]
     rl = [ln for ln in relay if en(ln)]
     cl = {n: {t: [ln for ln in ls if en(ln)] for t, ls in tipos.items()} for n, tipos in cli.items()}
     inicio = elegidas[0]["desde"] if elegidas else desde_
     h = hechos(server, nums, desde_, hasta_, inicio)
     an = anomalias(h, inicio, cl, elegidas[0]["id"] if elegidas else None) if nums else []
+    for n, ls in dg.items():
+        for ln in ls:
+            ev = ln.texto.split(" ", 1)[0]
+            if ev in ("caida", "atrapado", "congelado", "perdidos"):      # (los que manda eda_diag.c)
+                an.append("%s #%s (%s), su cliente: %s (%s)" % ("⛔" if ev in ("caida", "atrapado") else "⚠", n,
+                                                               miembros.get(n, "?"), ln.texto, hh(ln.t)))
     nombre = elegidas[0]["id"] if len(elegidas) == 1 else "intervalo-%s" % desde_.strftime("%Y%m%d-%H%M%S")
 
     res = ["# Diagnóstico de %s" % nombre, "",
@@ -418,6 +490,9 @@ def armar(paquete, partida_id=None, desde=None, hasta=None, clientes=(), zona=-5
                      or "descartado" in ln.texto][:40]
     res += ["", "## Relay", ""] + (["- %s" % x for x in resumen_relay] or ["- Nada del relay en la ventana "
                                                                          "(con P2P directo es lo normal)."])
+    res += ["", "## Diagnóstico automático de los clientes", ""] + (
+        ["- #%s (%s): %d eventos" % (n, miembros.get(n, "?"), len(ls)) for n, ls in sorted(dg.items()) if ls]
+        or ["- Ninguno en la ventana (clientes sin la dll con diagnóstico, o EDA_DIAG apagado)."])
     res += ["", "## Clientes", ""]
     if cl:
         for n, tipos in cl.items():
@@ -433,7 +508,8 @@ def armar(paquete, partida_id=None, desde=None, hasta=None, clientes=(), zona=-5
             ""]
     resumen = "\n".join(res)
 
-    todo = sorted(sv + rl + [ln for tipos in cl.values() for ls in tipos.values() for ln in ls], key=lambda ln: ln.t)
+    todo = sorted(sv + rl + [ln for tipos in cl.values() for ls in tipos.values() for ln in ls]
+                  + [ln for ls in dg.values() for ln in ls], key=lambda ln: ln.t)
     linea = "\n".join("%s  %-18s %s" % (ln.t.strftime("%Y-%m-%d %H:%M:%S"), ln.fuente, tapa(ln.texto)) for ln in todo)
     salida = salida or "%s.zip" % nombre
     with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as z:
@@ -445,6 +521,10 @@ def armar(paquete, partida_id=None, desde=None, hasta=None, clientes=(), zona=-5
             for t, ls in tipos.items():
                 z.writestr("cliente-%s-%s.log" % (n, t), "\n".join("%s %s" % (ln.t.strftime("%Y-%m-%d %H:%M:%S"),
                                                                               tapa(ln.texto)) for ln in ls) + "\n")
+        for n, ls in dg.items():
+            if ls:
+                z.writestr("diag-%s.log" % n, "\n".join("%s %s %s" % (ln.t.strftime("%Y-%m-%d %H:%M:%S"), ln.fuente,
+                                                                       tapa(ln.texto)) for ln in ls) + "\n")
         if "LEEME.txt" in arch:
             z.writestr("LEEME-del-server.txt", tapa(arch["LEEME.txt"]))
     return salida, resumen
@@ -504,6 +584,13 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
     os.makedirs(os.path.join(d, "eda-prueba-diagnostico"))
     open(os.path.join(d, "eda-prueba-diagnostico", "server.log"), "w").write(server)
     open(os.path.join(d, "eda-prueba-diagnostico", "relay.log"), "w").write(relay)
+    os.makedirs(os.path.join(d, "eda-prueba-diagnostico", "diag"))
+    t_caida = int(datetime(2026, 11, 21, 16, 57, 30, tzinfo=UTC).timestamp() * 1000)
+    with open(os.path.join(d, "eda-prueba-diagnostico", "diag", "2-" + "ab" * 16 + ".jsonl"), "w") as f:
+        f.write(json.dumps({"t": t_caida - 3000, "e": "escena", "a": "stage", "r": t_caida, "dr": 3000}) + "\n")
+        f.write(json.dumps({"t": t_caida - 3000, "e": "caida", "codigo": "C0000005", "sitio": "0x7F4626", "dr": 3000}) + "\n")
+    with open(os.path.join(d, "eda-prueba-diagnostico", "diag", "12-" + "cd" * 16 + ".jsonl"), "w") as f:
+        f.write(json.dumps({"t": t_caida, "e": "caida", "sitio": "0x1", "dr": 0}) + "\n")
     tgz = os.path.join(d, "paquete.tgz")
     with tarfile.open(tgz, "w:gz") as t:
         t.add(os.path.join(d, "eda-prueba-diagnostico"), arcname="eda-prueba-diagnostico")
@@ -527,13 +614,16 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
     chequear("el cliente: su hora de Perú pasa a UTC (11:56:53 → 16:56:53) y entra en la línea de tiempo",
              "16:56:53  jugador2/NetTrace" in zipfile.ZipFile(z).read("linea_de_tiempo.txt").decode())
     chequear("el congelamiento que vio la dll aparece en las anomalías", "CONGELADO 4000 ms" in res)
+    chequear("★ diagnóstico automático: la caída que mandó el cliente de #2 entra a las anomalías, con la hora del server",
+             "#2 (en_2), su cliente: caida codigo=C0000005 sitio=0x7F4626 (16:57:30)" in res, res.split("## Anomalías")[1][:600])
+    chequear("★ el revés: lo de la cuenta 12 no se confunde con la 2", "sitio=0x1" not in res)
     todo = "".join(zipfile.ZipFile(z).read(n).decode() for n in zipfile.ZipFile(z).namelist())
     chequear("★ tapadas: ninguna IP ni MAC de los registros queda en el .zip",
              "198.51.100.26" not in todo and "203.0.113.77" not in todo and "00:00:5E:00:53:01" not in todo and "IP-A" in todo)
     chequear("★ el ruido de la dll (escala2d) no entra", "ruido" not in todo)
     chequear("un solo .zip con RESUMEN, línea de tiempo y los recortes",
              set(zipfile.ZipFile(z).namelist()) >= {"RESUMEN.md", "linea_de_tiempo.txt", "server.log", "relay.log",
-                                                    "cliente-jugador2-NetTrace.log", "cliente-jugador2-dll.log"})
+                                                    "cliente-jugador2-NetTrace.log", "cliente-jugador2-dll.log", "diag-2.log"})
     # la carga cortada (21-nov 05:35): registro viejo, sin la línea «partida», con un 0x1005 durante la carga
     viejo = """2026-11-21 05:35:48 #1 → 104f (140 B)
 2026-11-21 05:35:48 #2 → 104f (140 B)
@@ -571,8 +661,121 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
     chequear("★ el revés: una partida sana (el máster termina y los dos reciben su PlayEnd) → ninguna anomalía",
              "Ninguna regla saltó." in res, res.split("## Anomalías detectadas")[1][:300] if "Ninguna" not in res else "")
     chequear("por intervalo horario: toma la partida que empezó adentro", "P?-20261121-180000" in res)
+    control_grupos(d, chequear)
+    control_reinicio(d, chequear)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
+
+
+def control_grupos(d, chequear):
+    """★ (21-nov) los diagnósticos de CUALQUIER jugador beta van a SU partida, solos: 3 jugadores en una, 2 en otra al
+    mismo tiempo, relojes de PC desparejos, una sesión que cruza la medianoche UTC (dos archivos de día) y una caída que
+    llega dos veces (por la red y desde el disco)."""
+    est = os.path.join(d, "estado-server")                 # (como queda en el server: diag/<día>/<cuenta>-<sesión>.jsonl)
+    server = """2026-11-21 23:57:00 #1 conectó 198.51.100.1:1
+#1 es la cuenta r2b_101
+#2 es la cuenta r2b_102
+#3 es la cuenta r2b_103
+#4 es la cuenta r2b_201
+#5 es la cuenta r2b_202
+2026-11-21 23:58:00 #1 ← 104e (0 B)
+partida P-20261121-235800-s1 empieza: sala 1 · #1=r2b_101 · #2=r2b_102 · #3=r2b_103
+2026-11-21 23:58:00 #1 → 104f (140 B)
+2026-11-21 23:58:00 #2 → 104f (140 B)
+2026-11-21 23:58:00 #3 → 104f (140 B)
+partida P-20261121-235830-s2 empieza: sala 2 · #4=r2b_201 · #5=r2b_202
+2026-11-21 23:58:30 #4 → 104f (140 B)
+2026-11-21 23:58:30 #5 → 104f (140 B)
+2026-11-21 23:58:05 #1 → 105e (4 B)
+2026-11-21 23:58:05 #2 → 105e (4 B)
+2026-11-21 23:58:05 #3 → 105e (4 B)
+2026-11-21 23:58:35 #4 → 105e (4 B)
+2026-11-21 23:58:35 #5 → 105e (4 B)
+2026-11-22 00:01:00 #1 ← 1064 (1 B)
+2026-11-22 00:01:00 #1 → 1073 (60 B)
+2026-11-22 00:01:00 #2 → 1073 (60 B)
+2026-11-22 00:01:00 #3 → 1073 (60 B)
+2026-11-22 00:02:00 #4 ← 1064 (1 B)
+2026-11-22 00:02:00 #4 → 1073 (60 B)
+2026-11-22 00:02:00 #5 → 1073 (60 B)
+"""
+    os.makedirs(est, exist_ok=True)
+    open(os.path.join(est, "server.log"), "w").write(server)
+    ms = lambda h: int(fecha(h).timestamp() * 1000)
+    def poner(dia, cuenta, sesion, eventos):
+        c = os.path.join(est, "diag", dia)
+        os.makedirs(c, exist_ok=True)
+        with open(os.path.join(c, "%s-%s.jsonl" % (cuenta, sesion * 32)), "a") as f:
+            for e in eventos:
+                f.write(json.dumps(e) + "\n")
+    # 101: su PC atrasa 7 minutos (dr = +420000): el congelado de su reloj 23:52:10 es 23:59:10 del server
+    poner("2026-11-21", "101", "a", [{"t": ms("2026-11-21 23:52:10"), "e": "congelado", "ms": 2500, "dr": 420000}])
+    # 103: la sesión cruza la medianoche UTC → dos archivos, uno por día; la caída en el del 22, y repetida (red + disco)
+    poner("2026-11-21", "103", "b", [{"t": ms("2026-11-21 23:58:02"), "e": "escena", "vt": "0x00899C20", "dr": 0}])
+    caida = {"t": ms("2026-11-22 00:00:30"), "m": 150000, "e": "caida", "codigo": "0xC0000005", "sitio": "0x007F4626",
+             "modulo": "sin_resolver", "dr": 0}
+    poner("2026-11-22", "103", "b", [caida, dict(caida)])
+    poner("2026-11-22", "103", "c", [dict(caida, dr=1000)])          # (la misma, desde el disco en el arranque siguiente)
+    # 201: en la OTRA partida, al mismo tiempo
+    poner("2026-11-22", "201", "d", [{"t": ms("2026-11-22 00:00:40"), "e": "atrapado", "vt": "0x0089A268", "dr": 0}])
+    # 999: no jugó ninguna de las dos
+    poner("2026-11-22", "999", "e", [{"t": ms("2026-11-22 00:00:20"), "e": "caida", "sitio": "0x00000999", "dr": 0}])
+    lista = partidas(leer_server(server))
+    chequear("grupos: dos partidas al mismo tiempo, cada una con sus jugadores (3 y 2)",
+             [x["id"] for x in lista] == ["P-20261121-235800-s1", "P-20261121-235830-s2"]
+             and lista[0]["miembros"] == {1: "r2b_101", 2: "r2b_102", 3: "r2b_103"}
+             and lista[1]["miembros"] == {4: "r2b_201", 5: "r2b_202"}, [x["id"] for x in lista])
+    _, a = armar(est, partida_id="P-20261121-235800-s1", salida=os.path.join(d, "ga.zip"))
+    an = a.split("## Anomalías")[1] if "## Anomalías" in a else a
+    chequear("grupos: el congelado del jugador 101 entra a SU partida con la hora corregida (23:52:10 de su PC → 23:59:10)",
+             "#1 (r2b_101), su cliente: congelado" in an and "23:59:10" in an, an[:500])
+    chequear("grupos: la caída del 103 (en el archivo del día siguiente: cruzó la medianoche) entra a su partida",
+             "#3 (r2b_103), su cliente: caida" in an and "00:00:30" in an)
+    chequear("grupos: la misma caída que llegó 3 veces (red, repetida y desde el disco) cuenta UNA",
+             an.count("su cliente: caida") == 1, an.count("su cliente: caida"))
+    chequear("grupos ★ el revés: lo del 201 (otra partida) y del 999 (ninguna) NO entra",
+             "r2b_201" not in an and "atrapado" not in an and "0x00000999" not in an)
+    _, b = armar(est, partida_id="P-20261121-235830-s2", salida=os.path.join(d, "gb.zip"))
+    bn = b.split("## Anomalías")[1] if "## Anomalías" in b else b
+    chequear("grupos: en la otra partida, lo del 201 sí y lo del 101/103 no",
+             "#4 (r2b_201), su cliente: atrapado" in bn and "r2b_101" not in bn and "r2b_103" not in bn, bn[:400])
+
+
+def control_reinicio(d, chequear):
+    """★ (21-nov, EDA-PRUEBA-DIAG) dos sesiones seguidas con el server reiniciado en el medio: el #1 de la segunda NO es
+    el de la primera; el fin de la primera no puede aparecer en la segunda."""
+    server = """2026-11-22 00:11:43 EDA server en 127.0.0.1:35990 · estado x
+2026-11-22 00:12:50 #1 ← 104e (0 B)
+partida P-20261122-001250-s1 empieza: sala 1 · #1=r2b_777001
+2026-11-22 00:12:50 #1 → 104f (140 B)
+2026-11-22 00:12:52 #1 → 105e (4 B)
+2026-11-22 00:14:34 #1 ← 1064 (1 B)
+2026-11-22 00:14:34 #1 → 1073 (60 B)
+2026-11-22 00:14:57 #1 cerrada
+2026-11-22 00:15:14 EDA server en 127.0.0.1:35990 · estado x
+2026-11-22 00:15:31 #1 ← 104e (0 B)
+partida P-20261122-001531-s1 empieza: sala 1 · #1=r2b_777001
+2026-11-22 00:15:31 #1 → 104f (140 B)
+2026-11-22 00:15:33 #1 → 105e (4 B)
+2026-11-22 00:17:37 #1 ← 1064 (5 B)
+2026-11-22 00:17:37 #1 → 1073 (299 B)
+2026-11-22 00:17:58 #1 cerrada
+"""
+    c = os.path.join(d, "reinicio")
+    os.makedirs(c, exist_ok=True)
+    open(os.path.join(c, "server.log"), "w").write(server)
+    _, res = armar(c, partida_id="P-20261122-001531-s1", salida=os.path.join(d, "r.zip"))
+    fila = [l for l in res.splitlines() if l.startswith("| #1 ")]
+    chequear("reinicio: el fin (0x1064 00:14:34) de la sesión ANTERIOR no aparece en la partida nueva",
+             fila and "00:14:34" not in fila[0] and "00:15:31" in fila[0], fila)
+    orden = server.replace("2026-11-22 00:15:31 #1 ← 104e (0 B)", "2026-11-22 00:15:31 #1 → 1005 (123 B)\n"
+                                                                 "2026-11-22 00:15:31 #1 ← 104e (0 B)")
+    open(os.path.join(c, "server.log"), "w").write(orden)
+    _, res = armar(c, partida_id="P-20261122-001531-s1", salida=os.path.join(d, "r2.zip"))
+    chequear("★ el revés: un 0x1005 ANTES de la carga, en el mismo segundo, no es «durante la carga»",
+             "DURANTE la carga" not in res)
+    chequear("★ el revés: jugando SOLO, que no haya «estoy vivo» en la stage no es una anomalía",
+             "estoy vivo" not in res.split("## Anomalías")[1].split("##")[0])
 
 
 def main():

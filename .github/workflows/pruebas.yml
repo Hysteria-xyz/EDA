@@ -46,6 +46,9 @@ jobs:
           python herramientas/contar_piezas.py control
           python herramientas/contar_piezas.py >> "$GITHUB_STEP_SUMMARY"
 
+      - name: el diagnóstico automático (la dll firma y arma los eventos como los recibe el server)
+        run: python herramientas/dll_d3d9/prueba_diag.py
+
       - name: el server por la red contesta (y no contesta con una clave falsa)
         run: |
           EDA_ESTADO="$RUNNER_TEMP/estado" python -m servidor.red > "$RUNNER_TEMP/red.log" 2>&1 &

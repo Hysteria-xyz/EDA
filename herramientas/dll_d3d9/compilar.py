@@ -88,6 +88,16 @@ reparar=1
 probar_locale=0
 
 #####################################################################
+# EL DIAGNÓSTICO AUTOMÁTICO (21-nov) — SÓLO en el server de PRUEBA
+#####################################################################
+[diag]
+; la dirección del server de prueba que recibe los eventos (https://…/eda/diag; http sólo a 127.0.0.1).
+; Vacío = apagado. Aunque esté puesta, la dll NO manda nada si el entorno no es TEST o si el juego no se lanzó
+; con usuario y ticket (el launcher). Manda eventos chicos (escena, congelado, fps, foco, caída), sin MAC, IP,
+; nombre de la PC ni chat. EDA_DIAG_URL manda sobre esto.
+url=
+
+#####################################################################
 # P2P: que los juegos se encuentren (sin pasar por el server)
 #####################################################################
 [p2p]

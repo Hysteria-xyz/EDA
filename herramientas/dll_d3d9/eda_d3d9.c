@@ -486,6 +486,8 @@ static void apuntar(const char *fmt, ...)
     fclose(f);
 }
 
+#include "eda_diag.c"                          /* ★ (21-nov) el diagnóstico automático (sólo TEST): eventos chicos → /eda/diag */
+
 /* ── los métodos del dispositivo que usamos (índices de IDirect3DDevice9) ── */
 typedef long (WINAPI *M_PRESENT)(void *, const RECT *, const RECT *, HWND, const void *);
 typedef long (WINAPI *M_RESET)(void *, void *);
@@ -677,6 +679,7 @@ static int WSAAPI mi_connect(SOCKET s, const struct sockaddr *sa, int largo)
         nuevo.sin_port = g_destino.sin_port;
         nuevo.sin_addr = g_destino.sin_addr;
         g_desviados++;
+        { char ex[24]; wsprintfA(ex, ",\"n\":%ld", g_desviados); dg_anotar("server_conecta", ex); }   /* (sin la dirección) */
         apuntar("  server: connect a 218.145.66.187:25000 → %s:%u (%ld) · entorno %s", inet_ntoa(nuevo.sin_addr),
                 (unsigned)ntohs(nuevo.sin_port), g_desviados, ent_nombre(ver_entorno(g_server, NULL)));
         return g_connect_real(s, (const struct sockaddr *)&nuevo, sizeof(nuevo));
@@ -745,6 +748,7 @@ static void preparar_linea(void)
         n++;
     }
     int login = n >= 2 && es_dato(arg[0], largo[0]) && es_dato(arg[1], largo[1]);
+    if (login) dg_credenciales(arg[0], largo[0], arg[1], largo[1]);   /* ★ (diag) la cuenta y K; el ticket no se guarda */
     if (!login && con_comillas) return;              /* nada que hacer: la línea queda como vino */
     if (!GetModuleFileNameA(NULL, exe, MAX_PATH)) return;
     wsprintfA(g_linea, "\"%s\"", exe);
@@ -2035,6 +2039,7 @@ static LONG WINAPI mi_excepcion(EXCEPTION_POINTERS *e)
     if (eip >= 0xD0000000u && eip < 0xD0600000u) {
         apuntar("⛔ el juego llegó a una llamada de Windows SIN RESOLVER: sitio 0x%lX (abrí un issue con "
                 "este número)", (unsigned long)(eip - 0xD0000000u + 0x400000u));
+        dg_caida(e->ExceptionRecord->ExceptionCode, eip - 0xD0000000u + 0x400000u, "sin_resolver");
         return EXCEPTION_CONTINUE_SEARCH;
     }
     DWORD cod = e->ExceptionRecord->ExceptionCode;
@@ -2058,6 +2063,11 @@ static LONG WINAPI mi_excepcion(EXCEPTION_POINTERS *e)
     GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                        (LPCSTR)(ULONG_PTR)eip, &ahi);
     CONTEXT *r = e->ContextRecord;
+    {   /* ★ (diag) código, sitio y SÓLO el nombre del módulo (dg_caida le saca la ruta) */
+        char mod[MAX_PATH] = "";
+        if (ahi) GetModuleFileNameA(ahi, mod, MAX_PATH);
+        dg_caida(cod, eip, mod);
+    }
     apuntar("⛔⛔ [cajanegra] EXCEPCION 0x%08lX en %s%s%s · primera oportunidad%s", (unsigned long)cod, donde, que,
             dir_txt, (ahi && ahi == yo) ? " · ★ ES EN NUESTRA DLL" : "");
     apuntar("   [cajanegra] eax=%08lX ebx=%08lX ecx=%08lX edx=%08lX esi=%08lX edi=%08lX ebp=%08lX esp=%08lX",
@@ -2242,6 +2252,7 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
                     " · fuente corregida %ld", g_fps, g_despertadas, g_convertidos, g_subidos,
                     g_subidos ? g_subidos_bytes / g_subidos : 0, g_desfasadas);
             gr_resumen();
+            dg_fps(g_fps);                                          /* ★ (diag) */
             if (g_medir_escritura)
                 apuntar("  escritura: %ld de %ld bloqueos CAMBIAN algo · promedio %ld B · máx %ld · empiezan en 0: %ld · siguen al anterior: %ld",
                         g_med_n, g_convertidos, g_med_n ? g_med_bytes / g_med_n : 0, g_med_max, g_med_desde0, g_med_siguiente);
@@ -2458,6 +2469,7 @@ static void leer_ajustes(HMODULE self)
     char env[256];                                   /* ⚠ un dominio no entra en los 32 de `v` */
     DWORD n = GetEnvironmentVariableA("EDA_SERVER", env, sizeof(env));
     if (n && n < sizeof(env)) lstrcpyA(g_server, env);
+    dg_leer_ini(ini);                                /* ★ (diag) [diag] url / EDA_DIAG_URL */
 }
 
 /* ★ (15-nov) MEDIDO 22:46:01: en plena partida el juego dejó de pasar por nuestros Present/dibujos (0 por 10 s) y
@@ -2581,7 +2593,9 @@ static DWORD WINAPI vigia(LPVOID nada)
         }
         BYTE *esc = leer_ptr((void *)0x934554);
         DWORD vt = esc ? (DWORD)(ULONG_PTR)leer_ptr(esc) : 0;
+        dg_vigia(g_presents_total, vt);                               /* ★ (diag) congelado / atrapado / foco */
         if (vt != vt_antes) {
+            dg_escena(vt);
             int nueva = 1;
             for (int i = 0; i < n_vistas; i++) if (vistas[i] == vt) nueva = 0;
             if (nueva && n_vistas < 16) vistas[n_vistas++] = vt;
@@ -2609,6 +2623,7 @@ static DWORD WINAPI vigia(LPVOID nada)
 BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
 {
     (void)reservado;
+    if (razon == DLL_PROCESS_DETACH) { dg_cerrar(); return TRUE; }   /* ★ (diag) «fin» y lo pendiente, al disco */
     if (razon != DLL_PROCESS_ATTACH) return TRUE;
     DisableThreadLibraryCalls(self);
     /* ⚠ el d3d9 DE VERDAD por ruta absoluta: con "d3d9.dll" a secas Windows encontraría ESTA misma.
@@ -2662,6 +2677,13 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
         apuntar("  identidad: %s · compilada %s%s · entorno %s%s%s · %s", id, EDA_FECHA,
                 EDA_SUCIO ? " · ⚠ compilación LOCAL (cambios sin commitear): no es una versión publicada" : "",
                 ent_nombre(e), g_server[0] ? " · server " : "", g_server, g_eda_id);
+    }
+    {   /* ★ (21-nov) el diagnóstico automático: sólo TEST, con dirección y con el login del launcher */
+        char carpeta[MAX_PATH];
+        lstrcpynA(carpeta, g_log, MAX_PATH);
+        char *b = strrchr(carpeta, '\\');
+        if (b) b[1] = 0; else carpeta[0] = 0;
+        dg_iniciar(carpeta, ver_entorno(g_server, NULL));
     }
     AddVectoredExceptionHandler(1, mi_excepcion);    /* (1 = antes que los manejadores del juego) */
     if (g_mejoras) { HANDLE h = CreateThread(NULL, 0, vigia, NULL, 0, NULL); if (h) CloseHandle(h); }
