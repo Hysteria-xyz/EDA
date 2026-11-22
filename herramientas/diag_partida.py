@@ -95,19 +95,25 @@ def abrir_paquete(ruta):
 
 def leer_server(texto):
     """Las líneas del server con su hora UTC (las que salen sin hora —los print— toman la de la anterior)."""
-    out, ultima = [], None
+    # ★ (21-nov) el ORDEN del registro se conserva dentro del mismo segundo (+1 µs por línea): «0x1005 → 104f» en el
+    #   mismo segundo NO es «un 0x1005 durante la carga» (falsa alarma medida en EDA-PRUEBA-DIAG)
+    out, ultima, k = [], None, 0
     for crudo in texto.splitlines():
         s = crudo.rstrip("\r")
+        nueva = None
         m = R_DOCKER.match(s)
         if m:
-            ultima = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
+            nueva = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=UTC)
             s = s[m.end():]
         m = R_FECHA.match(s)
         if m:
-            ultima = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+            nueva = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
             s = s[m.end():]
+        if nueva is not None and nueva != ultima:
+            ultima, k = nueva, 0
         if ultima is not None and s.strip():
-            out.append(Linea(ultima, "server", s.strip()))
+            k += 1
+            out.append(Linea(ultima + timedelta(microseconds=k), "server", s.strip()))
     return out
 
 
@@ -244,6 +250,17 @@ def ventana_de(partida, todas, server, antes=90, despues=60):
     """[desde, hasta] de la partida: desde 90 s antes de la carga (la sala y las direcciones P2P) hasta 60 s
     después de que el último salió de la stage (o de que se cerró), o hasta la partida siguiente de los mismos."""
     desde = partida["desde"] - timedelta(seconds=antes)
+    # ★ (21-nov) no antes de que arrancó el server (los #n vuelven a empezar: el #1 de antes es OTRO) ni de lo que siguió
+    #   a la partida anterior de los mismos (medido en EDA-PRUEBA-DIAG: el fin de la partida anterior caía en esta)
+    reinicio = max((ln.t for ln in server if ln.t <= partida["desde"] and "EDA server en " in ln.texto), default=None)
+    if reinicio and reinicio > desde:
+        desde = reinicio
+    previa = max((p for p in todas if p["desde"] < partida["desde"] and set(p["miembros"]) & set(partida["miembros"])),
+                 key=lambda p: p["desde"], default=None)
+    if previa:
+        _, fin_previa = ventana_de(previa, todas, server, antes, 0)
+        if fin_previa > desde:
+            desde = min(fin_previa, partida["desde"])
     siguiente = next((p["desde"] for p in todas if p["desde"] > partida["desde"]
                       and set(p["miembros"]) & set(partida["miembros"])), None)
     fin = None
@@ -353,7 +370,8 @@ def anomalias(h, inicio, clientes, partida_id):
         if hueco[0] >= 45:
             a.append("⚠ #%s estuvo %d s sin mandarle NADA al server en la stage (desde %s; el «estoy vivo» es cada "
                      "20 s)." % (n, hueco[0], hh(hueco[1])))
-        if fin_n and not vivos and (fin_n - largada).total_seconds() > 60:
+        # (sólo con 2 o más: jugando SOLO el juego no manda 0x1001 en la stage — medido en EDA-PRUEBA-DIAG, 2 min sin él)
+        if fin_n and not vivos and (fin_n - largada).total_seconds() > 60 and len(h) >= 2:
             a.append("⚠ #%s no mandó ningún «estoy vivo» (0x1001) en la stage." % n)
     for nombre, tipos in clientes.items():
         nt = tipos.get("NetTrace", [])
@@ -644,6 +662,7 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
              "Ninguna regla saltó." in res, res.split("## Anomalías detectadas")[1][:300] if "Ninguna" not in res else "")
     chequear("por intervalo horario: toma la partida que empezó adentro", "P?-20261121-180000" in res)
     control_grupos(d, chequear)
+    control_reinicio(d, chequear)
     print("\n%s" % ("→ TODO BIEN" if all(ok) else "→ ⛔ ALGO FALLA"))
     return 0 if all(ok) else 1
 
@@ -720,6 +739,43 @@ partida P-20261121-235830-s2 empieza: sala 2 · #4=r2b_201 · #5=r2b_202
     bn = b.split("## Anomalías")[1] if "## Anomalías" in b else b
     chequear("grupos: en la otra partida, lo del 201 sí y lo del 101/103 no",
              "#4 (r2b_201), su cliente: atrapado" in bn and "r2b_101" not in bn and "r2b_103" not in bn, bn[:400])
+
+
+def control_reinicio(d, chequear):
+    """★ (21-nov, EDA-PRUEBA-DIAG) dos sesiones seguidas con el server reiniciado en el medio: el #1 de la segunda NO es
+    el de la primera; el fin de la primera no puede aparecer en la segunda."""
+    server = """2026-11-22 00:11:43 EDA server en 127.0.0.1:35990 · estado x
+2026-11-22 00:12:50 #1 ← 104e (0 B)
+partida P-20261122-001250-s1 empieza: sala 1 · #1=r2b_777001
+2026-11-22 00:12:50 #1 → 104f (140 B)
+2026-11-22 00:12:52 #1 → 105e (4 B)
+2026-11-22 00:14:34 #1 ← 1064 (1 B)
+2026-11-22 00:14:34 #1 → 1073 (60 B)
+2026-11-22 00:14:57 #1 cerrada
+2026-11-22 00:15:14 EDA server en 127.0.0.1:35990 · estado x
+2026-11-22 00:15:31 #1 ← 104e (0 B)
+partida P-20261122-001531-s1 empieza: sala 1 · #1=r2b_777001
+2026-11-22 00:15:31 #1 → 104f (140 B)
+2026-11-22 00:15:33 #1 → 105e (4 B)
+2026-11-22 00:17:37 #1 ← 1064 (5 B)
+2026-11-22 00:17:37 #1 → 1073 (299 B)
+2026-11-22 00:17:58 #1 cerrada
+"""
+    c = os.path.join(d, "reinicio")
+    os.makedirs(c, exist_ok=True)
+    open(os.path.join(c, "server.log"), "w").write(server)
+    _, res = armar(c, partida_id="P-20261122-001531-s1", salida=os.path.join(d, "r.zip"))
+    fila = [l for l in res.splitlines() if l.startswith("| #1 ")]
+    chequear("reinicio: el fin (0x1064 00:14:34) de la sesión ANTERIOR no aparece en la partida nueva",
+             fila and "00:14:34" not in fila[0] and "00:15:31" in fila[0], fila)
+    orden = server.replace("2026-11-22 00:15:31 #1 ← 104e (0 B)", "2026-11-22 00:15:31 #1 → 1005 (123 B)\n"
+                                                                 "2026-11-22 00:15:31 #1 ← 104e (0 B)")
+    open(os.path.join(c, "server.log"), "w").write(orden)
+    _, res = armar(c, partida_id="P-20261122-001531-s1", salida=os.path.join(d, "r2.zip"))
+    chequear("★ el revés: un 0x1005 ANTES de la carga, en el mismo segundo, no es «durante la carga»",
+             "DURANTE la carga" not in res)
+    chequear("★ el revés: jugando SOLO, que no haya «estoy vivo» en la stage no es una anomalía",
+             "estoy vivo" not in res.split("## Anomalías")[1].split("##")[0])
 
 
 def main():
