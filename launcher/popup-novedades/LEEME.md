@@ -40,7 +40,7 @@ Abre la noticia `parche` de EDA más reciente que el jugador todavía no abrió.
 Cada versión de EDA publica **una noticia**: juego `eda`, etiqueta `parche`, id `eda-<versión>`. La arma el repo de EDA desde `NOVEDADES.json`:
 
 ```
-py herramientas\version_cliente.py noticia 2026.11.22.1
+py herramientas\version_cliente.py noticia 2026.11.22
 ```
 
 Sale el JSON con estos campos: `id`, `juego`, `etiqueta`, `fijada`, `imagen`, `fecha`, `titulo`, `texto`. El `texto` va con el formato de `noticias.js`: `**negrita**`, `# título`, `- lista`. Ese JSON se carga en el panel.
@@ -74,7 +74,7 @@ node launcher/popup-novedades/probar_popup.js <ruta>\Launcher.exe noticia.json
 
 ## Lo que falta confirmar con el código del launcher (no lo tenemos)
 
-- **El número de versión de EDA.** La regla de EDA es `AAAA.MM.DD.N` (`2026.11.22.1`). Lo que el launcher ya aceptó tiene tres números (`2026.11.21`). Hay que confirmar si la comparación de `eda_ver_ok` usa `semver` (sólo tres números, sin ceros a la izquierda): de eso depende si la próxima sale como `2026.11.22.1` o como `2026.11.22`.
+- **El número de versión de EDA.** La regla de EDA es `AAAA.MM.DD`; si sale más de una el mismo día, la segunda lleva letra (`AAAA.MM.DDa`, `AAAA.MM.DDb`…). Lo que el launcher ya aceptó tiene tres números (`2026.11.21`), y `2026.11.22` entra igual que `2026.11.21`. Una versión **con letra** no es semver (la comparación de `eda_ver_ok` usa tres números, sin ceros a la izquierda), así que hay que confirmarlo con el dueño del launcher antes de publicarla.
 
 - **Progreso:** que el backend llame a `LU.edaProg(porcentaje, …)` mientras baja EDA, y `LU.edaProg(null)` + `LU.eda({estado: 'listo', …})` al terminar bien. Así lo hace el MOCK de `launcher.js`. Si el backend avisa de otra forma, alcanza con cambiar las dos envolturas de `novedades.js`.
 - **Una prueba en el launcher compilado:** con una versión de TEST, ver que el popup salga una vez y no vuelva a salir al reabrir el launcher.

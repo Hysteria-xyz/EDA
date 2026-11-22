@@ -1,9 +1,9 @@
 r"""version_cliente -- ★ (21-nov) LA REGLA DE VERSIONES del cliente que reparte el launcher, y sus NOVEDADES.
 
 Usa el sistema que YA existe (no inventa otro):
-  · la RELEASE del cliente = `version` del manifiesto `eda.json` (armar_cliente.py), «AAAA.MM.DD.N». El launcher guarda
-    la última que aceptó («eda_ver_ok») y RECHAZA una menor (firmar_manifiesto.py): por eso cada publicación tiene que
-    SUBIR la versión;
+  · la RELEASE del cliente = `version` del manifiesto `eda.json` (armar_cliente.py), «AAAA.MM.DD» (o «AAAA.MM.DDa/b/c»
+    si ya salió otra ese mismo día). El launcher guarda la última que aceptó («eda_ver_ok») y RECHAZA una menor
+    (firmar_manifiesto.py): por eso cada publicación tiene que SUBIR la versión;
   · la DLL = `herramientas/dll_d3d9/VERSION` (x.y.z) + commit y build, que la dll lleva adentro («EDA-ID|v=…|c=…|s=…»,
     identificar.py).
 Y agrega lo que faltaba: `NOVEDADES.json` (en la raíz del repo), UNA entrada por release con lo que verá el jugador.
@@ -18,7 +18,7 @@ Y agrega lo que faltaba: `NOVEDADES.json` (en la raíz del repo), UNA entrada po
     py herramientas\version_cliente.py control              las pruebas (con sus reveses)
 
 La regla (que `revisar` hace cumplir):
-  1. la versión nueva es «AAAA.MM.DD.N» y MAYOR que la anterior;
+  1. la versión nueva es «AAAA.MM.DD» (o «AAAA.MM.DDa/b/c» si ya salió otra ese día) y MAYOR que la anterior;
   2. tiene su entrada en NOVEDADES.json, completa y NO «borrador»: fecha, resumen; y corregidos / mejoras / avisos;
   3. algo cambia (si ningún archivo cambia, no hay nada que publicar);
   4. si cambia d3d9.dll: su marca EDA-ID está, NO es una compilación sucia, y su VERSION (x.y.z) es MAYOR que la de la
@@ -42,11 +42,12 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOVEDADES = os.path.join(RAIZ, "NOVEDADES.json")
 DEL_USUARIO = ("autoexec.cfg", "eda_d3d9.ini")
 MARCA = re.compile(rb"EDA-ID\|v=([0-9.]{1,16})\|c=([0-9A-Za-z-]{1,40})\|s=([01])\|f=([^|\x00]{1,40})\|b=([0-9A-Za-z-]{1,40})\|")
-VERSION = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})(?:\.(\d{1,3}))?$")
-# ★ (21-nov 19:30) lo que el launcher YA aceptó: «2026.11.19» y «2026.11.21» (tres números, en launcher.json eda_ver_ok).
-#   El launcher trae la biblioteca `semver` de Rust, que sólo acepta TRES números y sin ceros a la izquierda: si la usa
-#   para la versión de EDA, «2026.11.22.1» (cuatro) o «2026.12.05» (cero) darían «número de versión inválido» y no se
-#   bajaría nada. Hasta que el dueño del launcher confirme cómo la compara, `revisar` lo AVISA.
+VERSION = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})([a-z])?$")
+# ★ (21-nov 19:30 · 22-nov) lo que el launcher YA aceptó: «2026.11.19» y «2026.11.21» (tres números, en launcher.json
+#   eda_ver_ok). El launcher trae la biblioteca `semver` de Rust, que sólo acepta TRES números y sin ceros a la izquierda:
+#   si la usa para la versión de EDA, «2026.11.22a» (con letra) o «2026.12.05» (cero) darían «número de versión inválido»
+#   y no se bajaría nada. Sin letra («2026.11.22», tres números) no hay aviso. Con letra, hasta que el dueño del launcher
+#   confirme que la acepta, `revisar` lo AVISA.
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 LIMITES = {"resumen": 280, "item": 160, "items": 8}
 
@@ -56,10 +57,13 @@ class Regla(Exception):
 
 
 def v_release(v):
+    """→ (año, mes, día, n), comparable: n = 0 sin letra, a = 1, b = 2…
+    Así 2026.11.21 < 2026.11.21a < 2026.11.21b < 2026.11.22."""
     m = VERSION.match(str(v))
     if not m:
-        raise Regla("versión «%s»: va AAAA.MM.DD.N (p. ej. 2026.11.22.1) o AAAA.MM.DD (la que publicó TEST el 21-nov)" % v)
-    return tuple(int(x or 0) for x in m.groups())          # (sin .N = .0: 2026.11.21 < 2026.11.21.1 < 2026.11.22)
+        raise Regla("versión «%s»: va AAAA.MM.DD, o AAAA.MM.DDa/b/c si ya salió otra ese día" % v)
+    anio, mes, dia, letra = m.groups()
+    return (int(anio), int(mes), int(dia), ord(letra) - ord("a") + 1 if letra else 0)
 
 
 def v_dll(v):
@@ -128,9 +132,13 @@ def revisar(nuevo, anterior=None, carpeta=None, novedades=None):
     info.append("Versión anterior: %s" % (anterior["version"] if anterior else "(ninguna dada)"))
     info.append("Versión nueva:    %s" % nuevo["version"])
     if not SEMVER.match(str(nuevo["version"])):
-        info.append("⚠ «%s» no tiene la forma de las que el launcher ya aceptó (tres números sin ceros a la izquierda, "
-                    "como 2026.11.21): confirmar con el dueño del launcher que la compara bien antes de publicar"
-                    % nuevo["version"])
+        if re.search(r"[a-z]$", str(nuevo["version"])):
+            info.append("⚠ «%s» lleva letra y NO es semver (el launcher compara tres números, como 2026.11.21): "
+                        "el dueño del launcher tiene que confirmar que la acepta antes de publicar" % nuevo["version"])
+        else:
+            info.append("⚠ «%s» no tiene la forma de las que el launcher ya aceptó (tres números sin ceros a la "
+                        "izquierda, como 2026.11.21): confirmar con el dueño del launcher que la compara bien antes de "
+                        "publicar" % nuevo["version"])
     e = novedades.get(nuevo["version"])
     if not e:
         p.append("NOVEDADES.json no tiene la entrada de %s" % nuevo["version"])
@@ -223,17 +231,17 @@ def control():
         cuerpo = b"MZ...EDA-ID|v=%s|c=abc1234|s=%d|f=2026-11-22 10:00 UTC|b=b0123456789|..." % (v.encode(), sucia)
         open(dll, "wb").write(cuerpo)
         return hashlib.md5(cuerpo).hexdigest()
-    nov = {"2026.11.19.1": {"version": "2026.11.19.1", "fecha": "2026-11-19", "dll": "0.5.0", "resumen": "Antes.",
-                            "mejoras": ["algo"]},
-           "2026.11.22.1": {"version": "2026.11.22.1", "fecha": "2026-11-22", "dll": "0.5.1",
-                            "resumen": "Arreglo de una caída en las stages.",
-                            "corregidos": ["El juego ya no se cierra solo en algunas stages (0x7F4626)."],
-                            "avisos": ["Si el juego se cerraba en una stage, vuelvan a probarla."]}}
-    viejo = {"version": "2026.11.19.1", "files": [{"path": "Data.dat", "md5": "a" * 32, "size": 1},
-                                                  {"path": "d3d9.dll", "md5": "b" * 32, "size": 1},
-                                                  {"path": "eda_d3d9.ini", "md5": "c" * 32, "size": 1}]}
+    nov = {"2026.11.19": {"version": "2026.11.19", "fecha": "2026-11-19", "dll": "0.5.0", "resumen": "Antes.",
+                          "mejoras": ["algo"]},
+           "2026.11.22": {"version": "2026.11.22", "fecha": "2026-11-22", "dll": "0.5.1",
+                          "resumen": "Arreglo de una caída en las stages.",
+                          "corregidos": ["El juego ya no se cierra solo en algunas stages (0x7F4626)."],
+                          "avisos": ["Si el juego se cerraba en una stage, vuelvan a probarla."]}}
+    viejo = {"version": "2026.11.19", "files": [{"path": "Data.dat", "md5": "a" * 32, "size": 1},
+                                                 {"path": "d3d9.dll", "md5": "b" * 32, "size": 1},
+                                                 {"path": "eda_d3d9.ini", "md5": "c" * 32, "size": 1}]}
 
-    def nuevo(v="2026.11.22.1", dll_md5=None, extra=None):
+    def nuevo(v="2026.11.22", dll_md5=None, extra=None):
         fs = [{"path": "Data.dat", "md5": "a" * 32, "size": 1}, {"path": "d3d9.dll", "md5": dll_md5 or "b" * 32, "size": 1},
               {"path": "eda_d3d9.ini", "md5": "c" * 32, "size": 1}] + (extra or [])
         return {"version": v, "files": fs}
@@ -241,31 +249,47 @@ def control():
     p, info = revisar(nuevo(dll_md5=m), viejo, t, nov)
     chequear("una release correcta (versión mayor, novedades completas, dll nueva y limpia) pasa", not p, p)
     chequear("…y dice la versión anterior, la nueva, qué cambia y qué NO se baja",
-             "Versión anterior: 2026.11.19.1" in info and "Archivos que cambian (1): d3d9.dll" in info
+             "Versión anterior: 2026.11.19" in info and "Archivos que cambian (1): d3d9.dll" in info
              and "No se vuelven a bajar (iguales): 2" in info)
     chequear("…y el texto del POP-UP con la versión, la fecha y lo corregido",
-             "EDA 2026.11.22.1 · 2026-11-22" in info and "Corregido:" in info and "⚠ Importante" in info)
-    p, _ = revisar(nuevo("2026.11.19.1", m), viejo, t, nov)
+             "EDA 2026.11.22 · 2026-11-22" in info and "Corregido:" in info and "⚠ Importante" in info)
+    chequear("…y sin letra (tres números) NO avisa nada del launcher", "no es semver" not in info)
+    p, _ = revisar(nuevo("2026.11.19", m), viejo, t, nov)
     chequear("★ el revés: la MISMA versión que la anterior → no (el launcher la rechazaría)",
              any("no es MAYOR" in x for x in p))
-    p, _ = revisar(nuevo("2026.11.18.9", m), viejo, t, nov)
+    p, _ = revisar(nuevo("2026.11.18", m), viejo, t, nov)
     chequear("★ el revés: una versión MENOR → no", any("no es MAYOR" in x for x in p))
+    chequear("★ una letra es MAYOR que la del mismo día sin letra: 2026.11.22 < 2026.11.22a < 2026.11.22b < 2026.11.23",
+             v_release("2026.11.22") < v_release("2026.11.22a") < v_release("2026.11.22b") < v_release("2026.11.23"))
+    p, _ = revisar(nuevo("2026.11.22a", m), dict(viejo, version="2026.11.22"), t, nov)
+    chequear("★ 2026.11.22a es MAYOR que 2026.11.22 (no se frena por la comparación), pero le falta su entrada en "
+             "NOVEDADES.json → no",
+             any("no tiene la entrada" in x for x in p) and not any("no es MAYOR que la anterior" in x for x in p))
+    p, info = revisar(nuevo("2026.11.22a", m), dict(viejo, version="2026.11.21"), t,
+                      dict(nov, **{"2026.11.22a": dict(nov["2026.11.22"], version="2026.11.22a")}))
+    chequear("★ …y con su entrada pasa, pero AVISA que con letra no es semver (el dueño del launcher tiene que confirmarla)",
+             not p and "no es semver" in info.lower(), p)
     p, info = revisar(nuevo(dll_md5=m), dict(viejo, version="2026.11.21"), t, nov)
-    chequear("la anterior con el formato que publicó TEST (2026.11.21, tres números) se acepta y compara bien",
-             not p and "⚠ «2026.11.22.1» no tiene la forma" in info, p)
-    p, _ = revisar(nuevo("2026.11.21", m), dict(viejo, version="2026.11.21.1"), t, nov)
-    chequear("★ el revés: 2026.11.21 es MENOR que 2026.11.21.1", any("no es MAYOR" in x for x in p))
+    chequear("la anterior con tres números (2026.11.21, la que publicó TEST) se acepta y compara bien, sin aviso",
+             not p and "no es semver" not in info, p)
+    p, _ = revisar(nuevo("2026.11.21", m), dict(viejo, version="2026.11.21a"), t, nov)
+    chequear("★ el revés: 2026.11.21 es MENOR que 2026.11.21a", any("no es MAYOR" in x for x in p))
+    formato_viejo = "2026.11.22" + ".1"                     # el formato anterior: AAAA.MM.DD y un cuarto número
+    p, _ = revisar(nuevo(formato_viejo, m), viejo, t, nov)
+    chequear("★ el revés: el formato viejo de cuatro números (2026.11.22 + .1) → no", any("va AAAA.MM.DD" in x for x in p))
+    p, _ = revisar(nuevo("2026.11.22A", m), viejo, t, nov)
+    chequear("★ el revés: la letra en MAYÚSCULA (2026.11.22A) → no", any("va AAAA.MM.DD" in x for x in p))
     p, _ = revisar(nuevo("22-nov", m), viejo, t, nov)
-    chequear("★ el revés: una versión con otro formato → no", any("AAAA.MM.DD.N" in x for x in p))
-    p, _ = revisar(nuevo("2026.11.22.2", m), viejo, t, nov)
+    chequear("★ el revés: una versión con otro formato → no", any("va AAAA.MM.DD" in x for x in p))
+    p, _ = revisar(nuevo("2026.11.23", m), viejo, t, nov)
     chequear("★ el revés: sin su entrada en NOVEDADES.json → no", any("no tiene la entrada" in x for x in p))
-    borr = dict(nov, **{"2026.11.22.1": dict(nov["2026.11.22.1"], borrador=True)})
+    borr = dict(nov, **{"2026.11.22": dict(nov["2026.11.22"], borrador=True)})
     p, _ = revisar(nuevo(dll_md5=m), viejo, t, borr)
     chequear("★ el revés: una entrada «borrador» → no", any("borrador" in x for x in p))
     p, _ = revisar(nuevo(), viejo, t, nov)
     chequear("★ el revés: nada cambia → no hay nada que publicar", any("ningún archivo cambia" in x for x in p))
     m2 = poner_dll("0.5.0")
-    p, _ = revisar(nuevo(dll_md5=m2), viejo, t, dict(nov, **{"2026.11.22.1": dict(nov["2026.11.22.1"], dll="0.5.0")}))
+    p, _ = revisar(nuevo(dll_md5=m2), viejo, t, dict(nov, **{"2026.11.22": dict(nov["2026.11.22"], dll="0.5.0")}))
     chequear("★ el revés: la dll cambia pero su VERSION no sube → no", any("no es MAYOR que la de la release" in x for x in p))
     m3 = poner_dll("0.5.1", sucia=True)
     p, _ = revisar(nuevo(dll_md5=m3), viejo, t, nov)
@@ -284,16 +308,16 @@ def control():
     ex["files"].append({"path": "EDA_limpio.exe", "md5": "f" * 32, "size": 1})
     p, _ = revisar(ex, dict(viejo, files=viejo["files"] + [{"path": "EDA_limpio.exe", "md5": "e" * 32, "size": 1}]), t, nov)
     chequear("★ el exe cambia → se frena (su md5 es la clave del protocolo)", any("CLAVE del protocolo" in x for x in p))
-    malo = dict(nov["2026.11.22.1"], mejoras=["<script>x</script>"])
+    malo = dict(nov["2026.11.22"], mejoras=["<script>x</script>"])
     chequear("★ el revés: HTML en las novedades → no", any("sin HTML" in x for x in entrada_valida(malo)))
-    largo = dict(nov["2026.11.22.1"], resumen="x" * 400)
+    largo = dict(nov["2026.11.22"], resumen="x" * 400)
     chequear("★ el revés: un resumen de más de %d letras → no" % LIMITES["resumen"], any("resumen" in x for x in entrada_valida(largo)))
-    b = bloque_novedades(nov["2026.11.22.1"])
+    b = bloque_novedades(nov["2026.11.22"])
     chequear("el bloque del manifiesto lleva sólo texto (sin «dll» ni «borrador»)",
              set(b) == {"version", "fecha", "resumen", "corregidos", "avisos"})
-    n = noticia(nov["2026.11.22.1"])
+    n = noticia(nov["2026.11.22"])
     chequear("la noticia del POP-UP: id eda-<versión>, juego eda, etiqueta parche, y en orden: versión, corregidos, avisos",
-             n["id"] == "eda-2026.11.22.1" and n["juego"] == "eda" and n["etiqueta"] == "parche"
+             n["id"] == "eda-2026.11.22" and n["juego"] == "eda" and n["etiqueta"] == "parche"
              and n["texto"].index("Nueva versión instalada") < n["texto"].index("# Errores corregidos")
              < n["texto"].index("# Avisos importantes") and "# Mejoras" not in n["texto"])
     real = leer_novedades()

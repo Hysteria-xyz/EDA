@@ -6,7 +6,7 @@ Se usa el sistema que ya funciona, sin inventar otro.
 ## Qué número es cuál
 | qué | dónde vive | formato | quién lo sube |
 |---|---|---|---|
-| **Release del cliente** (lo que baja el launcher) | `version` de `eda.json` (`armar_cliente.py`), firmado con `firmar_manifiesto.py` | `AAAA.MM.DD.N` | quien publica |
+| **Release del cliente** (lo que baja el launcher) | `version` de `eda.json` (`armar_cliente.py`), firmado con `firmar_manifiesto.py` | `AAAA.MM.DD` (o `AAAA.MM.DDa/b/c`) | quien publica |
 | **DLL** | `herramientas/dll_d3d9/VERSION`, más el commit y el build dentro de la DLL (`EDA-ID\|v=…\|c=…\|s=…`) | `x.y.z` | la PR que cambia la DLL |
 | **Server** (solo server) | el commit de despliegue (`/opt/eda/actualizaciones.log`) | commit | el CI y el cron del VPS |
 
@@ -16,8 +16,15 @@ Se usa el sistema que ya funciona, sin inventar otro.
   - TEST: canal `cliente-develop` (CI) y manifiesto de *ensayo* (`R2_EDA_MANIFIESTO_PRUEBA`).
   - Prod: manifiesto firmado en el dominio de EDA, con la orden de Rui.
 
+## El número de versión (regla del dueño, 22-nov-2026)
+- La versión del cliente es **`AAAA.MM.DD`**: el día en que se publica.
+- Si sale **más de una el mismo día**, se le agrega una letra minúscula: `AAAA.MM.DDa`, `AAAA.MM.DDb`, `AAAA.MM.DDc`…
+  La **primera del día va sin letra**.
+- Orden: `2026.11.21` < `2026.11.21a` < `2026.11.21b` < `2026.11.22`.
+- Reemplaza a la regla vieja de cuatro números (`AAAA.MM.DD` y un `.1` al final), que **ya no vale**: `revisar` la rechaza, igual que una letra en mayúscula.
+
 ## La regla (la hace cumplir `py herramientas\version_cliente.py revisar`)
-1. La versión nueva es `AAAA.MM.DD.N` y **mayor** que la anterior.
+1. La versión nueva es `AAAA.MM.DD` (o con letra, si ya salió otra ese día) y **mayor** que la anterior.
 2. Tiene su entrada en `NOVEDADES.json`, completa y sin `"borrador"`:
    - fecha y resumen;
    - al menos una de estas listas: corregidos, mejoras o avisos;
@@ -37,7 +44,7 @@ Se usa el sistema que ya funciona, sin inventar otro.
 3. Armar y revisar:
    ```
    py herramientas\armar_cliente.py
-   py herramientas\armar_cliente.py manifiesto AAAA.MM.DD.N BASE SERVIDOR CANJE
+   py herramientas\armar_cliente.py manifiesto AAAA.MM.DD BASE SERVIDOR CANJE
    py herramientas\version_cliente.py revisar _trabajo\eda.json ANTERIOR\eda.json --carpeta _trabajo\cliente_repartir
    ```
    Si dice ⛔, no se publica.
@@ -82,7 +89,7 @@ Texto del POP-UP: (py herramientas\version_cliente.py popup VERSIÓN)
 Publicación: pasos 1–6 de arriba · Reversión: versión mayor con los archivos anteriores
 ```
 
-## Borrador en curso: 2026.11.22.1 (dll 0.5.3) — qué pasó las pruebas
+## Borrador en curso: 2026.11.22 (dll 0.5.3) — qué pasó las pruebas
 
 Estado: **borrador** (no publicado). El contenido final se decide por lo que pasa las pruebas, no por lo programado.
 Base: develop **7823eca** (con #68, el selector de Stage = dll 0.5.1). La release lleva la dll **0.5.3** (`a9678cda`,
@@ -99,10 +106,11 @@ commit 04e141d): 0.5.1 (selector) + 0.5.2 (las llamadas sin resolver / mal resue
 | Partida de DOS en TEST | — | pendiente (después del despliegue autorizado) |
 
 La versión ANTERIOR es **2026.11.21** (TEST, publicada el 21-nov ~19:00 con la dll 0.5.1 del selector: el launcher de la
-PC de pruebas la bajó a las 19:02). Por eso las novedades de 2026.11.22.1 ya NO repiten el arreglo del selector.
+PC de pruebas la bajó a las 19:02). Por eso las novedades de 2026.11.22 ya NO repiten el arreglo del selector.
 ⚠ **El formato, a confirmar con el dueño del launcher antes de publicar:** lo que el launcher ya aceptó tiene TRES números
 (`2026.11.19`, `2026.11.21`). El launcher trae la biblioteca `semver` de Rust, que sólo acepta tres números sin ceros a
-la izquierda. Si compara la versión de EDA con ella, `2026.11.22.1` daría «número de versión inválido» y no se bajaría
-nada. Si no lo confirma: publicar como **`2026.11.22`** (mayor que 2026.11.21, y válida para los dos). `revisar` lo avisa.
-Si se publica otro día, la versión es la de ESE día: `AAAA.MM.DD.1` (o `.2`, `.3`… si ya salió una ese día), siempre
-mayor que la anterior; `version_cliente.py revisar` lo exige.
+la izquierda. `2026.11.22` (tres números) entra igual que `2026.11.21`, sin aviso. Una versión **con letra**
+(`2026.11.22a`, la segunda del mismo día) no es semver: hay que confirmar con el dueño del launcher que la acepta.
+`revisar` lo avisa.
+Si se publica otro día, la versión es la de ESE día: `AAAA.MM.DD` (o `AAAA.MM.DDa`, `AAAA.MM.DDb`… si ya salió una ese
+día), siempre mayor que la anterior; `version_cliente.py revisar` lo exige.

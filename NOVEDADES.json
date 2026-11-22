@@ -2,7 +2,7 @@
  "_leeme": "Las novedades de cada RELEASE del cliente que reparte el launcher (una entrada por versión, la más nueva primero). Texto para el JUGADOR: corto, sin HTML, sin direcciones de memoria. Regla y flujo: documentacion/VERSIONES.md. Se revisa con: py herramientas\\version_cliente.py revisar.",
  "versiones": [
   {
-   "version": "2026.11.22.1",
+   "version": "2026.11.22",
    "borrador": true,
    "fecha": "2026-11-22",
    "dll": "0.5.3",
