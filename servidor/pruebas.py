@@ -1915,13 +1915,13 @@ def pruebas_fin_stage_grupo(chequear):
     responder(0x1074, b"", ns[0])                     # traspaso a ns[1]
     for k in range(76):                               # 76/78 bajas (faltan 2 <= max(2, ceil(5% de 78)) = 4)
         responder(0x1061, struct.pack("<H", k) + bytes(6), ns[1])
-    s["ultima_baja_stage"] = time.time() - (mod_partida.STAGE_TRABADA - 10)
-    chequear("★ el revés: antes de los %g s sin bajas, la stage 76/78 sigue abierta" % mod_partida.STAGE_TRABADA,
+    s["ultima_baja_stage"] = time.time() - (mod_partida.STAGE_TRABADA_POCAS - 10)
+    chequear("★ el revés: antes de los %g s sin bajas, la stage 76/78 sigue abierta" % mod_partida.STAGE_TRABADA_POCAS,
              a_quien(tick(ns[1:]), 0x1073, None) == [] and s.get("jugando"))
-    s["ultima_baja_stage"] = time.time() - mod_partida.STAGE_TRABADA - 1
+    s["ultima_baja_stage"] = time.time() - mod_partida.STAGE_TRABADA_POCAS - 1      # (45 s: faltan pocas)
     r_76 = tick(ns[1:])
     bajas_76 = [struct.unpack_from("<IH", x[1])[1] for x in r_76 if x[0] == 0x106E]
-    chequear("★ guardia stage trabada (76/78 tras 90 s sin bajas): se cierra como terminada (0x1073/106E/106F) con premio",
+    chequear("★ guardia stage trabada (76/78 tras 45 s sin bajas): se cierra como terminada (0x1073/106E/106F) con premio",
              a_quien(r_76, 0x1073, None) == ns[1:] and a_quien(r_76, 0x106E, None) == ns[1:]
              and bajas_76 == [76, 76] and not s.get("jugando")
              and all(leer(m)["exp"] > exp_97[m] and 1012 in leer(m)["terminadas"]
@@ -1937,6 +1937,10 @@ def pruebas_fin_stage_grupo(chequear):
     antes_98 = {m: dict(exp=leer(m)["exp"], plata=leer(m)["plata"], items=list(leer(m)["items"]),
                         terminadas=list(leer(m)["terminadas"]), abandonos=leer(m)["abandonos"]) for m in ns[1:]}
     responder(0x1074, b"", ns[0])                     # traspaso a ns[1], 0/56 bajas
+    s["ultima_baja_stage"] = time.time() - mod_partida.STAGE_TRABADA_POCAS - 1
+    chequear("★ el revés: con 0/56 (faltan muchas), a los %g s todavía NO se cierra (se esperan %g s: hay huecos "
+             "normales de casi 1 min)" % (mod_partida.STAGE_TRABADA_POCAS + 1, mod_partida.STAGE_TRABADA),
+             a_quien(tick(ns[1:]), 0x1069, None) == [] and s.get("jugando"))
     s["ultima_baja_stage"] = time.time() - mod_partida.STAGE_TRABADA - 1
     r_0 = tick(ns[1:])
     chequear("★ guardia stage trabada (0/56 tras 90 s sin bajas): se cierra por game_over (0x1069 + 0x1075), sin 0x1073",

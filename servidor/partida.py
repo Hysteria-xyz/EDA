@@ -248,13 +248,17 @@ def vigilar_cargas(salas):
 ESPERA_MASTER = float(os.environ.get("EDA_ESPERA_MASTER") or 60)
 
 # ★ (22-nov) guardia de stage trabada: sólo DESPUÉS de un traspaso de máster en una stage en grupo (nunca en una
-#   partida normal ni en solitario). Si pasan STAGE_TRABADA s sin ninguna baja nueva (0x1061) desde el traspaso o
-#   desde la última baja:
+#   partida normal ni en solitario). Si pasan STAGE_TRABADA_POCAS s (45) con pocas bajas por hacer, o STAGE_TRABADA s
+#   (90) con muchas, sin ninguna baja nueva (0x1061) desde el traspaso o desde la última baja:
 #     · si faltan pocas bajas (faltan <= max(2, ceil(5 % de MONSTER_CNT)), o EDA_STAGE_TRABADA_FALTAN; p. ej. 76/78
 #       en P-20261122-162832-s1) → cuenta como terminada con pago normal;
 #     · si faltan más (p. ej. 0/56 en P-20261122-163025-s2) → cierre limpio por el camino de game_over (0x1069 +
 #       0x1075), sin premio, sin EXP extra, sin desbloqueo y sin sumar abandono.
 STAGE_TRABADA = float(os.environ.get("EDA_STAGE_TRABADA") or 90)
+# ★ (22-nov, decisión del dueño) con POCAS bajas por hacer, la espera es más corta: equivocarse ahí sólo adelanta un
+#   fin que igual se paga. Medido en TEST (22-nov): en partidas normales hubo huecos de hasta 59 s sin bajas, por eso
+#   con MUCHAS por hacer (cierre sin premio) se espera STAGE_TRABADA.
+STAGE_TRABADA_POCAS = float(os.environ.get("EDA_STAGE_TRABADA_POCAS") or 45)
 STAGE_TRABADA_FALTAN = (int(os.environ["EDA_STAGE_TRABADA_FALTAN"])
                         if os.environ.get("EDA_STAGE_TRABADA_FALTAN") else None)
 
@@ -305,7 +309,7 @@ def vigilar_stage_trabada(salas, ahora=None):
         desde = s.get("ultima_baja_stage")
         if desde is None:
             desde = s["traspaso_master"]
-        if ahora - desde < STAGE_TRABADA:
+        if ahora - desde < min(STAGE_TRABADA, STAGE_TRABADA_POCAS):
             continue
         anf = s.get("anfitrion") if s.get("anfitrion") in quedan else quedan[0]
         pm = partida(anf)
@@ -319,6 +323,8 @@ def vigilar_stage_trabada(salas, ahora=None):
                            max((len(partida(m).get("bajas_stage", ())) for m in quedan), default=0))
         faltan = max(0, total - bajas_hechas)
         tope = tope_faltan_trabada(total)
+        if ahora - desde < (STAGE_TRABADA_POCAS if faltan <= tope else STAGE_TRABADA):
+            continue
         pid = s.get("partida_id", "?")
         if faltan <= tope:
             for m in quedan:
