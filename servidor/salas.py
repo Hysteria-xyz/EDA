@@ -7,7 +7,7 @@ import time
 from servidor import config
 from servidor.config import P
 from servidor.registro import maneja
-from servidor.estado import ASIGNADAS, SALAS, VIVO, partida, numero, dar_numero, de_numero
+from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO, partida, numero, dar_numero, de_numero
 from servidor.cuentas import leer, nivel, nombre_visible, guardar, EXPS, INICIO
 from servidor.objetos import equipo_tipos, obj_habilidad, personaje_obj
 from servidor import relay
@@ -121,8 +121,12 @@ def pares(s, espera=0, anotar=True):
                               else "casa (privada)" if udp == tuple(partida(n).get("privada") or ())
                               else "directo (pública)")
                     print("sala: a #%s le doy #%s por %s" % (dest, n, camino), flush=True)
-        cuerpo = struct.pack("<B4xBB", len(regs), 0, 0) + b"".join(regs)
-        s.setdefault("anunciado", {})[dest] = cuerpo         # (21-nov) lo último que se le dio: ver `reanunciar`
+        # ★ (22-nov) +0x2DE = listo del destinatario (para no apagarle su botón Ready), y +0x2DF = 3:
+        #   en el exe (`0x550D6B` → `0x534D50` → `0x535000` → `0x4DC330`), 1 s después de saludar por UDP
+        #   mide si conectó con el anfitrión (`0x748120`) y manda `0x105A` (si sigue en -1000 ms, timeouts = 2)
+        listo_dest = 1 if dest in s.get("listos", ()) else 0
+        cuerpo = struct.pack("<B4xBB", len(regs), listo_dest, 3) + b"".join(regs)
+        s.setdefault("anunciado", {})[dest] = b"".join(regs)         # (21-nov) lo último que se le dio: ver `reanunciar`
         r.append((0x1059, cuerpo, espera, dest))
     return r
 
@@ -139,10 +143,40 @@ def reanunciar(salas):
         antes = dict(s["anunciado"])
         nuevos = pares(s, anotar=False)
         for x in nuevos:
-            if antes.get(x[3]) != x[1]:
+            if antes.get(x[3]) != x[1][7:]:
                 print("sala: a #%s le cambió una dirección de su sala: 0x1059 otra vez" % x[3], flush=True)
                 r.append(x)
     return r
+
+
+@maneja(0x105A)
+def reporte_ping_udp(cmd, cuerpo, conexion, c, p):
+    """★ (22-nov) 0x105A C→S (`0x4DC330`, 9 B: u32 id_cuenta · f32 ping_s · u8 timeouts):
+    1 s después del 0x1059 (con +0x2DF = 3), el invitado mide con `0x748120` si conectó por UDP con el
+    anfitrión. Si el directo falló (-1000 ms, «[UDP ERROR] PingError! PingInfo Not Collect!!!»), manda
+    timeouts = 2 (`0x4DC453`). El server marca ese par sin directo y les manda el 0x1059 por el relay."""
+    if len(cuerpo) >= 9:
+        _, ping, timeouts = struct.unpack_from("<IfB", cuerpo, 0)
+    elif len(cuerpo) >= 1:
+        ping, timeouts = -1.0, cuerpo[0]
+    else:
+        return []
+    s = SALAS.get(p.get("sala"))
+    if not s or conexion not in s["miembros"]:
+        return []
+    if timeouts >= 2 or ping < 0:
+        anf = s.get("anfitrion")
+        otros = [anf] if anf and anf != conexion and anf in s["miembros"] else [
+            m for m in s["miembros"] if m != conexion]
+        for otro in otros:
+            relay.marcar_sin_directo(conexion, otro)
+        print("sala %s: #%s reportó fallo de UDP directo (0x105A, timeouts=%d) → pasa al relay"
+              % (p.get("sala"), conexion, timeouts), flush=True)
+        if not s.get("jugando") and len(s["miembros"]) >= 2:
+            if "anunciado" in s:
+                return reanunciar({p.get("sala"): s})
+            return pares(s)
+    return []
 
 
 def lista_usuarios():
@@ -205,8 +239,12 @@ def entrar_sala(cmd, cuerpo, conexion, c, p):
     # al anfitrión (y los demás de la sala): 0x1057 (`0x54F020`, 0x377 B) = u8 → +0x272 ·
     #   u8 → +0x271 (estado de la sala) · vt 0x89A3B8 · u8 → +0x2DE · u8 → +0x2DF · el
     #   miembro NUEVO completo (0x36F) — uno por destinatario (su dirección depende de quién la ve)
+    #   ★ (22-nov) +0x2DF = 2: en el exe (`0x54F0EA` → `0x54F0FC`: `call 0x621980(4)`), con +0x2DF = 2 el
+    #   anfitrión (y quienes ya estaban en la sala) también mandan su 0x3006 × 4 al punch del server y
+    #   renuevan su puerto UDP público cada vez que entra alguien (antes iba en 0 y el anfitrión no renovaba nunca)
     def aviso(para):
-        return (struct.pack("<BBIBB", 0, 0, 0x89A3B8, 0, 0)
+        listo_para = 1 if para in s.get("listos", ()) else 0
+        return (struct.pack("<BBIBB", 0, 0, 0x89A3B8, listo_para, 2)
                 + miembro(c, yo, completo=True, conexion=conexion, para=para))
     return ([(0x1020, cuerpo20, 0)] + [(0x1057, aviso(n), 0, n) for n in otros]
             + pares(s, 500) + avisar_lista(salvo=conexion))
@@ -241,6 +279,8 @@ def _sacar_de_sala(s, num, conexion):
     if conexion not in s["miembros"]:
         return []
     yo = numero(s, conexion)
+    era_master_stage = bool(s.get("jugando") and s.get("largada") and s.get("anfitrion") == conexion
+                            and not (PARTIDAS.get(conexion) or {}).get("resultado_guardado"))
     s["miembros"].remove(conexion)
     s.get("numeros", {}).pop(conexion, None)
     s.get("listos", set()).discard(conexion)
@@ -262,10 +302,13 @@ def _sacar_de_sala(s, num, conexion):
         s.get("listos", set()).discard(s["anfitrion"])  # (el anfitrión no «está listo»: larga)
     nuevo = numero(s, s["anfitrion"])
     r = [(0x1058, struct.pack("<BHB", yo, 3, nuevo), 0, n) for n in s["miembros"]]
-    # ★ (20-nov, multijugador) si se fue (o se le cortó el juego) mientras los demás esperaban en la
-    #   pantalla de carga, y los que quedan ya cargaron: la largada. Antes sólo se miraba al llegar un
-    #   0x105F, y como ya habían llegado todos, nadie la daba: los demás quedaban cargando para siempre.
-    from servidor.partida import largar_si_cargaron
+    # ★ (22-nov) si el máster se fue o se desconectó en plena stage (ya largada), el guion Lua que corría en
+    #   su cliente queda cortado a mitad de oleada (medido en TEST 22-nov: 162832 clavada en 76/78 bajas sin
+    #   0x1064, 163025 a 14 FPS con 0 bajas): se cierra la stage de forma limpia para los que siguen en ella.
+    #   Si se fue durante la pantalla de carga (antes de la largada), los que ya cargaron largan con el nuevo máster.
+    from servidor.partida import cerrar_stage_por_master, largar_si_cargaron
+    if era_master_stage:
+        return r + cerrar_stage_por_master(s, conexion)
     return r + largar_si_cargaron(s)
 
 
@@ -669,6 +712,13 @@ def largar(cmd, cuerpo, conexion, c, p):
     #   `0x61C170`): si no, el mismo error, que el cliente muestra como «All users must be ready»
     if any(n != conexion and n not in s.get("listos", ()) for n in miembros):
         return [(0x1050, struct.pack("<H", 0x138A), 0)]
+    previos = []
+    if s and len(miembros) >= 2:
+        # ★ (22-nov) antes de cada partida (0x104F), asegurar que todos tengan la dirección ACTUAL de los demás
+        if "anunciado" in s:
+            previos = reanunciar({p.get("sala"): s})
+        elif any(relay.actual_de(n) or partida(n).get("sin_directo") for n in miembros):
+            previos = pares(s)
     if s:
         s["jugando"], s["cargados"] = True, set()
         s.pop("largada", None)                          # (20-nov: la largada se da UNA vez por stage)
@@ -689,7 +739,7 @@ def largar(cmd, cuerpo, conexion, c, p):
         cn = leer(n)
         r.append((0x104F, struct.pack("<HIBB", 1, cn["partidas"], 0, len(miembros)) + lista,
                   0, n))
-    return r + (avisar_lista(salvo=conexion) if s else [])
+    return previos + r + (avisar_lista(salvo=conexion) if s else [])
 
 
 @maneja(0x1050)

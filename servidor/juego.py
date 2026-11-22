@@ -32,7 +32,8 @@ from servidor import config                                  # noqa: E402
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO, partida   # noqa: E402
 from servidor.cuentas import NOMBRES, leer, ruta_cuenta, nivel   # noqa: E402
 from servidor.salas import avisar_lista, avisar_usuarios, _sacar_de_sala, reanunciar     # noqa: E402
-from servidor.partida import cerrar_por_bajas, cuerpo_1072, fin_de_stage, game_over, vigilar_cargas  # noqa: E402
+from servidor.partida import (cerrar_por_bajas, cuerpo_1072, fin_de_stage, game_over,    # noqa: E402
+                              vigilar_cargas, vigilar_master)
 from servidor.registro import MANEJADORES                    # noqa: E402
 from servidor.relay import escribir_relay                    # noqa: E402
 # los módulos que REGISTRAN manejadores (importarlos es lo que los anota)
@@ -68,7 +69,9 @@ def _responder(cmd, cuerpo, conexion):
         return []
     c = leer(conexion)
     p = partida(conexion)
-    p.setdefault("desde", time.time())                       # (21-nov) el comienzo de ESTA sesión (red.py ya lo pone)
+    ahora = time.time()
+    p.setdefault("desde", ahora)                             # (21-nov) el comienzo de ESTA sesión (red.py ya lo pone)
+    p["ultimo_mensaje"] = ahora                              # (22-nov) para detectar un máster colgado en plena stage
     f = MANEJADORES.get(cmd)
     antes = ASIGNADAS.get(conexion)
     r = f(cmd, cuerpo, conexion, c, p) if f else None
@@ -80,8 +83,8 @@ def _responder(cmd, cuerpo, conexion):
     return r
 
 
-# crear, entrar, salir, echar, abandonar la stage: después de cada uno, el mapa del relay se reescribe con las salas
-CAMBIAN_SALAS = (0x101D, 0x101F, 0x1045, 0x1051, 0x1074)   # (0x1074: sale de la sala, Punto 3)
+# crear, entrar, salir, echar, abandonar la stage, fallo de ping UDP: se reescribe el mapa del relay
+CAMBIAN_SALAS = (0x101D, 0x101F, 0x1045, 0x1051, 0x105A, 0x1074)   # (0x1074: sale de la sala, Punto 3)
 
 
 def segundos_fin_rapido():
@@ -117,6 +120,7 @@ def _tick(conexiones):
         VIVO.LISTA_CAMBIO = False
         r += avisar_lista() + avisar_usuarios()
     r += [x for x in vigilar_cargas(SALAS) if x[3] in conexiones]   # (20-nov: nadie queda cargando para siempre)
+    r += [x for x in vigilar_master(SALAS) if x[3] in conexiones]   # (22-nov: máster colgado en plena stage → cierre)
     r += [x for x in reanunciar(SALAS) if x[3] in conexiones]      # (21-nov: una dirección que cambió, otra vez)
     for n in conexiones:
         p = PARTIDAS.get(n)
@@ -152,7 +156,6 @@ def cerrada(conexion):
 def _cerrada(conexion):
     """El espía avisa que la conexión se cerró: olvidar su partida, su sala y soltar su cuenta.
     (Sin forma de devolver mensajes acá: la lista nueva sale con el próximo `tick`.)"""
-    PARTIDAS.pop(conexion, None)
     nombre = ASIGNADAS.pop(conexion, None)
     if nombre:                                              # el aviso a sus amigos, con el tick
         messenger.al_salir(nombre)
@@ -162,6 +165,7 @@ def _cerrada(conexion):
     for k in list(SALAS.keys()):
         if conexion in SALAS[k]["miembros"]:
             VIVO.AVISOS_SALA = getattr(VIVO, "AVISOS_SALA", []) + _sacar_de_sala(SALAS[k], k, conexion)
+    PARTIDAS.pop(conexion, None)
     escribir_relay()
     VIVO.LISTA_CAMBIO = True                               # salas y usuarios: uno menos
 

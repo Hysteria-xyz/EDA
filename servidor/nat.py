@@ -60,11 +60,14 @@ def texto(huella):
     return huella
 
 
-def buscar(p, vistos):
-    """El 0x3002 de esta conexión: el texto de su huella está en el 0x0604 que mandó, y llegó DESPUÉS
-    de él. Sin texto (un juego sin el login del launcher) la huella no distingue a nadie: ahí vale la
-    misma IP que la conexión TCP. Devuelve (IP como entero, puerto) o None."""
-    cuerpo, desde, ip_tcp = p.get("nat_0604", b""), p.get("nat_desde", 0), p.get("ip_tcp")
+def buscar_con_hora(p, vistos=None):
+    """El 0x3002 más reciente de esta conexión: el texto de su huella está en el 0x0604 que mandó, y llegó
+    DESPUÉS del inicio de su sesión. Sin texto (un juego sin el login del launcher) la huella no distingue a
+    nadie: ahí vale la misma IP que la conexión TCP. Devuelve (IP como entero, puerto, cuando) o None."""
+    vistos = _vistos() if vistos is None else vistos
+    cuerpo = p.get("nat_0604", b"")
+    desde = p.get("nat_desde") or p.get("desde") or 0
+    ip_tcp = p.get("ip_tcp")
     mejor = None
     for huella, (ip, puerto, cuando) in vistos.items():
         h = texto(bytes.fromhex(huella))
@@ -73,7 +76,13 @@ def buscar(p, vistos):
         if h and h in cuerpo or (not h and ip_tcp and ip == ip_tcp):
             if mejor is None or cuando > mejor[2]:
                 mejor = (ip, puerto, cuando)
-    return (_ip_int(mejor[0]), mejor[1]) if mejor else None
+    return (_ip_int(mejor[0]), mejor[1], float(mejor[2])) if mejor else None
+
+
+def buscar(p, vistos):
+    """Devuelve (IP como entero, puerto) del 0x3002 de esta conexión, o None."""
+    m = buscar_con_hora(p, vistos)
+    return (m[0], m[1]) if m else None
 
 
 def tick(conexiones, ahora=None):

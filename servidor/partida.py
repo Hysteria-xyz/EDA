@@ -10,7 +10,7 @@ import time
 
 from servidor import config
 from servidor.registro import maneja
-from servidor.estado import SALAS, partida, numero
+from servidor.estado import PARTIDAS, SALAS, partida, numero
 from servidor.cuentas import guardar, nivel
 from servidor.datos import ESCENARIOS, NADA, PRECIOS, RANKRATE, puntos_de, tabla_premios
 from servidor.objetos import inventario, libre_en_bolsa, registro_item, serial_nuevo
@@ -82,7 +82,7 @@ def cerrar_por_bajas(p, conexion):
             or p.get("resultado_guardado")):
         return []
     s = SALAS.get(p.get("sala"))
-    if not (s and s["miembros"] == [conexion]):
+    if not (s and s.get("anfitrion") == conexion):
         return []
     from servidor.cuentas import leer
     p["cierre_bajas"] = None
@@ -174,7 +174,8 @@ def cuerpo_1072(conexion, p):
 @maneja(0x105F)
 def termino_de_cargar(cmd, cuerpo, conexion, c, p):
     """terminó de cargar: corre el reloj"""
-    p.update(inicio=time.time(), muertos=0, golpes=0, revividas=0, resultado_guardado=False,
+    ahora = time.time()
+    p.update(inicio=ahora, ultimo_mensaje=ahora, muertos=0, golpes=0, revividas=0, resultado_guardado=False,
              bajas_stage=set(), cierre_bajas=None)
     if p.get("escenario") in ESCENARIOS:
         print(f"[bajas] Stage {p['escenario']}: 0/{ESCENARIOS[p['escenario']][3]}", flush=True)
@@ -238,6 +239,61 @@ def vigilar_cargas(salas):
     return r
 
 
+# ★ (22-nov, multijugador) cuánto tiempo sin ningún mensaje del máster en plena stage (ni el 0x1001 de cada 20 s
+#   ni eventos 0x105C/0x1061) antes de darlo por colgado y cerrar la stage de forma limpia para los demás.
+ESPERA_MASTER = float(os.environ.get("EDA_ESPERA_MASTER") or 60)
+
+
+def cerrar_stage_por_master(s, master, motivo="salió"):
+    """★ (22-nov) Si el máster de la partida sale (0x1074/0x1045), se desconecta o se cuelga en plena stage
+    (después de la largada), en el cliente de 2009 el 0x1058 tipo 3 prende +0x168 en el nuevo anfitrión
+    (`0x5482A0` → `0x63EFA0`), pero NO transfiere el estado del guion Lua ni de las oleadas ya lanzadas por el
+    máster anterior (medido en TEST el 22-nov: en P-20261122-162832-s1 el nuevo máster quedó en 76/78 bajas sin
+    que el guion dispare nunca el 0x1064, y en P-20261122-163025-s2 quedó a 14 FPS con 0 bajas). Para que nadie
+    quede colgado en la stage, el server cierra la stage de forma limpia (PlayEnd 0x1073 + resultado 0x106E +
+    cartas 0x106F) a todos los que siguen en ella."""
+    if not s or not s.get("jugando") or not s.get("largada"):
+        return []
+    from servidor.cuentas import leer
+    pm_master = PARTIDAS.get(master) or {}
+    equipo = max(pm_master.get("muertos", 0), s.get("muertos_stage", 0))
+    quedan = [m for m in list(s["miembros"]) if m != master and m in s.get("en_stage", ())
+              and not partida(m).get("resultado_guardado")]
+    r = []
+    for m in quedan:
+        pm = partida(m)
+        pm["muertos"] = max(pm.get("muertos", 0), equipo)
+        r += [(x[0], x[1], x[2], m) for x in _fin_de_uno(0x1064, b"", m, leer(m), pm)]
+    if quedan:
+        print("partida %s: el máster #%s %s en plena stage → cierre limpio para %s"
+              % (s.get("partida_id", "?"), master, motivo, ", ".join("#%s" % m for m in quedan)), flush=True)
+    return r
+
+
+def vigilar_master(salas, ahora=None):
+    """Del `tick`: si el máster de una stage en grupo se cuelga (no manda ni el 0x1001 de cada 20 s ni eventos
+    de la stage durante ESPERA_MASTER s), se cierra la stage de forma limpia para todos los que siguen en ella."""
+    ahora = time.time() if ahora is None else ahora
+    r = []
+    for s in list(salas.values()):
+        if not (s.get("jugando") and s.get("largada") and len(s.get("en_stage", ())) >= 2):
+            continue
+        m = s.get("anfitrion")
+        if m not in s.get("en_stage", ()):
+            continue
+        pm = PARTIDAS.get(m) or {}
+        ultimo = pm.get("ultimo_mensaje") or pm.get("inicio") or ahora
+        if ahora - ultimo >= ESPERA_MASTER:
+            otros = [o for o in s["miembros"] if o != m and o in s.get("en_stage", ())]
+            if not otros:
+                continue
+            r += cerrar_stage_por_master(s, m, motivo="no responde (%d s)" % int(ahora - ultimo))
+            termino_su_stage(s, m)
+            s["anfitrion"] = otros[0]
+            s.get("listos", set()).discard(s["anfitrion"])
+    return r
+
+
 @maneja(0x1061)
 def npc_muerto(cmd, cuerpo, conexion, c, p):
     """un NPC muerto [§5.11]: `u8 n · u8 1 · 6 × 0` (n = el NPC). ★ (21-nov) con varios lo manda sólo el máster
@@ -259,7 +315,7 @@ def npc_muerto(cmd, cuerpo, conexion, c, p):
         #   `resultado_guardado` lo frena; si llega tarde, el 0x1064 no paga dos veces.
         #   🟡 la espera es nuestra (3 s en 1-4 Fácil, la medida; 8 s en las demás)
         s = SALAS.get(p.get("sala"))
-        if (s and s["miembros"] == [conexion] and len(bajas) >= total
+        if (s and s.get("anfitrion") == conexion and len(bajas) >= total
                 and p.get("cierre_bajas") is None):
             p["cierre_bajas"] = time.monotonic() + (3 if esc == 1041 else 8)
     return []

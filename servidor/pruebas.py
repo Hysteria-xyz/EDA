@@ -1632,6 +1632,71 @@ def pruebas_entre_casas(chequear):
     json.dump({"970": ["198.51.100.26", 18700, ahora + 3]}, open(config.PUNCH_MAPA, "w"))
     chequear("★ el revés: jugando, no (el 0x1059 es de la sala que espera)", reanunciar(SALAS) == [])
     SALAS.pop(77)
+
+    # ── ★ (22-nov) Caso A: a un jugador le cambia el puerto público a mitad de la sesión → la partida siguiente
+    #    les da a los demás el nuevo (y el 0x1057 lleva +0x2DF=2 para que el anfitrión mande 0x3006 al entrar alguien)
+    sala_b = bytearray(0x59)
+    struct.pack_into("<I", sala_b, 0x28, 1011)
+    sala_b[0x2F] = 3
+    responder(0x101D, bytes(4) + bytes(sala_b), 970)
+    num_s = partida(970)["sala"]
+    json.dump({"970": ["198.51.100.26", 2510, ahora + 1], "971": ["203.0.113.77", 40500, ahora + 1]},
+              open(config.PUNCH_MAPA, "w"))
+    r_ent = responder(0x101F, struct.pack("<IH", 0, num_s) + bytes(20), 971)
+    m_1057 = next(x[1] for x in r_ent if x[0] == 0x1057 and x[3] == 970)
+    m_1059 = next(x[1] for x in r_ent if x[0] == 0x1059 and x[3] == 971)
+    chequear("0x1057 al anfitrión lleva +0x2DF=2 (dispara su 0x3006 en el exe 0x54F0FC) y 0x1059 lleva +0x2DF=3",
+             m_1057[7] == 2 and m_1059[6] == 3 and struct.pack("<IH", ip_int("198.51.100.26"), 2510) in m_1059)
+    responder(0x1047, b"\x01\x01", 971)
+    r_l1 = responder(0x104E, b"", 970)
+    chequear("★ el revés: si el puerto no cambió antes de largar, 0x104E no repite el 0x1059",
+             not any(x[0] == 0x1059 for x in r_l1) and any(x[0] == 0x104F for x in r_l1))
+    responder(0x105F, b"\0" * 4, 970)
+    responder(0x105F, b"\0" * 4, 971)
+    responder(0x1064, b"\0", 970)
+    # a mitad de la sesión, al anfitrión (970) le cambia el puerto público de 2510 a 2330
+    json.dump({"970": ["198.51.100.26", 2330, ahora + 20], "971": ["203.0.113.77", 40500, ahora + 1]},
+              open(config.PUNCH_MAPA, "w"))
+    responder(0x1047, b"\x01\x01", 971)
+    r_l2 = responder(0x104E, b"", 970)
+    idx_59 = next((i for i, x in enumerate(r_l2) if x[0] == 0x1059 and x[3] == 971), -1)
+    idx_4f = next((i for i, x in enumerate(r_l2) if x[0] == 0x104F and x[3] == 971), -1)
+    chequear("★ Caso A: a 970 le cambia el puerto público a mitad de la sesión (2510 → 2330) → la partida siguiente "
+             "le da a 971 el puerto NUEVO (2330) antes del 0x104F",
+             0 <= idx_59 < idx_4f and struct.pack("<IH", ip_int("198.51.100.26"), 2330) in r_l2[idx_59][1])
+    responder(0x105F, b"\0" * 4, 970)
+    responder(0x105F, b"\0" * 4, 971)
+    responder(0x1064, b"\0", 970)
+
+    # ── ★ (22-nov) Caso B: un par sin directo → pasa automáticamente al relay (y relay.json sin 127.0.0.1 en VPS)
+    r_ok = responder(0x105A, struct.pack("<IfB", 971, 0.075, 0), 971)
+    chequear("★ el revés: un 0x105A con buen ping (timeouts=0) conserva el directo",
+             r_ok == [] and dir_udp(970, 971) == (ip_int("198.51.100.26"), 2330))
+    r_mal = responder(0x105A, struct.pack("<IfB", 971, 0.300, 2), 971)
+    p59_970 = next((x[1] for x in r_mal if x[0] == 0x1059 and x[3] == 970), b"")
+    p59_971 = next((x[1] for x in r_mal if x[0] == 0x1059 and x[3] == 971), b"")
+    chequear("★ Caso B (0x105A -1000 ms): un par sin directo pasa al RELAY en los dos sentidos y recibe 0x1059",
+             dir_udp(970, 971) == (rel, config.RELAY_BASE + 1 + 970)
+             and dir_udp(971, 970) == (rel, config.RELAY_BASE + 1 + 971)
+             and struct.pack("<IH", rel, config.RELAY_BASE + 1 + 971) in p59_970
+             and struct.pack("<IH", rel, config.RELAY_BASE + 1 + 970) in p59_971)
+    partida(970).pop("sin_directo", None)
+    partida(971).pop("sin_directo", None)
+    # también si la dirección pública de uno venció (> VENCE_PUBLICA s sin renovar, como los 28 min de #2): al relay
+    partida(970)["publica_desde"] = ahora - 400
+    json.dump({"970": ["198.51.100.26", 2510, ahora - 400], "971": ["203.0.113.77", 40500, ahora + 1]},
+              open(config.PUNCH_MAPA, "w"))
+    chequear("★ Caso B (UDP vencido): sin renovar en 5 min, no se da el puerto viejo → la pareja pasa al RELAY",
+             dir_udp(970, 971) == (rel, config.RELAY_BASE + 1 + 970)
+             and dir_udp(971, 970) == (rel, config.RELAY_BASE + 1 + 971))
+    ASIGNADAS[970], ASIGNADAS[971] = "gen_970", "gen_971"
+    escribir_relay()
+    mapa_vps = json.load(open(config.RELAY_MAPA))
+    chequear("★ relay.json en el VPS: guarda la pública vigente (971) o None si venció (970), nunca 127.0.0.1:57654",
+             mapa_vps["971"]["udp"] == [ip_int("203.0.113.77"), 40500] and mapa_vps["970"]["udp"] is None)
+    SALAS.pop(num_s, None)
+    ASIGNADAS.pop(970, None)
+    ASIGNADAS.pop(971, None)
     (config.P2P_ENTRE_CASAS, config.RELAY_IP, config.P2P, config.PUNCH_MAPA) = viejos
     # ── EDA_P2P como llega del docker-compose (vacía si el .env no la tiene)
     import subprocess
@@ -1789,25 +1854,47 @@ def pruebas_fin_stage_grupo(chequear):
     chequear("el muerto (esperando revivir) también recibe el fin", a_quien(r, 0x1073, ns[0]) == ns)
     chequear("…y su game over queda cancelado", not partida(ns[1]).get("game_over_en"))
 
-    # el máster se va en plena stage: el mando pasa a uno que SIGUE en la stage, y su 0x1064 cierra la de todos
+    # ★ (22-nov, Caso C) el máster se va, se desconecta o se cuelga en plena stage: el mando pasa a uno que
+    #   seguía en la stage Y el server cierra la stage de forma limpia (PlayEnd 0x1073 + 0x106E + 0x106F) para
+    #   todos los que quedaban en ella, sin dejar a nadie colgado esperando un 0x1064 que ya no sale
     ns = jugadores(4)
     s = armar(93, ns)
+    responder(0x1061, struct.pack("<H", 1) + bytes(6), ns[0])
+    responder(0x1061, struct.pack("<H", 2) + bytes(6), ns[0])
     responder(0x1064, bytes([1]), ns[1])              # (ns[1] ya terminó la suya)
-    r = responder(0x1074, b"", ns[0])                 # (el máster abandona)
+    r = responder(0x1074, b"", ns[0])                 # (el máster abandona en plena stage)
     nuevo = [x[1][3] for x in r if x[0] == 0x1058 and x[1][1:3] == b"\x03\x00"]
-    chequear("★ el máster abandona: el nuevo máster es uno que SIGUE en la stage (no el que ya terminó)",
+    chequear("★ el máster abandona: el nuevo anfitrión es uno que seguía en la stage (no el que ya terminó)",
              s["anfitrion"] == ns[2] and nuevo and set(nuevo) == {s["numeros"][ns[2]]}, (s["anfitrion"], nuevo))
-    r = responder(0x1064, bytes([2]), ns[2])
-    chequear("…y su 0x1064 cierra la stage de los que quedaban", a_quien(r, 0x1073, ns[2]) == [ns[2], ns[3]])
+    chequear("★ Caso C (0x1074 del máster): los que quedaban en la stage reciben el cierre limpio (0x1073/106E/106F) "
+             "y la sala vuelve a «Waiting»",
+             a_quien(r, 0x1073, ns[0]) == [ns[2], ns[3]] and a_quien(r, 0x106E, ns[0]) == [ns[2], ns[3]]
+             and a_quien(r, 0x106F, ns[0]) == [ns[2], ns[3]] and not s.get("jugando"), a_quien(r, 0x1073, ns[0]))
+    chequear("★ el revés: un 0x1064 posterior de los que ya recibieron el cierre no paga dos veces",
+             responder(0x1064, bytes([2]), ns[2]) == [])
 
-    # al máster se le corta el juego: lo mismo, con el tick
+    # al máster se le corta el juego (cerrada): lo mismo, con el tick
     ns = jugadores(3)
     s = armar(94, ns)
     cerrada(ns[0])
-    tick(ns[1:])
+    r = tick(ns[1:])
     chequear("★ al máster se le corta el juego: el mando pasa a otro de la stage", s["anfitrion"] in ns[1:])
-    r = responder(0x1064, bytes([0]), s["anfitrion"])
-    chequear("…y el fin llega a los dos que quedan", a_quien(r, 0x1073, s["anfitrion"]) == ns[1:])
+    chequear("★ Caso C (desconexión del máster): los dos que quedan reciben el cierre limpio (0x1073) en el tick "
+             "y vuelven a «Waiting»",
+             a_quien(r, 0x1073, None) == ns[1:] and a_quien(r, 0x106E, None) == ns[1:] and not s.get("jugando"))
+
+    # el máster se cuelga en plena stage (sin desconectar TCP todavía): vencido ESPERA_MASTER, el tick cierra
+    from servidor import partida as mod_partida
+    ns = jugadores(3)
+    s = armar(97, ns)
+    partida(ns[2])["ultimo_mensaje"] = time.time() - mod_partida.ESPERA_MASTER - 5
+    chequear("★ el revés: si el que se cuelga o no habla es un INVITADO (no el máster), la stage sigue normal",
+             a_quien(tick(ns), 0x1073, None) == [] and s.get("jugando"))
+    partida(ns[0])["ultimo_mensaje"] = time.time() - mod_partida.ESPERA_MASTER - 5
+    r = tick(ns)
+    chequear("★ Caso C (máster colgado): sin mensajes del máster en %g s → cierre limpio para los demás y nuevo anfitrión"
+             % mod_partida.ESPERA_MASTER,
+             a_quien(r, 0x1073, None) == ns[1:] and s["anfitrion"] in ns[1:] and not s.get("jugando"))
 
     # dos partidas a la vez: el fin de una no toca la otra
     a, b = jugadores(3), jugadores(2)

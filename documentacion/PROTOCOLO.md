@@ -391,10 +391,16 @@ cargo de los servers; el cliente sólo informa y obedece. Lo medido y lo leído 
         «[Punch UDP IP, PORT]») — y la cuenta (+0x2B8 = cuerpo[6] del 0x1012) es su id
  3. PUNCH (UDP) + SALA
     C→P 0x3006 (UDP sin cifrar: u16 largo · u16 0x3006 · u32 id de la cuenta), ×4: «registrame»
-        → el server de punch ve el IP:puerto PÚBLICO REAL de ese cliente (el de su NAT)
+        → el server de punch ve el IP:puerto PÚBLICO REAL de ese cliente (el de su NAT). Lo dispara
+        `0x621980(4)` en dos momentos: al entrar como invitado (`0x1020`, `0x543802`) y en el anfitrión y
+        demás miembros cuando entra alguien (`0x1057` con `+0x2DF = 2`, `0x54F0EA` → `0x54F0FC`).
     S→C 0x1059 «Peer Public IP» a cada miembro: u8 id · u32 IP · u16 puerto (ENTEROS) de los
         OTROS (el propio no: se cae) → cada cliente saluda a cada par: 0xC354 ×~185 en 2 s (con su
-        IDENTIDAD P2P = su MAC en texto) y 0xC351 / 0xC352 = apretón de manos
+        IDENTIDAD P2P = su MAC en texto) y 0xC351 / 0xC352 = apretón de manos.
+    C→S 0x105A (`0x4DC330`, 9 B: `u32 id_cuenta · f32 fAveragePing · u8 byTimeOutCnt`): cuando el `0x1059`
+        lleva `+0x2DF = 3` (`0x550D6B`), 1 s después de los saludos (`0x535000`) el invitado mide con
+        `0x748120` su conexión UDP con el anfitrión; si sigue en -1000 ms («PingInfo Not Collect!!!»), manda
+        `byTimeOutCnt = 2` (`0x4DC453`) y el server pasa la pareja al relay con un nuevo `0x1059`.
     el ping de la sala lo busca la capa UDP por la identidad que va en +0xA del miembro (0x1020 /
         0x1057) → ✅ MEDIDO: 77 / 74 ms, y en la partida se ven moverse (UdpMsgCnt 151)
     (+ «SendC2RUDPConnect»: cliente → RELAY, 🟡 para cuando el punch no alcanza: NAT simétrica)
