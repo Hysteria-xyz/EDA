@@ -3,6 +3,7 @@ con su personaje (0x1011 → 0x1012).
 """
 import re
 import struct
+import time
 
 from servidor import config
 from servidor.estado import ASIGNADAS
@@ -58,6 +59,9 @@ def quien_soy(cmd, cuerpo, conexion, c, p):
     # ★ y la PÚBLICA que le dijimos en el 0x0609 (servidor/nat.py, MEDICIONES §53): con P2P entre casas
     #   es la de verdad (la vio el relay); si no, la 127.0.0.1 de siempre (y `relay.publica_de` no la usa)
     p["publica"] = struct.unpack_from("<IH", cuerpo, 0xE3)
+    p["publica_vista"] = tuple(p["publica"])
+    p["publica_desde"] = time.time()
+    p.pop("sin_directo", None)
     # ★★ la MAC = la IDENTIDAD P2P (cuenta+0x166, `0x6229F0`), en el cuerpo +0x7A (MEDICIONES §39).
     #   Llega bien si el juego se lanzó con la ruta entre comillas; si no, es basura y no se usa
     mac = cuerpo[0x7A:0x7A + 34].decode("utf-16-le", "replace")

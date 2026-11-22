@@ -95,7 +95,12 @@ def reconocer(datos, quien, destino, falsa_de, dir_de, sala_de=None):
     for n, f in falsa_de.items():
         if n != destino and f in ids:
             return n
-    juntos = (sala_de or {}).get(destino) or list(falsa_de)
+    en_sala = (sala_de or {}).get(destino) or []
+    misma_ip = [n for n in en_sala if n != destino and n in falsa_de
+                and not es_local(dir_de.get(n)) and dir_de[n][0] == quien[0]]
+    if len(misma_ip) == 1:
+        return misma_ip[0]
+    juntos = en_sala or list(falsa_de)
     sin_dir = [n for n in juntos if n != destino and n in falsa_de and es_local(dir_de.get(n))]
     return sin_dir[0] if len(sin_dir) == 1 else None
 
@@ -194,13 +199,17 @@ def main(ip="0.0.0.0"):
                     olvidar(n, motivo)
                 desde_de = nuevos
                 for n, v in mapa.items():
-                    # de respaldo (misma PC / LAN): la dirección que declaró en su 0x100F
-                    if isinstance(v, dict) and v.get("udp") and n not in dir_de:
+                    # de respaldo (misma PC, o pública conocida del server): si todavía no tenemos una real
+                    if isinstance(v, dict) and v.get("udp") and (n not in dir_de or es_local(dir_de.get(n))):
                         ip_n, puerto_n = v["udp"]
                         d = (socket.inet_ntoa(ip_n.to_bytes(4, "big")), puerto_n)
-                        dir_de[n], de_dir[d] = d, n
-                        cuando_de[n] = time.time()
-                        anotar("jugador %d declaró %s:%d" % (n, d[0], d[1]))
+                        if dir_de.get(n) != d:
+                            viejo = dir_de.get(n)
+                            if viejo:
+                                de_dir.pop(viejo, None)
+                            dir_de[n], de_dir[d] = d, n
+                            cuando_de[n] = time.time()
+                            anotar("jugador %d declaró %s:%d" % (n, d[0], d[1]))
                 for n in falsa_de:
                     if n not in socks:
                         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -258,6 +267,9 @@ def main(ip="0.0.0.0"):
                         de_dir.pop(viejo, None)
                     dir_de[n], de_dir[quien], origen = quien, n, n
                     cuando_de[n] = time.time()
+                    if not es_local(quien) and (punch_vio.get(n) or (None, None))[:2] != quien:
+                        punch_vio[n] = (quien[0], quien[1], time.time())
+                        escribir_punch()
             if origen is None or destino not in dir_de or origen not in socks:
                 anotar("descartado: de %s:%d para %d (origen %s)" % (quien[0], quien[1], destino, origen))
                 continue
@@ -322,6 +334,11 @@ def control():
              reconocer(b"\x10\x00nada", otro, 3, sin_mac, prod) is None)
     chequear("con la sala del destino: el anfitrión de ESA sala (el 2)",
              reconocer(b"\x10\x00nada", otro, 3, sin_mac, prod, salas) == 2)
+    chequear("★ cambio de puerto en vivo en la sala: misma IP pública que el compañero → se lo reconoce sin MAC",
+             reconocer(b"\x10\x00movimiento", ("198.51.100.7", 52999), 1, mapa, dirs, {1: [1, 3], 3: [1, 3]}) == 3)
+    chequear("★ el revés: desde otra IP que no es la de nadie de la sala y todos ya registrados → nadie",
+             reconocer(b"\x10\x00movimiento", ("203.0.113.88", 52999), 1, mapa,
+                       {1: dirs[1], 3: dirs[3]}, {1: [1, 3], 3: [1, 3]}) is None)
     # ★ dos PCs de la misma casa con la MISMA dirección pública (lo de prod, MEDICIONES §52)
     socks = {1: object(), 2: object()}
     chequear("misma dirección: lo que llega al puerto del 1 es del 2 (nadie se manda a sí mismo)",

@@ -20,28 +20,12 @@ uno «al otro lo encontrás en esta dirección» (mensaje `0x1059`). Elige el ca
 | **directo** (IP pública) | los dos mandaron su dirección pública (el `0x3002`, `servidor/nat.py`) | 70–90 ms (§53) |
 | **relay** (el VPS reenvía) | si no, o con `EDA_P2P=relay` | ~300 ms: el VPS está en Miami (§53) |
 
-## El problema que falta resolver ⏭
+## Cómo cae al relay automáticamente (Plan B, 22-nov)
 
-**El directo a veces no conecta, y entonces queda en -1000.** Pasó en prod: el registro del server
-decía «sala: a #1 le doy #2 por directo (pública)» y al revés, y el ping estaba en -1000. Antes de prender
-el directo, la misma situación andaba por el relay (con ~300 ms).
-
-La causa más probable (🟡 sin medir todavía): **un NAT «simétrico»**. Hay routers (muchos de celulares y
-algunos de fibra) que le cambian el PUERTO de salida según a quién le hablás. Entonces el puerto que
-vio el server (por el `0x3002`) no es el que va a usar ese jugador para hablarle al otro, y el saludo
-(`0xC354`) nunca entra.
-
-**Lo que hay que hacer:** que cuando el directo no conecta, ese par se pase **solo** al relay. Ideas, de
-la más simple a la más fina (hay que medir cuál anda):
-
-1. **Detectar el NAT simétrico antes:** que el juego mande su `0x3002` a DOS puertos distintos del relay.
-   Si el server ve dos puertos públicos distintos, ese jugador es simétrico → el server le da el relay
-   (a él y a sus pares). Es lo que hacían los juegos de la época, y el mensaje `0x3003` del original
-   («NAT type sort») parece ser justo eso: mirar qué hace el cliente con él.
-2. **Volver a mandar el `0x1059`:** si a los N segundos la sala sigue en -1000, el server manda otro
-   `0x1059` con el relay. Primero hay que medir si el cliente acepta un segundo `0x1059` con la sala abierta.
-3. **Desde la dll** (`herramientas/dll_d3d9/eda_d3d9.c`, bloque `[p2p]`): si en X segundos no llega
-   nada del otro jugador, usar el relay.
+1. **Dirección del anfitrión siempre al día (`0x1057` con `+0x2DF = 2`):** en `EDA_limpio.exe`, `0x621980(4)` (que manda `0x3006` × 4 al puerto de punch del relay) sólo se llama desde dos sitios: `0x543802` al entrar como invitado (`0x1020`) y `0x54F0FC` en el anfitrión (y demás miembros) al recibir `0x1057` (`Someone_EnterRoom`) cuando el byte `+7` (`cuenta+0x2DF`) vale **`2`**. Ahora el server envía `+0x2DF = 2` en `0x1057`, por lo que también el anfitrión renueva su puerto UDP público cada vez que alguien entra a su sala. Además, antes de cada partida (`0x104E` → `0x104F`), el server verifica si cambió alguna dirección y reanuncia `0x1059` con la más reciente.
+2. **Detección automática del `-1000 ms` desde el cliente de 2009 (`0x1059` con `+0x2DF = 3` → `0x105A`):** en `EDA_limpio.exe`, cuando el `0x1059` lleva `+0x2DF = 3` (`0x550D6B`), el cliente saluda por UDP durante 2 s (`0x74AA60`) y 1 s después (`0x535000` → `0x4DC330`) comprueba con `0x748120` si estableció conexión UDP con el anfitrión y le manda al server **`0x105A`** (`u32 id_cuenta · f32 fAveragePing · u8 byTimeOutCnt`). Si sigue en `-1000 ms` (`[UDP ERROR] PingError! PingInfo Not Collect!!!`), manda `byTimeOutCnt = 2` (`0x4DC453`). Al recibir `0x105A` con `timeouts >= 2`, el server marca a esa pareja como `sin_directo` y les reenvía de inmediato `0x1059` por el **relay** en ambos sentidos.
+3. **Vencimiento de UDP viejo (`VENCE_PUBLICA = 300` s):** si la dirección pública de un jugador (`0x3002` o `0x3006`) lleva más de 5 minutos sin renovarse por UDP, ya no se reparte su puerto viejo: la pareja pasa al **relay**.
+4. **En `EDA_P2P=auto`:** además, sólo se usa directo si ambos jugadores conservaron el mismo puerto entre su `0x3002` y su `0x3006` (`relay.estable`).
 
 ## Dónde está cada cosa
 
