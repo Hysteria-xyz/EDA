@@ -582,24 +582,26 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
 """
     relay = "2026-11-21 16:57:30 reenviados en 30 s: 1→2: 40, 2→1: 0\n"
     os.makedirs(os.path.join(d, "eda-prueba-diagnostico"))
-    open(os.path.join(d, "eda-prueba-diagnostico", "server.log"), "w").write(server)
-    open(os.path.join(d, "eda-prueba-diagnostico", "relay.log"), "w").write(relay)
+    open(os.path.join(d, "eda-prueba-diagnostico", "server.log"), "w", encoding="utf-8").write(server)
+    open(os.path.join(d, "eda-prueba-diagnostico", "relay.log"), "w", encoding="utf-8").write(relay)
     os.makedirs(os.path.join(d, "eda-prueba-diagnostico", "diag"))
     t_caida = int(datetime(2026, 11, 21, 16, 57, 30, tzinfo=UTC).timestamp() * 1000)
-    with open(os.path.join(d, "eda-prueba-diagnostico", "diag", "2-" + "ab" * 16 + ".jsonl"), "w") as f:
+    with open(os.path.join(d, "eda-prueba-diagnostico", "diag", "2-" + "ab" * 16 + ".jsonl"), "w",
+              encoding="utf-8") as f:
         f.write(json.dumps({"t": t_caida - 3000, "e": "escena", "a": "stage", "r": t_caida, "dr": 3000}) + "\n")
         f.write(json.dumps({"t": t_caida - 3000, "e": "caida", "codigo": "C0000005", "sitio": "0x7F4626", "dr": 3000}) + "\n")
-    with open(os.path.join(d, "eda-prueba-diagnostico", "diag", "12-" + "cd" * 16 + ".jsonl"), "w") as f:
+    with open(os.path.join(d, "eda-prueba-diagnostico", "diag", "12-" + "cd" * 16 + ".jsonl"), "w",
+              encoding="utf-8") as f:
         f.write(json.dumps({"t": t_caida, "e": "caida", "sitio": "0x1", "dr": 0}) + "\n")
     tgz = os.path.join(d, "paquete.tgz")
     with tarfile.open(tgz, "w:gz") as t:
         t.add(os.path.join(d, "eda-prueba-diagnostico"), arcname="eda-prueba-diagnostico")
     cli = os.path.join(d, "jugador2")
     os.makedirs(cli)
-    open(os.path.join(cli, "NetTrace.log"), "w").write(
+    open(os.path.join(cli, "NetTrace.log"), "w", encoding="utf-8").write(
         "[11:55:31]\t00:00:5E:00:53:01\n[11:56:49]\tThread Do Start\n[11:56:53]\tOnPktS2C_Ntf_Play_Start Succeed\n"
         "[11:56:53]\tThread DoEnd!!\n")
-    open(os.path.join(cli, "eda_d3d9.log"), "w").write(
+    open(os.path.join(cli, "eda_d3d9.log"), "w", encoding="utf-8").write(
         "11:57:40.100    (diag) ⚠ CONGELADO 4000 ms sin cuadros (escena 0x00899C20)\n11:57:41.000    (escala2d) ruido\n")
     hora_pc = datetime(2026, 11, 21, 12, 10, tzinfo=timezone(timedelta(hours=-5))).timestamp()
     for a in ("NetTrace.log", "eda_d3d9.log"):
@@ -635,7 +637,7 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
 2026-11-21 05:36:30 #2 ← 1074 (1 B)
 2026-11-21 05:36:30 #2 → 1075 (16 B)
 """
-    open(os.path.join(d, "eda-prueba-diagnostico", "server.log"), "w").write(viejo)
+    open(os.path.join(d, "eda-prueba-diagnostico", "server.log"), "w", encoding="utf-8").write(viejo)
     ps = partidas(leer_server(viejo))
     chequear("registro viejo (sin «partida … empieza»): la partida sale de los 0x104F juntos",
              [x["id"] for x in ps] == ["P?-20261121-053548"] and set(ps[0]["miembros"]) == {1, 2})
@@ -655,7 +657,7 @@ partida P-20261121-165648-s3: #1 terminó su stage · siguen en la stage: #2
 2026-11-21 18:01:00 #1 → 1073 (60 B)
 2026-11-21 18:01:00 #2 → 1073 (60 B)
 """
-    open(os.path.join(d, "eda-prueba-diagnostico", "server.log"), "w").write(sana)
+    open(os.path.join(d, "eda-prueba-diagnostico", "server.log"), "w", encoding="utf-8").write(sana)
     _, res = armar(os.path.join(d, "eda-prueba-diagnostico"), desde=fecha("2026-11-21 17:59"),
                    hasta=fecha("2026-11-21 18:05"), salida=os.path.join(d, "s.zip"))
     chequear("★ el revés: una partida sana (el máster termina y los dos reciben su PlayEnd) → ninguna anomalía",
@@ -700,12 +702,12 @@ partida P-20261121-235830-s2 empieza: sala 2 · #4=r2b_201 · #5=r2b_202
 2026-11-22 00:02:00 #5 → 1073 (60 B)
 """
     os.makedirs(est, exist_ok=True)
-    open(os.path.join(est, "server.log"), "w").write(server)
+    open(os.path.join(est, "server.log"), "w", encoding="utf-8").write(server)
     ms = lambda h: int(fecha(h).timestamp() * 1000)
     def poner(dia, cuenta, sesion, eventos):
         c = os.path.join(est, "diag", dia)
         os.makedirs(c, exist_ok=True)
-        with open(os.path.join(c, "%s-%s.jsonl" % (cuenta, sesion * 32)), "a") as f:
+        with open(os.path.join(c, "%s-%s.jsonl" % (cuenta, sesion * 32)), "a", encoding="utf-8") as f:
             for e in eventos:
                 f.write(json.dumps(e) + "\n")
     # 101: su PC atrasa 7 minutos (dr = +420000): el congelado de su reloj 23:52:10 es 23:59:10 del server
@@ -763,14 +765,14 @@ partida P-20261122-001531-s1 empieza: sala 1 · #1=r2b_777001
 """
     c = os.path.join(d, "reinicio")
     os.makedirs(c, exist_ok=True)
-    open(os.path.join(c, "server.log"), "w").write(server)
+    open(os.path.join(c, "server.log"), "w", encoding="utf-8").write(server)
     _, res = armar(c, partida_id="P-20261122-001531-s1", salida=os.path.join(d, "r.zip"))
     fila = [l for l in res.splitlines() if l.startswith("| #1 ")]
     chequear("reinicio: el fin (0x1064 00:14:34) de la sesión ANTERIOR no aparece en la partida nueva",
              fila and "00:14:34" not in fila[0] and "00:15:31" in fila[0], fila)
     orden = server.replace("2026-11-22 00:15:31 #1 ← 104e (0 B)", "2026-11-22 00:15:31 #1 → 1005 (123 B)\n"
                                                                  "2026-11-22 00:15:31 #1 ← 104e (0 B)")
-    open(os.path.join(c, "server.log"), "w").write(orden)
+    open(os.path.join(c, "server.log"), "w", encoding="utf-8").write(orden)
     _, res = armar(c, partida_id="P-20261122-001531-s1", salida=os.path.join(d, "r2.zip"))
     chequear("★ el revés: un 0x1005 ANTES de la carga, en el mismo segundo, no es «durante la carga»",
              "DURANTE la carga" not in res)
