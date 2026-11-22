@@ -6,10 +6,9 @@
    "borrador": true,
    "fecha": "2026-11-22",
    "dll": "0.5.3",
-   "resumen": "Corregimos un cierre inesperado en plena stage, los clics del mapa de stages, y el servidor de prueba ya recibe solo los informes técnicos.",
+   "resumen": "Corregimos un cierre inesperado en plena stage, y el servidor de prueba ya recibe solo los informes técnicos.",
    "corregidos": [
-    "El juego ya no se cierra solo en algunas stages al cargar ciertos textos del escenario.",
-    "En el mapa de stages, los caminos entre stages ya no tapan los clics: cada stage se abre con su doble clic."
+    "El juego ya no se cierra solo en algunas stages al cargar ciertos textos del escenario."
    ],
    "mejoras": [
     "En el servidor de prueba, si el juego se congela o se cierra, el equipo recibe solo un informe técnico. Ya no hace falta mandar registros.",

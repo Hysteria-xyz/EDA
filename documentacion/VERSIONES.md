@@ -92,10 +92,13 @@ commit 04e141d): 0.5.1 (selector) + 0.5.2 (las llamadas sin resolver / mal resue
 |---|---|---|
 | La caída 0x7F4626 | EDA-PRUEBA-APIS, dll 0.5.1-candidata e2bf4df2 (21-nov 18:17–18:21) | ✅ se reproduce sin la reparación; con ella `setlocale("korean")` vuelve; 1 Stage sin errores |
 | Pruebas sin juego | `prueba_apis.c/.py`, `prueba_selector.c`, `prueba_diag.c/.py`, `diag_partida control`, server | ✅ (CI) |
-| El diagnóstico de punta a punta | EDA-PRUEBA-DIAG (server local, dll 0.5.3) | pendiente: el informe dice si pasa |
-| FPS con y sin diagnóstico | EDA-PRUEBA-DIAG sin / con | pendiente |
+| El diagnóstico de punta a punta | EDA-PRUEBA-DIAG (server local, dll 0.5.3 a9678cda, 21-nov 19:15) | ✅ 7 lotes, 16 eventos, 0 fallos, el más lento 32 ms; el server los guardó y diag_partida los puso en su partida |
+| FPS con y sin diagnóstico | EDA-PRUEBA-DIAG sin / con (1 Stage cada una, sin tope) | ✅ sin 148 (mín 66) · con 161 (mín 85): sin pérdida medible (la diferencia entre dos partidas es de ±10 %) |
+| La caída 0x7F4626 con la dll final | EDA-PRUEBA-DIAG (las dos veces) | ✅ `setlocale("korean")` vuelve, sin errores |
 | El POP-UP | `launcher/popup-novedades/probar_popup.js` con el Launcher.exe de TEST | ✅ 14/14 en la pantalla del launcher (falta el launcher recompilado por su dueño) |
 | Partida de DOS en TEST | — | pendiente (después del despliegue autorizado) |
 
+La versión ANTERIOR es **2026.11.21** (TEST, publicada el 21-nov ~19:00 con la dll 0.5.1 del selector: el launcher de la
+PC de pruebas la bajó a las 19:02). Por eso las novedades de 2026.11.22.1 ya NO repiten el arreglo del selector.
 Si se publica otro día, la versión es la de ESE día: `AAAA.MM.DD.1` (o `.2`, `.3`… si ya salió una ese día), siempre
-mayor que la anterior (`2026.11.19` en los launchers de hoy); `version_cliente.py revisar` lo exige.
+mayor que la anterior; `version_cliente.py revisar` lo exige.
