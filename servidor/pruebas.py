@@ -2547,6 +2547,7 @@ def pruebas_sesion_unica_y_gm(chequear):
     from servidor import juego, red, salas
     from servidor.estado import VIVO
     from servidor.cuentas import ruta_cuenta
+    from servidor.objetos import obj_equipo, obj_stats
     from servidor.relay import escribir_relay
 
     def _chat(texto):
@@ -2554,6 +2555,7 @@ def pruebas_sesion_unica_y_gm(chequear):
         return struct.pack("<BII", 1, 0xFFFFFFFF, 0) + struct.pack("<I", len(t)) + t
 
     gm_antes = config.GM_CUENTAS
+    gm_en_vivo_antes = config.GM_EN_VIVO
     relay_antes = config.RELAY_IP
     log_antes_gm, log_antes_red = salas.log_gm, red.log
     logs_gm = []
@@ -2704,6 +2706,9 @@ def pruebas_sesion_unica_y_gm(chequear):
         guardar(d_jug)
 
         config.GM_CUENTAS = "gm_prueba, otro_gm"
+        config.GM_EN_VIVO = False
+        responder(0x1017, b"", 540)
+        responder(0x1017, b"", 541)
         chequear("es_gm reconoce las cuentas en EDA_GM_CUENTAS y rechaza al resto",
                  salas.es_gm("gm_prueba") and salas.es_gm("otro_gm") and not salas.es_gm("jugador_normal"))
 
@@ -2712,7 +2717,8 @@ def pruebas_sesion_unica_y_gm(chequear):
         logs_gm.clear()
         r = responder(0x100D, _chat("/oro 10000"), 540)
         chequear("GM: /oro 10000 fija su propio oro en 10000",
-                 leer(540)["plata"] == 10000 and aviso_refresco in r[0][1] and "10000".encode("utf-16-le") in r[0][1])
+                 leer(540)["plata"] == 10000 and [x[0] for x in r] == [0x1005]
+                 and aviso_refresco in r[0][1] and "10000".encode("utf-16-le") in r[0][1])
         r = responder(0x100D, _chat("/oro +2500"), 540)
         chequear("GM: /oro +2500 suma 2500 al oro actual (10000 → 12500)",
                  leer(540)["plata"] == 12500 and "12500".encode("utf-16-le") in r[0][1])
@@ -2745,7 +2751,7 @@ def pruebas_sesion_unica_y_gm(chequear):
         guardar(jugador)
         r = responder(0x100D, _chat("/stats Aventurero 1 2 0 0 0"), 540)
         chequear("GM cambia los stats ajenos y avisa a ambos",
-                 leer(541)["stats"] == [1, 2, 0, 0, 0] and len(r) == 2
+                 leer(541)["stats"] == [1, 2, 0, 0, 0] and [x[0] for x in r] == [0x1005, 0x1005]
                  and r[1][3] == 541 and all(aviso_refresco in x[1] for x in r))
         r = responder(0x100D, _chat("/reiniciar Aventurero"), 540)
         puntos = PUNTOS_POR_NIVEL * 4
@@ -2784,16 +2790,63 @@ def pruebas_sesion_unica_y_gm(chequear):
                  and any("gm: #540 (gm_prueba)" in m and "/item 26001 7 Aventurero" in m for m in logs_gm),
                  logs_gm)
 
+        config.GM_EN_VIVO = True
+        experimental = "actualizado en vivo (experimental)".encode("utf-16-le")
+        for comando, destino, saldo in (("/oro -25", 540, 1_999_999_975),
+                                        ("/oro -50 Aventurero", 541, 44950),
+                                        ("/oro -100000 Aventurero", 541, 0)):
+            r = responder(0x100D, _chat(comando), 540)
+            chequear(comando + " resta con piso 0 y refresca solo al destino en lobby",
+                     leer(destino)["plata"] == saldo
+                     and r[0] == (0x103A, struct.pack("<HIB", 1, saldo, 0), 0, destino)
+                     and all(x[0] == 0x1005 and experimental in x[1] for x in r[1:]))
+        chequear("GM audita la quita de oro",
+                 any("/oro -100000 Aventurero" in linea and "oro 44950 -> 0" in linea for linea in logs_gm))
+        responder(0x100D, _chat("/oro 2000000000"), 540)
+        for comando, destino in (("/stats 1 0 0 0 0", 540),
+                                 ("/stats Aventurero 1 2 0 0 0", 541), ("/reiniciar Aventurero", 541)):
+            equipo_antes = obj_equipo(leer(destino))
+            r = responder(0x100D, _chat(comando), 540)
+            esperado = b"\1\0\0" + obj_stats(leer(destino)) + equipo_antes + bytes(4)
+            chequear(comando + " refresca los stats y el equipo actual solo al destino en lobby",
+                     r[0] == (0x102C, esperado, 0, destino)
+                     and all(x[0] == 0x1005 and experimental in x[1] for x in r[1:]))
+        r = responder(0x100D, _chat("/reiniciar Reserva"), 540)
+        chequear("Un personaje no seleccionado no refresca el personaje activo",
+                 all(x[0] == 0x1005 and aviso_refresco in x[1] for x in r))
+        responder(0x1027, b"", 541)
+        r = responder(0x100D, _chat("/oro +1 Aventurero"), 540)
+        chequear("La tienda no recibe refresco experimental", all(x[0] == 0x1005 for x in r))
+        responder(0x101D, bytes(4) + bytes(sala_b), 541)
+        sala_destino = SALAS[partida(541)["sala"]]
+        r = responder(0x100D, _chat("/oro +1 Aventurero"), 540)
+        chequear("Una sala que espera recibe el refresco", r[0] == (0x103A, struct.pack("<HIB", 1, 2, 0), 0, 541))
+        responder(0x104E, b"", 541)
+        r = responder(0x100D, _chat("/oro +1 Aventurero"), 540)
+        chequear("El destino que carga no recibe refresco experimental", all(x[0] == 0x1005 for x in r))
+        responder(0x105F, bytes(4), 541)
+        chequear("El destino de los comandos GM está en plena stage",
+                 sala_destino.get("jugando") and 541 in sala_destino["en_stage"])
+        cabecera = struct.pack("<HBII", 0, 4, 0xFF00FF00, 0) + "[Sistema]".encode("utf-16-le").ljust(26, b"\0")
+        for comando in ("/oro +1 Aventurero", "/stats Aventurero 1 0 0 0 0", "/reiniciar Aventurero"):
+            r = responder(0x100D, _chat(comando), 540)
+            chequear(comando + " en stage solo envía el aviso al GM y al destino",
+                     len(r) == 2 and r[0][0] == 0x1005 and r[0][2:] == (0,) and r[1] == r[0] + (541,)
+                     and r[0][1].startswith(cabecera) and r[0][1].endswith(aviso_refresco)
+                     and struct.unpack_from("<I", r[0][1], 37)[0] == len(r[0][1]) - 41)
+
         # ★ el revés: una cuenta que NO es GM no puede usar ningún comando de GM
         oro_541 = leer(541)["plata"]
         mon_541 = leer(541)["monedas"]
         exp_541 = leer(541)["exp"]
         stats_541 = list(stats_de(leer(541)))
         items_541 = [list(x) for x in leer(541)["items"]]
+        terminadas_antes = {n: leer(n)["terminadas"] for n in (540, 541)}
         logs_antes = len(logs_gm)
-        for cmd in ("/oro 999999", "/oro +5000", "/oro 1000 JefeGM", "/monedas 50",
+        for cmd in ("/oro 999999", "/oro +5000", "/oro 1000 JefeGM", "/oro -1", "/oro -1 JefeGM", "/monedas 50",
                     "/nivel 30", "/item 26001 5", "/stats 99 99 99 99 99", "/stats Reserva 1 2 3 4 5",
-                    "/reiniciar Aventurero", "/reset Reserva", "/limpiar", "/cash 100"):
+                    "/reiniciar Aventurero", "/reset Reserva", "/limpiar", "/cash 100",
+                    "/fin", "/desbloquear", "/desbloquear JefeGM"):
             r_rech = responder(0x100D, _chat(cmd), 541)
             chequear("★ el revés (no GM): «%s» no hace nada y responde Comando desconocido (sin revelar GM)" % cmd,
                      len(r_rech) == 1 and r_rech[0][0] == 0x1005
@@ -2804,12 +2857,80 @@ def pruebas_sesion_unica_y_gm(chequear):
                  d_despues["plata"] == oro_541 and d_despues["monedas"] == mon_541
                  and d_despues["exp"] == exp_541 and list(stats_de(d_despues)) == stats_541
                  and d_despues["items"] == items_541 and leer(540)["plata"] == 2_000_000_000
+                 and all(leer(n)["terminadas"] == lista for n, lista in terminadas_antes.items())
+                 and sala_destino["jugando"] and not partida(541)["resultado_guardado"]
                  and len(logs_gm) == logs_antes)
         r_msn = responder(0x100D, _chat("/messenger"), 541)
         chequear("★ el revés (no GM): /messenger sigue disponible para todos",
                  len(r_msn) == 2 and any("Messenger:".encode("utf-16-le") in x[1] for x in r_msn))
+
+        r = responder(0x100D, _chat("/ayuda"), 540)
+        chequear("La ayuda de GM incluye /fin y /desbloquear",
+                 all(x.encode("utf-16-le") in r[0][1] for x in ("/fin", "/desbloquear [pj]")))
+        r = responder(0x100D, _chat("/fin"), 540)
+        chequear("GM sin stage recibe el aviso de /fin",
+                 [x[0] for x in r] == [0x1005] and "Debes estar en una stage".encode("utf-16-le") in r[0][1])
+        responder(0x1074, b"", 541)
+        responder(0x101D, bytes(4) + bytes(sala_b), 541)
+        num = partida(541)["sala"]
+        sala = SALAS[num]
+        responder(0x101F, struct.pack("<IH", 0, num), 540)
+        responder(0x1047, bytes([sala["numeros"][540], 1]), 540)
+        responder(0x104E, b"", 541)
+        responder(0x105F, bytes(4), 540)
+        r = responder(0x100D, _chat("/fin"), 540)
+        chequear("/fin espera a que cargue todo el grupo",
+                 [x[0] for x in r] == [0x1005] and not partida(540)["resultado_guardado"])
+        responder(0x105F, bytes(4), 541)
+        escenario = partida(541)["escenario"]
+        _, premios = tabla_premios().get(escenario, (0, []))
+        oro_premio = sum(dato for tipo, dato, _ in premios if tipo == 0)
+        exp_premio = 1 + sum(dato for tipo, dato, _ in premios if tipo == 1)
+        antes = {n: leer(n) for n in (540, 541)}
+        r = responder(0x100D, _chat("/fin"), 540)
+        salida_normal = ((0x1073, 0), (0x106E, 300), (0x106F, 8000))
+        chequear("/fin de un GM invitado entrega PlayEnd, resultado y cartas a ambos",
+                 [(x[0], x[2], x[3]) for x in r] ==
+                 [(op, espera, n) for n in (541, 540) for op, espera in salida_normal]
+                 and not sala["jugando"] and not sala["en_stage"])
+        for n, datos in antes.items():
+            despues = leer(n)
+            chequear("/fin registra y paga el premio normal a #%s" % n,
+                     partida(n)["resultado_guardado"] and escenario in despues["terminadas"]
+                     and despues["partidas"] == datos["partidas"] + 1 and despues["abandonos"] == datos["abandonos"]
+                     and despues["plata"] == datos["plata"] + oro_premio
+                     and despues["exp"] == datos["exp"] + exp_premio)
+        r = responder(0x100D, _chat("/fin"), 540)
+        chequear("/fin repetido no vuelve a pagar",
+                 [x[0] for x in r] == [0x1005] and all(leer(n)["partidas"] == antes[n]["partidas"] + 1 for n in antes)
+                 and sum(" · /fin · " in linea for linea in logs_gm) == 1)
+
+        for comando, n in (("/desbloquear", 540), ("/desbloquear Aventurero", 541)):
+            r = responder(0x100D, _chat(comando), 540)
+            chequear(comando + " guarda todo el catálogo y avisa si hay que volver a personajes",
+                     leer(n)["terminadas"] == sorted(ESCENARIOS)
+                     and all(x[0] == 0x1005 and aviso_refresco in x[1] for x in r)
+                     and (n == 540 or r[1][3] == n))
+        r = responder(0x1017, b"", 541)
+        datos_lobby = next(x[1] for x in r if x[0] == 0x1018)
+        total = struct.unpack_from("<I", datos_lobby, 3)[0]
+        registros = list(struct.iter_unpack("<IIBB", datos_lobby[16:16 + 10 * total]))
+        chequear("0x1018 publica todas las stages desbloqueadas con la marca de completadas",
+                 registros == [(0, esc, 1, 1) for esc in sorted(ESCENARIOS)]
+                 and any(" · /desbloquear Aventurero · " in linea for linea in logs_gm))
+        cuenta = ASIGNADAS.pop(541)
+        try:
+            r = responder(0x100D, _chat("/desbloquear Reserva"), 540)
+            with open(ruta_cuenta(cuenta), encoding="utf-8") as archivo:
+                datos = json.load(archivo)
+            chequear("/desbloquear también guarda al personaje desconectado sin seleccionarlo",
+                     [x[0] for x in r] == [0x1005] and datos["activo"] == 0
+                     and datos["pjs"][1]["terminadas"] == sorted(ESCENARIOS))
+        finally:
+            ASIGNADAS[541] = cuenta
     finally:
         config.GM_CUENTAS = gm_antes
+        config.GM_EN_VIVO = gm_en_vivo_antes
         config.RELAY_IP = relay_antes
         salas.log_gm, red.log = log_antes_gm, log_antes_red
         for c in (501, 502, 505, 506, 510, 511, 512, 520, 521, 522, 530, 531, 532, 540, 541):

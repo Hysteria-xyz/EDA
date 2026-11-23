@@ -145,7 +145,7 @@ def guardar(c):
     escribir(c["nombre"], datos)
 
 
-def fijar_stats_personaje(nick, valores):
+def fijar_dato_personaje(nick, campo, valor):
     """Actualiza sólo el personaje pedido, sin cambiar el seleccionado por la cuenta."""
     buscado = nick.lower()
     conexiones = {nombre: n for n, nombre in ASIGNADAS.items()}
@@ -167,11 +167,11 @@ def fijar_stats_personaje(nick, valores):
             visible = pj.get("nick") or nombre
             if visible.lower() != buscado:
                 continue
-            pj["stats"] = valores
+            pj[campo] = valor
             if "pjs" in crudo:
                 crudo["pjs"] = pjs
             else:
-                crudo["stats"] = valores
+                crudo[campo] = valor
             escribir(nombre, crudo)
             return conexiones.get(nombre), {"nombre": nombre, "nick": visible}
     for nombre, n in conexiones.items():
@@ -179,7 +179,7 @@ def fijar_stats_personaje(nick, valores):
             continue
         c = leer(n)
         if c["pjs"] and nombre_visible(c).lower() == buscado:
-            c["stats"] = valores
+            c[campo] = valor
             guardar(c)
             return n, c
 

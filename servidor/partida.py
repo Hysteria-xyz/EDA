@@ -195,14 +195,16 @@ def termino_de_cargar(cmd, cuerpo, conexion, c, p):
         return [(0x106C, struct.pack("<BB", i, i), 0, n) for n in destinos for i in total]
     # ★ con varios: la largada (0x105E) recién cuando cargaron TODOS, y a todos juntos
     s = SALAS.get(p.get("sala"))
-    if s and conexion in s["miembros"] and len(s["miembros"]) > 1 and s.get("jugando"):
+    en_sala_activa = s and conexion in s["miembros"] and s.get("jugando")
+    if en_sala_activa:
+        s.setdefault("cargados", set()).add(conexion)
+    if en_sala_activa and len(s["miembros"]) > 1:
         if s.get("largada"):
             # ★ (20-nov) ya se largó (por tiempo o porque los demás estaban): el que llega tarde larga
             #   SOLO él. Antes se repetía el 0x105E a TODOS (una 2.ª largada en plena stage).
             print("[carga] sala %s: #%d terminó de cargar después de la largada: larga sólo él"
                   % (p.get("sala"), conexion), flush=True)
             return [(0x105E, struct.pack("<HI", 1, 600), 0)] + activar([conexion], [numero(s, conexion)])
-        s.setdefault("cargados", set()).add(conexion)
         s.setdefault("carga_desde", time.monotonic())
         return largar_si_cargaron(s)
     return [(0x105E, struct.pack("<HI", 1, 600), 0)] + activar([conexion], [numero_jugador(conexion)])

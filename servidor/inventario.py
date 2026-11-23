@@ -10,6 +10,12 @@ from servidor.objetos import inventario, obj_equipo, obj_stats, stats_de
 from servidor.salas import miembro
 
 
+def cola_inventario(c, movidos=()):
+    return (obj_stats(c) + obj_equipo(c) + struct.pack("<H", len(movidos))
+            + b"".join(struct.pack("<IBB", it[3], it[1], it[2]) for it in movidos)
+            + struct.pack("<H", 0))
+
+
 @maneja(0x102B, 0x102D)
 def guardar_inventario(cmd, cuerpo, conexion, c, p):
     if not (len(cuerpo) >= 0x1A):
@@ -85,9 +91,7 @@ def guardar_inventario(cmd, cuerpo, conexion, c, p):
             and subio <= antes[5]):
         c["stats"] = list(stats[:5])
     guardar(c)
-    cola = (obj_stats(c) + obj_equipo(c) + struct.pack("<H", len(movidos))
-            + b"".join(struct.pack("<IBB", it[3], it[1], it[2]) for it in movidos)
-            + struct.pack("<H", 0))
+    cola = cola_inventario(c, movidos)
     if cmd == 0x102B:
         return [(0x102C, struct.pack("<HB", 1, cuerpo[4]) + cola, 0)]
     s = SALAS.get(p.get("sala"))
