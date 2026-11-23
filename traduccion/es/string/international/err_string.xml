@@ -1,0 +1,77 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<STRINGS>
+ <STRINGINFO>
+   <STRING INDEX="0" VALUE="" />
+   <STRING INDEX="1" VALUE="No se puede conectar al servidor.\nReinicia el juego. Si continúa, contacta al administrador." />
+   <STRING INDEX="2" VALUE="No se puede conectar al servidor.\nActualizando lista de servidores." />
+   <STRING INDEX="3" VALUE="Selecciona primero un servidor." />
+   <STRING INDEX="4" VALUE="Falló la conexión de red.\nReinicia el juego o contacta al administrador." />
+   <STRING INDEX="5" VALUE="El servidor seleccionado no está disponible.\nSelecciona otro servidor." />
+   <STRING INDEX="6" VALUE="Conexión inestable con el servidor.\nVuelve a iniciar sesión." />
+   <STRING INDEX="7" VALUE="Error de datos.\nReinicia el juego o contacta al administrador." />
+   <STRING INDEX="8" VALUE="Ya hay una sesión con este ID. Se cerrará la conexión anterior." />
+   <STRING INDEX="9" VALUE="El servidor se ha cerrado.\nSe cerrará el juego." />
+   <STRING INDEX="10" VALUE="No se puede conectar al servidor.\nIntentando iniciar sesión de nuevo." />
+   <STRING INDEX="11" VALUE="El servidor está lleno. No puedes entrar." />
+   <STRING INDEX="100" VALUE="La clase del personaje no existe.\nInténtalo otra vez." />
+   <STRING INDEX="101" VALUE="No hay ranuras suficientes.\nCompra otra ranura e inténtalo de nuevo." />
+   <STRING INDEX="102" VALUE="Ese nombre ya existe.\nElige otro nombre." />
+   <STRING INDEX="103" VALUE="Personaje eliminado." />
+   <STRING INDEX="104" VALUE="No se puede eliminar el personaje.\nSe actualizará la información." />
+   <STRING INDEX="105" VALUE="La ranura seleccionada no tiene personaje.\nSelecciona uno primero." />
+   <STRING INDEX="106" VALUE="Ya existe un personaje en esa ranura." />
+   <STRING INDEX="107" VALUE="Introduce el nombre del nuevo personaje." />
+   <STRING INDEX="108" VALUE="Selecciona la clase del nuevo personaje." />
+   <STRING INDEX="109" VALUE="No hay personajes para eliminar." />
+   <STRING INDEX="110" VALUE="Personaje creado correctamente." />
+   <STRING INDEX="111" VALUE="La ranura no está vacía.\nSe actualizará la información." />
+   <STRING INDEX="112" VALUE="No se encuentran los datos.\nReinicia el juego o contacta al administrador." />
+   <STRING INDEX="113" VALUE="Te expulsaron de la sala de espera." />
+   <STRING INDEX="114" VALUE="El personaje tiene equipo equipado.\nQuítale todo el equipo antes de eliminarlo." />
+   <STRING INDEX="115" VALUE="No puedes usar ese nombre." />
+   <STRING INDEX="200" VALUE="No hay ranuras libres.\nCompruébalo de nuevo." />
+   <STRING INDEX="201" VALUE="Coloca una piedra espiritual en la ranura e inténtalo de nuevo." />
+   <STRING INDEX="202" VALUE="No tienes suficientes piedras espirituales para refinar." />
+   <STRING INDEX="203" VALUE="Información incorrecta. Inténtalo otra vez." />
+   <STRING INDEX="204" VALUE="Las fases de las piedras espirituales no coinciden." />
+   <STRING INDEX="205" VALUE="Los niveles de las piedras espirituales no coinciden." />
+   <STRING INDEX="206" VALUE="Equipa objetos con ranuras disponibles e inténtalo de nuevo." />
+   <STRING INDEX="207" VALUE="No hay objetos que reparar." />
+   <STRING INDEX="208" VALUE="Este objeto no puede repararse." />
+   <STRING INDEX="209" VALUE="No tienes suficiente Oro." />
+   <STRING INDEX="210" VALUE="Tu nivel no cumple el requisito de la habilidad." />
+   <STRING INDEX="211" VALUE="Tu clase no corresponde a esa habilidad." />
+   <STRING INDEX="212" VALUE="No puedes comprar: inventario lleno." />
+   <STRING INDEX="213" VALUE="No tienes suficiente Cash para comprar." />
+   <STRING INDEX="214" VALUE="Ya tienes esa habilidad." />
+   <STRING INDEX="215" VALUE="No tienes ranuras libres para esa habilidad." />
+   <STRING INDEX="216" VALUE="No puedes equipar este objeto." />
+   <STRING INDEX="217" VALUE="Selecciona una opción antes de pulsar el botón." />
+   <STRING INDEX="218" VALUE="El objeto seleccionado no se puede vender." />
+   <STRING INDEX="219" VALUE="¡Felicidades! Se añadió una ranura." />
+   <STRING INDEX="220" VALUE="No se pudo añadir la ranura." />
+   <STRING INDEX="221" VALUE="Objeto reparado." />
+   <STRING INDEX="222" VALUE="No tienes suficiente Oro para comprar todos los objetos." />
+   <STRING INDEX="223" VALUE="Objeto comprado correctamente." />
+   <STRING INDEX="224" VALUE="Objeto vendido correctamente." />
+   <STRING INDEX="225" VALUE="No se pudo vender el objeto.\nInténtalo más tarde." />
+   <STRING INDEX="226" VALUE="Equipa el objeto en una ranura e inténtalo de nuevo." />
+   <STRING INDEX="300" VALUE="Selecciona una fase e inténtalo de nuevo." />
+   <STRING INDEX="301" VALUE="Falta el nombre de la sala.\nIntroduce uno." />
+   <STRING INDEX="302" VALUE="Selecciona la dificultad." />
+   <STRING INDEX="303" VALUE="Fase no disponible.\nSelecciona otra." />
+   <STRING INDEX="304" VALUE="La sala está llena. No puedes entrar." />
+   <STRING INDEX="305" VALUE="No puedes entrar a la fase." />
+   <STRING INDEX="306" VALUE="Partida en curso." />
+   <STRING INDEX="307" VALUE="Introduce el nombre que quieres buscar." />
+   <STRING INDEX="308" VALUE="Vuelve a buscar." />
+   <STRING INDEX="309" VALUE="No se pueden crear más salas." />
+   <STRING INDEX="310" VALUE="No se puede cambiar de canal. Inténtalo más tarde." />
+   <STRING INDEX="311" VALUE="No se puede crear la fase." />
+   <STRING INDEX="400" VALUE="No has seleccionado usuarios para invitar." />
+   <STRING INDEX="401" VALUE="Todos deben estar listos para iniciar la partida." />
+   <STRING INDEX="402" VALUE="Contraseña incorrecta. Inténtalo de nuevo." />
+   <STRING INDEX="403" VALUE="No se pudo cambiar la información de la sala." />
+   <STRING INDEX="404" VALUE="No tienes permiso para iniciar la partida." />
+ </STRINGINFO>
+</STRINGS>

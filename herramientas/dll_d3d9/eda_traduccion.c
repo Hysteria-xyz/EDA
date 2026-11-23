@@ -1,4 +1,4 @@
-/* eda_traduccion.c — ★ (23-nov, Fase 2) TRADUCCIÓN EN MEMORIA DESDE `traducciones\<idioma>\`.
+/* eda_traduccion.c — ★ (23-nov) TRADUCCIÓN EN MEMORIA (embebida + carpeta suelta `traducciones\<idioma>\`).
  *
  * Qué hace: permite traducir los textos XML, texturas HGE (.tga/.png/.bmp), scripts Lua y texturas 3D (.dtx)
  * de EDA SIN tocar un solo byte de `EDA_limpio.exe`, `Data.dat` ni `LTMsg.dll` (cuyo MD5 es la clave AES-256
@@ -18,15 +18,16 @@
  *     · 0x7FA260 SolFSGetInfo     (2 args, ret 0x08) — 1 sitio:  0x72FF94 (el otro usa el handle del archivo contenedor)
  *
  * Cómo funciona:
- *   1. `[traduccion] idioma=` en `eda_d3d9.ini` (o `EDA_IDIOMA`). APAGADO por defecto (vacío o `en` = sin ganchos).
- *      También se apaga si `[general] mejoras=0`.
+ *   1. `[traduccion] idioma=es` en `eda_d3d9.ini` (o `EDA_IDIOMA`). Prendido en español por defecto; `idioma=en`,
+ *      `off`, `ninguno`, vacío o `[general] mejoras=0` lo apagan sin enganchar nada.
  *   2. Verifica el PE del exe, los 7 prólogos de SolFS y las 16 llamadas `E8 rel32` ANTES de tocar un solo byte.
  *      Si uno solo no coincide (otro exe), no engancha nada y lo anota en `eda_d3d9.log`.
- *   3. Cuando el juego abre un archivo de `Data.dat` para lectura, normaliza la ruta y comprueba si existe
- *      `<carpeta_exe>\traducciones\<idioma>\<ruta>`. Si existe, lo abre del disco (Win32) y devuelve un puntero
- *      a un casillero propio `g_tr_slots[i]` (imposible de confundir con un puntero del heap de SolFS); las
- *      operaciones siguientes (tamaño, seek, pos, lectura, cierre) atienden ese archivo. Si no existe, sigue a
- *      `Data.dat` exactamente como siempre.
+ *   3. Cuando el juego abre un archivo de `Data.dat` para lectura, normaliza la ruta y busca en orden:
+ *      (1) archivo suelto `<carpeta_exe>\traducciones\<idioma>\<ruta>` (para probar cambios sin recompilar);
+ *      (2) archivo embebido en la DLL (`eda_traduccion_datos.h`, generado desde `traduccion/<idioma>/`);
+ *      (3) `Data.dat` original.
+ *      Tanto los archivos sueltos como los embebidos devuelven un puntero a un casillero propio `g_tr_slots[i]`
+ *      (imposible de confundir con un puntero del heap de SolFS).
  *   4. Opcional (prendido con `idioma=es`, `[traduccion] cadenas_exe=0` lo apaga): parcha en memoria 3 literales
  *      UTF-16-LE del mismo largo exacto en `.rdata` (`LV%3d` → `Nv%3d`, `%dGold` → `%d Oro`,
  *      `[%s]%s(%dGold)` → `[%s]%s(%d Oro)`), verificando los bytes originales primero.
@@ -37,6 +38,8 @@
 #endif
 
 #include <stddef.h>
+#include <string.h>
+#include "eda_traduccion_datos.h"
 
 /* El EDA_limpio.exe conocido (md5 0799387e...): su PE */
 #define TR_EXE_BASE   0x00400000u
@@ -296,6 +299,64 @@ static const char *tr_nombre_glifo_diag(unsigned short ch)
     }
 }
 
+/* Cuántos archivos embebidos existen en la DLL para `idioma`. */
+static int tr_contar_embebidos(const char *idioma)
+{
+    if (!idioma || !idioma[0]) return 0;
+    int n = 0;
+    for (int i = 0; i < TR_NEMBEBIDOS; i++) {
+        if (TR_EMBEBIDOS[i].idioma && strcmp(TR_EMBEBIDOS[i].idioma, idioma) == 0) n++;
+    }
+    return n;
+}
+
+/* Busca `ruta_norm` (salida de tr_normalizar_ruta, minúsculas con '\') en los archivos embebidos de `idioma`. */
+static const TR_EMBEBIDO *tr_buscar_embebido(const char *idioma, const unsigned short *ruta_norm)
+{
+    if (!idioma || !idioma[0] || !ruta_norm || !ruta_norm[0]) return NULL;
+    for (int i = 0; i < TR_NEMBEBIDOS; i++) {
+        const TR_EMBEBIDO *e = &TR_EMBEBIDOS[i];
+        if (!e->idioma || !e->ruta || strcmp(e->idioma, idioma) != 0) continue;
+        size_t j = 0;
+        for (; e->ruta[j] && ruta_norm[j]; j++) {
+            if ((unsigned short)(unsigned char)e->ruta[j] != ruta_norm[j]) break;
+        }
+        if (e->ruta[j] == 0 && ruta_norm[j] == 0) return e;
+    }
+    return NULL;
+}
+
+/* Seek en memoria (FILE_BEGIN=0, FILE_CURRENT=1, FILE_END=2) equivalente a SolFSSeek / SetFilePointer. */
+static int tr_mem_seek(unsigned long tam, unsigned long *pos_io, long offset, unsigned long metodo,
+                       unsigned long *out_pos)
+{
+    if (!pos_io) return -1;
+    if (metodo > 2u) return -24;
+    long long base = (metodo == 0u) ? 0LL : ((metodo == 1u) ? (long long)(*pos_io) : (long long)tam);
+    long long nuevo = base + (long long)offset;
+    if (nuevo < 0LL) return -1;
+    *pos_io = (unsigned long)nuevo;
+    if (out_pos) *out_pos = *pos_io;
+    return 0;
+}
+
+/* Lectura en memoria equivalente a SolFSReadFile / ReadFile. */
+static int tr_mem_read(const unsigned char *datos, unsigned long tam, unsigned long *pos_io,
+                       void *buf, unsigned long pedir, unsigned long *out_leidos)
+{
+    if (!pos_io) return -1;
+    if (!datos || *pos_io >= tam || pedir == 0u) {
+        if (out_leidos) *out_leidos = 0u;
+        return 0;
+    }
+    unsigned long disp = tam - *pos_io;
+    unsigned long n = pedir < disp ? pedir : disp;
+    if (buf && n) memcpy(buf, datos + *pos_io, (size_t)n);
+    *pos_io += n;
+    if (out_leidos) *out_leidos = n;
+    return 0;
+}
+
 #if !EDA_TRADUCCION_SOLO_LOGICA
 
 /* ── parte Windows (integrada en d3d9.dll) ────────────────────────────────────────────────────────────── */
@@ -310,14 +371,18 @@ typedef int (WINAPI *TR_SOLFS_INFO)(DWORD, void *);
 
 #define TR_MAX_SLOTS 64
 typedef struct {
-    HANDLE fh;
+    HANDLE fh;                     /* != INVALID_HANDLE_VALUE si viene del disco (carpeta suelta) */
+    const unsigned char *mem;      /* != NULL si viene embebido en la DLL */
+    unsigned long mem_tam;
+    unsigned long mem_pos;
     volatile LONG en_uso;
 } TR_SLOT;
 
 static char g_tr_idioma_cfg[32];
 static char g_tr_idioma[16];
 static int g_tr_cadenas_exe = 1;
-static int g_tr_diag_glifos = 1;
+static int g_tr_diag_glifos = 0;
+static int g_tr_carpeta_suelta;
 static int g_tr_instalado;
 static int g_tr_diag_instalado;
 static volatile LONG g_tr_diag_n;
@@ -328,6 +393,8 @@ static TR_SLOT g_tr_slots[TR_MAX_SLOTS];
 static CRITICAL_SECTION g_tr_cs;
 static int g_tr_cursor;
 static volatile LONG g_tr_redirigidos;
+static volatile LONG g_tr_redirigidos_sueltos;
+static volatile LONG g_tr_redirigidos_emb;
 
 static void tr_leer_ini(HMODULE self, const char *ini)
 {
@@ -339,9 +406,10 @@ static void tr_leer_ini(HMODULE self, const char *ini)
         if (b) b[1] = 0;
         else g_tr_base_w[0] = 0;
     }
-    GetPrivateProfileStringA("traduccion", "idioma", "", g_tr_idioma_cfg, sizeof(g_tr_idioma_cfg), ini);
+    /* Por defecto "es" si la clave no existe en un .ini previo del jugador; idioma=en / off / vacío la apaga */
+    GetPrivateProfileStringA("traduccion", "idioma", "es", g_tr_idioma_cfg, sizeof(g_tr_idioma_cfg), ini);
     g_tr_cadenas_exe = GetPrivateProfileIntA("traduccion", "cadenas_exe", 1, ini);
-    g_tr_diag_glifos = GetPrivateProfileIntA("traduccion", "diag_glifos", 1, ini);
+    g_tr_diag_glifos = GetPrivateProfileIntA("traduccion", "diag_glifos", 0, ini);
     char env[32];
     DWORD n = GetEnvironmentVariableA("EDA_IDIOMA", env, sizeof(env));
     if (n && n < sizeof(env)) lstrcpynA(g_tr_idioma_cfg, env, (int)sizeof(g_tr_idioma_cfg));
@@ -359,7 +427,7 @@ static TR_SLOT *tr_slot_de(DWORD handle)
     return s->en_uso ? s : NULL;
 }
 
-static TR_SLOT *tr_slot_tomar(HANDLE fh)
+static TR_SLOT *tr_slot_tomar(HANDLE fh, const TR_EMBEBIDO *emb)
 {
     TR_SLOT *elegido = NULL;
     EnterCriticalSection(&g_tr_cs);
@@ -367,6 +435,9 @@ static TR_SLOT *tr_slot_tomar(HANDLE fh)
         int idx = (g_tr_cursor + i) % TR_MAX_SLOTS;
         if (!g_tr_slots[idx].en_uso) {
             g_tr_slots[idx].fh = fh;
+            g_tr_slots[idx].mem = emb ? emb->datos : NULL;
+            g_tr_slots[idx].mem_tam = emb ? emb->tam : 0u;
+            g_tr_slots[idx].mem_pos = 0u;
             g_tr_slots[idx].en_uso = 1;
             g_tr_cursor = (idx + 1) % TR_MAX_SLOTS;
             elegido = &g_tr_slots[idx];
@@ -377,39 +448,61 @@ static TR_SLOT *tr_slot_tomar(HANDLE fh)
     return elegido;
 }
 
+static void tr_anotar_redirigido(const unsigned short *rel, const char *fuente)
+{
+    LONG n = InterlockedIncrement(&g_tr_redirigidos);
+    if (n <= 16) {
+        char utf8[260];
+        utf8[0] = 0;
+        WideCharToMultiByte(CP_UTF8, 0, (const WCHAR *)rel, -1, utf8, sizeof(utf8), NULL, NULL);
+        apuntar("  [traduccion] #%ld (%s) → %s", (long)n, fuente, utf8[0] ? utf8 : "?");
+    } else if (n == 17) {
+        apuntar("  [traduccion] (siguen archivos redirigidos; el total queda al cerrar)");
+    }
+}
+
 static int WINAPI tr_mi_open(DWORD storage, const WCHAR *nombre, DWORD b_leer, DWORD b_escribir,
                              DWORD comp_leer, DWORD comp_escr, const void *clave, DWORD clave_len, DWORD *out_handle)
 {
-    if (nombre && out_handle && b_leer && g_tr_base_w[0] && g_tr_idioma[0]) {
-        unsigned short completa[MAX_PATH];
-        if (tr_armar_ruta((const unsigned short *)g_tr_base_w, g_tr_idioma,
-                          (const unsigned short *)nombre, completa, MAX_PATH)) {
-            DWORD attr = GetFileAttributesW((const WCHAR *)completa);
-            if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
-                HANDLE fh = CreateFileW((const WCHAR *)completa, GENERIC_READ, FILE_SHARE_READ,
-                                        NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (fh != INVALID_HANDLE_VALUE) {
-                    TR_SLOT *s = tr_slot_tomar(fh);
-                    if (s) {
-                        *out_handle = (DWORD)(ULONG_PTR)s;
-                        LONG n = InterlockedIncrement(&g_tr_redirigidos);
-                        if (n <= 16) {
-                            unsigned short rel[260];
-                            char utf8[260];
-                            utf8[0] = 0;
-                            if (tr_normalizar_ruta((const unsigned short *)nombre, rel, 260))
-                                WideCharToMultiByte(CP_UTF8, 0, (const WCHAR *)rel, -1, utf8, sizeof(utf8), NULL, NULL);
-                            apuntar("  [traduccion] #%ld → %s", (long)n, utf8[0] ? utf8 : "?");
-                        } else if (n == 17) {
-                            apuntar("  [traduccion] (siguen archivos redirigidos; el total queda al cerrar)");
+    if (nombre && out_handle && b_leer && g_tr_idioma[0]) {
+        unsigned short rel[260];
+        if (tr_normalizar_ruta((const unsigned short *)nombre, rel, 260)) {
+            /* 1. Prioridad: archivo suelto en traducciones\<idioma>\<ruta> (para probar cambios sin recompilar) */
+            if (g_tr_carpeta_suelta && g_tr_base_w[0]) {
+                unsigned short completa[MAX_PATH];
+                if (tr_armar_ruta((const unsigned short *)g_tr_base_w, g_tr_idioma,
+                                  (const unsigned short *)nombre, completa, MAX_PATH)) {
+                    DWORD attr = GetFileAttributesW((const WCHAR *)completa);
+                    if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                        HANDLE fh = CreateFileW((const WCHAR *)completa, GENERIC_READ, FILE_SHARE_READ,
+                                                NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+                        if (fh != INVALID_HANDLE_VALUE) {
+                            TR_SLOT *s = tr_slot_tomar(fh, NULL);
+                            if (s) {
+                                *out_handle = (DWORD)(ULONG_PTR)s;
+                                InterlockedIncrement(&g_tr_redirigidos_sueltos);
+                                tr_anotar_redirigido(rel, "suelto");
+                                return 0;
+                            }
+                            CloseHandle(fh);
                         }
-                        return 0;
                     }
-                    CloseHandle(fh);
+                }
+            }
+            /* 2. Si no está suelto, buscar embebido en la DLL */
+            const TR_EMBEBIDO *emb = tr_buscar_embebido(g_tr_idioma, rel);
+            if (emb) {
+                TR_SLOT *s = tr_slot_tomar(INVALID_HANDLE_VALUE, emb);
+                if (s) {
+                    *out_handle = (DWORD)(ULONG_PTR)s;
+                    InterlockedIncrement(&g_tr_redirigidos_emb);
+                    tr_anotar_redirigido(rel, "embebido");
+                    return 0;
                 }
             }
         }
     }
+    /* 3. Si no está ni suelto ni embebido, sigue a Data.dat como siempre */
     return ((TR_SOLFS_OPEN)(ULONG_PTR)TR_FN_OPEN)(storage, nombre, b_leer, b_escribir,
                                                   comp_leer, comp_escr, clave, clave_len, out_handle);
 }
@@ -423,6 +516,9 @@ static int WINAPI tr_mi_close(DWORD handle)
         if (s->en_uso) {
             fh = s->fh;
             s->fh = INVALID_HANDLE_VALUE;
+            s->mem = NULL;
+            s->mem_tam = 0u;
+            s->mem_pos = 0u;
             s->en_uso = 0;
         }
         LeaveCriticalSection(&g_tr_cs);
@@ -436,6 +532,10 @@ static int WINAPI tr_mi_size(DWORD handle, DWORD *out_size)
 {
     TR_SLOT *s = tr_slot_de(handle);
     if (s) {
+        if (s->mem) {
+            if (out_size) *out_size = (DWORD)s->mem_tam;
+            return 0;
+        }
         DWORD sz = GetFileSize(s->fh, NULL);
         if (sz == INVALID_FILE_SIZE && GetLastError() != NO_ERROR) return -1;
         if (out_size) *out_size = sz;
@@ -449,6 +549,12 @@ static int WINAPI tr_mi_seek(DWORD handle, LONG pos, DWORD origen, DWORD *out_po
     TR_SLOT *s = tr_slot_de(handle);
     if (s) {
         DWORD metodo = origen & 0xFFFFu;
+        if (s->mem) {
+            unsigned long np = 0u;
+            int rc = tr_mem_seek(s->mem_tam, &s->mem_pos, (long)pos, (unsigned long)metodo, &np);
+            if (rc == 0 && out_pos) *out_pos = (DWORD)np;
+            return rc;
+        }
         if (metodo > 2u) return -24; /* FILE_BEGIN=0, FILE_CURRENT=1, FILE_END=2 */
         DWORD np = SetFilePointer(s->fh, pos, NULL, metodo);
         if (np == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) return -1;
@@ -462,6 +568,10 @@ static int WINAPI tr_mi_pos(DWORD handle, DWORD *out_pos)
 {
     TR_SLOT *s = tr_slot_de(handle);
     if (s) {
+        if (s->mem) {
+            if (out_pos) *out_pos = (DWORD)s->mem_pos;
+            return 0;
+        }
         DWORD np = SetFilePointer(s->fh, 0, NULL, FILE_CURRENT);
         if (np == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) return -1;
         if (out_pos) *out_pos = np;
@@ -474,6 +584,12 @@ static int WINAPI tr_mi_read(DWORD handle, void *buf, DWORD tam, DWORD *out_leid
 {
     TR_SLOT *s = tr_slot_de(handle);
     if (s) {
+        if (s->mem) {
+            unsigned long leidos = 0u;
+            int rc = tr_mem_read(s->mem, s->mem_tam, &s->mem_pos, buf, (unsigned long)tam, &leidos);
+            if (out_leidos) *out_leidos = (DWORD)leidos;
+            return rc;
+        }
         DWORD leidos = 0;
         if (!ReadFile(s->fh, buf, tam, &leidos, NULL)) {
             if (out_leidos) *out_leidos = 0;
@@ -706,20 +822,23 @@ static void tr_instalar(void)
                 g_tr_idioma_cfg[0] ? g_tr_idioma_cfg : "vacío");
         return;
     }
-    /* Verificar que exista la carpeta traducciones\<idioma>\ junto a la dll */
-    unsigned short carp_w[MAX_PATH];
-    unsigned short dummy[2] = {'a', 0};
-    if (!g_tr_base_w[0] || !tr_armar_ruta((const unsigned short *)g_tr_base_w, g_tr_idioma, dummy, carp_w, MAX_PATH)) {
-        apuntar("  [traduccion] ⚠ ruta base inválida: no se engancha nada");
-        return;
+    /* Comprobar si existe carpeta suelta traducciones\<idioma>\ junto a la dll (prioridad sobre embebidos) */
+    g_tr_carpeta_suelta = 0;
+    if (g_tr_base_w[0]) {
+        unsigned short carp_w[MAX_PATH];
+        unsigned short dummy[2] = {'a', 0};
+        if (tr_armar_ruta((const unsigned short *)g_tr_base_w, g_tr_idioma, dummy, carp_w, MAX_PATH)) {
+            size_t clen = 0;
+            while (carp_w[clen]) clen++;
+            if (clen >= 2) carp_w[clen - 2] = 0;
+            DWORD attr = GetFileAttributesW((const WCHAR *)carp_w);
+            if (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY))
+                g_tr_carpeta_suelta = 1;
+        }
     }
-    /* Quitar "\a" final para comprobar el directorio traducciones\<idioma> */
-    size_t clen = 0;
-    while (carp_w[clen]) clen++;
-    if (clen >= 2) carp_w[clen - 2] = 0;
-    DWORD attr = GetFileAttributesW((const WCHAR *)carp_w);
-    if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
-        apuntar("  [traduccion] idioma=%s: no existe la carpeta traducciones\\%s\\ junto al juego: sin ganchos",
+    int n_emb = tr_contar_embebidos(g_tr_idioma);
+    if (!g_tr_carpeta_suelta && n_emb == 0) {
+        apuntar("  [traduccion] idioma=%s: sin carpeta traducciones\\%s\\ ni archivos embebidos: sin ganchos",
                 g_tr_idioma, g_tr_idioma);
         return;
     }
@@ -747,6 +866,9 @@ static void tr_instalar(void)
     InitializeCriticalSection(&g_tr_cs);
     for (int i = 0; i < TR_MAX_SLOTS; i++) {
         g_tr_slots[i].fh = INVALID_HANDLE_VALUE;
+        g_tr_slots[i].mem = NULL;
+        g_tr_slots[i].mem_tam = 0u;
+        g_tr_slots[i].mem_pos = 0u;
         g_tr_slots[i].en_uso = 0;
     }
     int puestos = 0;
@@ -766,22 +888,26 @@ static void tr_instalar(void)
     int cad = 0;
     if (g_tr_instalado && g_tr_cadenas_exe && strcmp(g_tr_idioma, "es") == 0)
         cad = tr_parchear_cadenas_es();
-    apuntar("  [traduccion] idioma=%s · %d/%d llamadas SolFS enganchadas · carpeta traducciones\\%s\\ · cadenas exe %d/%d",
-            g_tr_idioma, puestos, TR_NSITIOS, g_tr_idioma, cad, TR_NCADENAS);
+    apuntar("  [traduccion] idioma=%s · %d/%d llamadas SolFS enganchadas · %d embebido(s) · carpeta suelta: %s · cadenas exe %d/%d",
+            g_tr_idioma, puestos, TR_NSITIOS, n_emb, g_tr_carpeta_suelta ? "sí" : "no", cad, TR_NCADENAS);
     if (g_tr_instalado) tr_instalar_diag_glifos();
 }
 
 static void tr_cerrar(void)
 {
     if (!g_tr_instalado) return;
-    apuntar("  [traduccion] resumen: %ld archivo(s) redirigido(s) desde traducciones\\%s\\%s",
-            (long)g_tr_redirigidos, g_tr_idioma, g_tr_diag_instalado ? " · diag_glifos activo" : "");
+    apuntar("  [traduccion] resumen: %ld archivo(s) redirigido(s) (%ld suelto(s), %ld embebido(s)) · idioma=%s%s",
+            (long)g_tr_redirigidos, (long)g_tr_redirigidos_sueltos, (long)g_tr_redirigidos_emb,
+            g_tr_idioma, g_tr_diag_instalado ? " · diag_glifos activo" : "");
     if (g_tr_diag_instalado)
         apuntar("  [traduccion] diag_glifos: %ld glifo(s) medido(s) en eda_d3d9.log ([diag-glifo])", (long)g_tr_diag_n);
     for (int i = 0; i < TR_MAX_SLOTS; i++) {
-        if (g_tr_slots[i].en_uso && g_tr_slots[i].fh != INVALID_HANDLE_VALUE) {
-            CloseHandle(g_tr_slots[i].fh);
+        if (g_tr_slots[i].en_uso) {
+            if (g_tr_slots[i].fh != INVALID_HANDLE_VALUE) CloseHandle(g_tr_slots[i].fh);
             g_tr_slots[i].fh = INVALID_HANDLE_VALUE;
+            g_tr_slots[i].mem = NULL;
+            g_tr_slots[i].mem_tam = 0u;
+            g_tr_slots[i].mem_pos = 0u;
             g_tr_slots[i].en_uso = 0;
         }
     }

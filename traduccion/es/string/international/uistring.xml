@@ -1,0 +1,279 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<STRINGS>
+ <STRINGINFO>
+   <STRING INDEX="0" VALUE="" />
+   <STRING INDEX="1" VALUE="Confirmar" />
+   <STRING INDEX="2" VALUE="Cancelar" />
+   <STRING INDEX="3" VALUE="Información Básica" />
+   <STRING INDEX="4" VALUE="Nombre del Personaje" />
+   <STRING INDEX="5" VALUE="%s" />
+   <STRING INDEX="6" VALUE="Lv" />
+   <STRING INDEX="7" VALUE="%dLV" />
+   <STRING INDEX="8" VALUE="EXP" />
+   <STRING INDEX="9" VALUE="(%u/%u)" />
+   <STRING INDEX="10" VALUE="Tasa de Retiro" />
+   <STRING INDEX="11" VALUE="%d / %d (%d%%)" />
+   <STRING INDEX="12" VALUE="%d" />
+   <STRING INDEX="13" VALUE="%.2f" />
+   <STRING INDEX="14" VALUE="Fuerza:" />
+   <STRING INDEX="15" VALUE="Vitalidad:" />
+   <STRING INDEX="16" VALUE="Destreza:" />
+   <STRING INDEX="17" VALUE="Inteligencia:" />
+   <STRING INDEX="18" VALUE="Sabiduría:" />
+   <STRING INDEX="19" VALUE="Información detallada" />
+   <STRING INDEX="20" VALUE="(+%.2f)" />
+   <STRING INDEX="21" VALUE="Atq. melé:" />
+   <STRING INDEX="22" VALUE="Def. melé:" />
+   <STRING INDEX="23" VALUE="Atq. dist.:" />
+   <STRING INDEX="24" VALUE="Def. dist.:" />
+   <STRING INDEX="25" VALUE="Max HP:" />
+   <STRING INDEX="26" VALUE="Max MP:" />
+   <STRING INDEX="27" VALUE="Vel. atq.:" />
+   <STRING INDEX="28" VALUE="Vel. mov.:" />
+   <STRING INDEX="29" VALUE="Crítico:" />
+   <STRING INDEX="30" VALUE="T. tensión:" />
+   <STRING INDEX="31" VALUE="Registro de combate:" />
+   <STRING INDEX="32" VALUE="S Rank:" />
+   <STRING INDEX="33" VALUE="A Rank:" />
+   <STRING INDEX="34" VALUE="B Rank:" />
+   <STRING INDEX="35" VALUE="C Rank:" />
+   <STRING INDEX="36" VALUE="D Rank:" />
+   <STRING INDEX="37" VALUE="Fallido:" />
+   <STRING INDEX="38" VALUE="%d  Oro" />
+   <STRING INDEX="39" VALUE="%d  Cash" />
+   <STRING INDEX="40" VALUE="Batalla PvP" />
+   <STRING INDEX="41" VALUE="Servicio no disponible actualmente" />
+   <STRING INDEX="42" VALUE="(%.2f)" />
+   <STRING INDEX="43" VALUE="Esperando respuesta del servidor.\nEspera, por favor." />
+<!-- Server Select Screen-->
+   <STRING INDEX="1000" VALUE="Aviso" />
+   <STRING INDEX="1001" VALUE="Lista de servidores" />
+   <STRING INDEX="1002" VALUE="ENTRAR" />
+   <STRING INDEX="1003" VALUE="CERRAR" />
+   <STRING INDEX="1004" VALUE="[Abierto]" />
+   <STRING INDEX="1005" VALUE="[Normal]" />
+   <STRING INDEX="1006" VALUE="[Ocupado]" />
+   <STRING INDEX="1007" VALUE="[Lleno]" />
+   <STRING INDEX="1008" VALUE="¿Seguro que quieres salir del juego?" />
+<!--Character Select Screen-->
+   <STRING INDEX="2000" VALUE="Selección de personaje" />
+   <STRING INDEX="2001" VALUE="Crear personaje" />
+   <STRING INDEX="2002" VALUE="Eliminar personaje" />
+   <STRING INDEX="2003" VALUE="Entrar al lobby" />
+   <STRING INDEX="2004" VALUE="Seleccionar servidor" />
+   <STRING INDEX="2005" VALUE="Crear personaje" />
+   <STRING INDEX="2006" VALUE="Introduce el nombre del personaje" />
+   <STRING INDEX="2007" VALUE="Selecciona un personaje" />
+   <STRING INDEX="2008" VALUE="Clase" />
+   <STRING INDEX="2009" VALUE="Información del personaje" />
+   <STRING INDEX="2010" VALUE="Especialización del personaje" />
+   <STRING INDEX="2011" VALUE="Crear" />
+   <STRING INDEX="2012" VALUE="Cancelar" />
+   <STRING INDEX="2013" VALUE="ID" />
+   <STRING INDEX="2014" VALUE="El personaje eliminado no podrá recuperarse. ¿Deseas continuar?" />
+   <STRING INDEX="2015" VALUE="¡Regalo de EDA! Has recibido %u monedas de resurrección." />
+<!-- Enter Channel Lobby-->
+   <STRING INDEX="3000" VALUE="Lobby del canal" />
+   <STRING INDEX="3001" VALUE="Anterior" />
+   <STRING INDEX="3002" VALUE="Tienda" />
+   <STRING INDEX="3003" VALUE="Inventario" />
+   <STRING INDEX="3004" VALUE="Clan" />
+   <STRING INDEX="3005" VALUE="Opciones" />
+   <STRING INDEX="3006" VALUE="Mensajero" />
+   <STRING INDEX="3007" VALUE="Salir del juego" />
+   <STRING INDEX="3008" VALUE="Escenario" />
+   <STRING INDEX="3009" VALUE="Número" />
+   <STRING INDEX="3010" VALUE="Nombre del Stage" />
+   <STRING INDEX="3011" VALUE="Nombre de la sala" />
+   <STRING INDEX="3012" VALUE="Participantes" />
+   <STRING INDEX="3013" VALUE="Estado" />
+   <STRING INDEX="3014" VALUE="Esperando" />
+   <STRING INDEX="3015" VALUE="Jugando" />
+   <STRING INDEX="3016" VALUE="Disponible" />
+   <STRING INDEX="3017" VALUE="Buscar Stage" />
+   <STRING INDEX="3018" VALUE="Crear Stage" />
+   <STRING INDEX="3019" VALUE="Inicio rápido" />
+   <STRING INDEX="3020" VALUE="Entrar" />
+   <STRING INDEX="3021" VALUE="Canal" />
+   <STRING INDEX="3022" VALUE="1CH" />
+   <STRING INDEX="3023" VALUE="2CH" />
+   <STRING INDEX="3024" VALUE="3CH" />
+   <STRING INDEX="3025" VALUE="4CH" />
+   <STRING INDEX="3026" VALUE="5CH" />
+   <STRING INDEX="3027" VALUE="6CH" />
+   <STRING INDEX="3028" VALUE="7CH" />
+   <STRING INDEX="3029" VALUE="8CH" />
+   <STRING INDEX="3030" VALUE="Buscar usuario" />
+   <STRING INDEX="3031" VALUE="Nombre del personaje" />
+   <STRING INDEX="3032" VALUE="Nivel" />
+   <STRING INDEX="3033" VALUE="Buscar" />
+   <STRING INDEX="3034" VALUE="Cerrar" />
+   <STRING INDEX="3035" VALUE="Introduce contraseña" />
+   <STRING INDEX="3036" VALUE="Contraseña incorrecta." />
+   <STRING INDEX="3037" VALUE="Reintentar" />
+   <STRING INDEX="3038" VALUE="Stage N.º %d" />
+   <STRING INDEX="3039" VALUE="Nivel requerido" />
+   <STRING INDEX="3040" VALUE="%dLv ~ %dLv" />
+   <STRING INDEX="3041" VALUE="Jugadores participantes" />
+   <STRING INDEX="3042" VALUE="%d/%d" />
+   <STRING INDEX="3043" VALUE="Líder de sala:" />
+   <STRING INDEX="3044" VALUE="Anterior" />
+   <STRING INDEX="3045" VALUE="Nombre de la sala" />
+   <STRING INDEX="3046" VALUE="Contraseña (1~8)" />
+   <STRING INDEX="3047" VALUE="Se ha seleccionado %s." />
+   <STRING INDEX="3048" VALUE="Dificultad del juego" />
+   <STRING INDEX="3049" VALUE="FÁCIL" />
+   <STRING INDEX="3050" VALUE="NORMAL" />
+   <STRING INDEX="3051" VALUE="DIFÍCIL" />
+   <STRING INDEX="3052" VALUE="Información de dificultad" />
+   <STRING INDEX="3053" VALUE="La dificultad más fácil. Ideal para jugar\nsolo. Menor recompensa." />
+   <STRING INDEX="3054" VALUE="Dificultad normal. Ideal para 2 o 3 jugadores.\nRecompensa normal." />
+   <STRING INDEX="3055" VALUE="La dificultad más alta, requiere varios\njugadores. Mayor recompensa." />
+   <STRING INDEX="3056" VALUE="Crear" />
+   <STRING INDEX="3057" VALUE="Cancelar" />
+   <STRING INDEX="3058" VALUE="Estás en el lobby." />
+   <STRING INDEX="3059" VALUE="Has entrado en la sala %d." />
+   <STRING INDEX="3060" VALUE="Sin conexión al servidor." />
+   <STRING INDEX="3061" VALUE="Jugar juntos" />
+   <STRING INDEX="3062" VALUE="Has elegido dificultad difícil. Hay mayor riesgo de fallar." />
+   <STRING INDEX="3063" VALUE="No se encuentra el personaje." />
+   <STRING INDEX="3064" VALUE="Capítulo %d" />
+   <STRING INDEX="3065" VALUE="%d jugadores" />
+<!-- Waiting Room-->
+   <STRING INDEX="4000" VALUE="Sala de espera" />
+   <STRING INDEX="4001" VALUE="Renombrar" />
+   <STRING INDEX="4002" VALUE="Contraseña" />
+   <STRING INDEX="4003" VALUE="Mensajero" />
+   <STRING INDEX="4004" VALUE="Invitar" />
+   <STRING INDEX="4005" VALUE="%s" />
+   <STRING INDEX="4006" VALUE="[%s]" />
+   <STRING INDEX="4007" VALUE="Dificultad" />
+   <STRING INDEX="4008" VALUE="%s" />
+   <STRING INDEX="4009" VALUE="Requisitos de misión" />
+   <STRING INDEX="4010" VALUE="%s" />
+   <STRING INDEX="4011" VALUE="%d ms" />
+   <STRING INDEX="4012" VALUE="F9 Iniciar partida" />
+   <STRING INDEX="4013" VALUE="Salir de la sala" />
+   <STRING INDEX="4014" VALUE="Introduce el nuevo nombre de la sala de espera." />
+   <STRING INDEX="4015" VALUE="Introduce la nueva contraseña de la sala de espera." />
+   <STRING INDEX="4016" VALUE="Introduce la contraseña de la sala de espera." />
+   <STRING INDEX="4017" VALUE="Cambiar" />
+   <STRING INDEX="4018" VALUE="Crear" />
+   <STRING INDEX="4019" VALUE="%s te ha invitado a la sala %d %s.\n¿Quieres entrar?" />
+   <STRING INDEX="4020" VALUE="F9 Cancelar listo" />
+   <STRING INDEX="4021" VALUE="F9 Listo" />
+   <STRING INDEX="4022" VALUE="Información del usuario" />
+   <STRING INDEX="4023" VALUE="Expulsar" />
+   <STRING INDEX="4024" VALUE="Ninguno" />
+   <STRING INDEX="4025" VALUE="Invitar al clan" />
+   <STRING INDEX="4026" VALUE="Invitar amigos" />
+<!--Shop&Inventory-->
+   <STRING INDEX="5000" VALUE="Tienda" />
+   <STRING INDEX="5001" VALUE="Inventario" />
+   <STRING INDEX="5002" VALUE="Refinería" />
+   <STRING INDEX="5003" VALUE="Habilidades" />
+   <STRING INDEX="5004" VALUE="Lobby" />
+   <STRING INDEX="5005" VALUE="Clan" />
+   <STRING INDEX="5006" VALUE="Puntos extra: %d" />
+   <STRING INDEX="5007" VALUE="Recargar Cash" />
+   <STRING INDEX="5008" VALUE="Arma" />
+   <STRING INDEX="5009" VALUE="Armadura" />
+   <STRING INDEX="5010" VALUE="Accesorio" />
+   <STRING INDEX="5011" VALUE="Otros" />
+   <STRING INDEX="5012" VALUE="Comprar" />
+   <STRING INDEX="5013" VALUE="Comprar todo" />
+   <STRING INDEX="5014" VALUE="Espada" />
+   <STRING INDEX="5015" VALUE="Pistola" />
+   <STRING INDEX="5016" VALUE="Casco" />
+   <STRING INDEX="5017" VALUE="Camisa" />
+   <STRING INDEX="5018" VALUE="Pantalón" />
+   <STRING INDEX="5019" VALUE="Guantes" />
+   <STRING INDEX="5020" VALUE="Cinturón" />
+   <STRING INDEX="5021" VALUE="Zapatos" />
+   <STRING INDEX="5022" VALUE="Anillo" />
+   <STRING INDEX="5023" VALUE="Collar" />
+   <STRING INDEX="5024" VALUE="Consumibles" />
+   <STRING INDEX="5025" VALUE="Objeto especial" />
+   <STRING INDEX="5026" VALUE="1" />
+   <STRING INDEX="5027" VALUE="2" />
+   <STRING INDEX="5028" VALUE="3" />
+   <STRING INDEX="5029" VALUE="4" />
+   <STRING INDEX="5030" VALUE="5" />
+   <STRING INDEX="5031" VALUE="Ranura de equipo" />
+   <STRING INDEX="5032" VALUE="Vender" />
+   <STRING INDEX="5033" VALUE="Encantar" />
+   <STRING INDEX="5034" VALUE="Refinar piedra" />
+   <STRING INDEX="5035" VALUE="Crear ranura" />
+   <STRING INDEX="5036" VALUE="Reparar" />
+   <STRING INDEX="5037" VALUE="Refinar" />
+   <STRING INDEX="5038" VALUE="Cancelar" />
+   <STRING INDEX="5039" VALUE="Fase piedra alma" />
+   <STRING INDEX="5040" VALUE="Nivel piedra alma" />
+   <STRING INDEX="5041" VALUE="Refinar" />
+   <STRING INDEX="5042" VALUE="Cancelar" />
+   <STRING INDEX="5043" VALUE="Crear" />
+   <STRING INDEX="5044" VALUE="Cancelar" />
+   <STRING INDEX="5045" VALUE="Reparar uno" />
+   <STRING INDEX="5046" VALUE="Rep. todo" />
+   <STRING INDEX="5047" VALUE="Eliminar habilidad" />
+   <STRING INDEX="5048" VALUE="" />
+   <STRING INDEX="5049" VALUE="Cash necesario:" />
+   <STRING INDEX="5050" VALUE="Gold necesario:" />
+   <STRING INDEX="5051" VALUE="¿Comprar todos los objetos seleccionados?" />
+   <STRING INDEX="5052" VALUE="Requiere Lv.%d" />
+   <STRING INDEX="5053" VALUE="Durab.:" />
+   <STRING INDEX="5054" VALUE="%d%%" />
+   <STRING INDEX="5055" VALUE="Precio:" />
+   <STRING INDEX="5056" VALUE="%d Gold o\n%d Cash" />
+   <STRING INDEX="5057" VALUE="Capa" />
+   <STRING INDEX="5058" VALUE="Oro actual:" />
+   <STRING INDEX="5059" VALUE="Cash actual:" />
+   <STRING INDEX="5060" VALUE="Cancelar compra" />
+   <STRING INDEX="5061" VALUE="x%d" />
+   <STRING INDEX="5062" VALUE="Refinado exitoso." />
+   <STRING INDEX="5063" VALUE="Falló el refinado.\n[Se destruyeron %d piedras espirituales.]" />
+   <STRING INDEX="5064" VALUE="Habilidad identificada.\n[%s, Nv.%d]" />
+   <STRING INDEX="5065" VALUE="Habilidad aprendida.\n[%s, Nv.%d]" />
+   <STRING INDEX="5066" VALUE="Se usarán %d Oro.\n¿Reparar el equipo?" />
+   <STRING INDEX="5067" VALUE="Se usarán %d Oro.\n¿Aprender la habilidad?" />
+   <STRING INDEX="5068" VALUE="[%s]   %d Oro.\n¿Comprar este objeto?" />
+   <STRING INDEX="5069" VALUE="[%s]   %d Cash.\n¿Comprar este objeto?" />
+   <STRING INDEX="5070" VALUE="[%s]   Lv.%d.\n¿Eliminar la habilidad?" />
+   <STRING INDEX="5071" VALUE="A" />
+   <STRING INDEX="5072" VALUE="P" />
+   <STRING INDEX="5073" VALUE="Lv.%d" />
+   <STRING INDEX="5074" VALUE="Todas" />
+   <STRING INDEX="5075" VALUE="[%s]      %d Oro.\n¿Vender este objeto?" />
+   <STRING INDEX="5076" VALUE="No equipable" />
+<!-- Game Scene-->
+   <STRING INDEX="6000" VALUE="Resultado de la misión" />
+   <STRING INDEX="6001" VALUE="Tiempo total" />
+   <STRING INDEX="6002" VALUE="Veces resucitado" />
+   <STRING INDEX="6003" VALUE="Veces golpeado" />
+   <STRING INDEX="6004" VALUE="Monstruos eliminados" />
+   <STRING INDEX="6005" VALUE="Rango obtenido" />
+   <STRING INDEX="6006" VALUE="Puntos obtenidos" />
+   <STRING INDEX="6007" VALUE="%d PUNTOS" />
+   <STRING INDEX="6008" VALUE="Monedas actuales" />
+   <STRING INDEX="6009" VALUE="X    %d" />
+   <STRING INDEX="6010" VALUE="¿Usar una moneda para resucitar?" />
+   <STRING INDEX="6011" VALUE="Oro:" />
+   <STRING INDEX="6012" VALUE="EXP:" />
+   <STRING INDEX="6013" VALUE="¿Salir del Stage y volver al lobby?" />
+   <STRING INDEX="6014" VALUE="EXP %.2f%%" />
+   <STRING INDEX="6015" VALUE="%s salió del Stage." />
+   <STRING INDEX="6016" VALUE="X%u" />
+   <STRING INDEX="6017" VALUE="Mantén pulsado &lt;Salto&gt; para ver a otros jugadores." />
+   <STRING INDEX="6018" VALUE="TIEMPO" />
+   <STRING INDEX="6019" VALUE="BAJAS" />
+   <STRING INDEX="6020" VALUE="TAB + 1" />
+   <STRING INDEX="6021" VALUE="TAB + 2" />
+   <STRING INDEX="6022" VALUE="TAB + 3" />
+   <STRING INDEX="6023" VALUE="TAB + 4" />
+   <STRING INDEX="6024" VALUE="TAB + 5" />
+   <STRING INDEX="6025" VALUE="TAB + 6" />
+   <STRING INDEX="6026" VALUE="TAB + 7" />
+   <STRING INDEX="6030" VALUE="MUERTES" />
+   <STRING INDEX="6031" VALUE="LÍDER" />
+ </STRINGINFO>
+</STRINGS>

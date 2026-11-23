@@ -1,0 +1,414 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<STRINGS>
+  <STRINGINFO>
+    <STRING INDEX="0" VALUE="" />
+    <!--워리어 장비 아이템-->
+    <STRING INDEX="1" VALUE="Espada larga Básica" />
+    <STRING INDEX="2" VALUE="Espada larga Experta" />
+    <STRING INDEX="3" VALUE="Espada larga Nano" />
+    <STRING INDEX="1001" VALUE="Pistola Básica" />
+    <STRING INDEX="1002" VALUE="Pistola Experta" />
+    <STRING INDEX="1003" VALUE="Pistola Nano" />
+    <STRING INDEX="3001" VALUE="Máscara Básica" />
+    <STRING INDEX="3002" VALUE="Gafas Expertas" />
+    <STRING INDEX="3003" VALUE="Máscara Nano" />
+    <STRING INDEX="4001" VALUE="Armadura Básica" />
+    <STRING INDEX="4002" VALUE="Armadura Experta" />
+    <STRING INDEX="4003" VALUE="Armadura Nano" />
+    <STRING INDEX="5001" VALUE="Pantalón Básico" />
+    <STRING INDEX="5002" VALUE="Pantalón Experto" />
+    <STRING INDEX="5003" VALUE="Pantalón Nano" />
+    <STRING INDEX="6001" VALUE="Brazal Básico" />
+    <STRING INDEX="6002" VALUE="Brazal Experto" />
+    <STRING INDEX="6003" VALUE="Brazal Nano" />
+    <STRING INDEX="7001" VALUE="Cinturón Básico" />
+    <STRING INDEX="7002" VALUE="Cinturón Experto" />
+    <STRING INDEX="7003" VALUE="Cinturón Nano" />
+    <STRING INDEX="8001" VALUE="Botas Básico" />
+    <STRING INDEX="8002" VALUE="Botas Experto" />
+    <STRING INDEX="8003" VALUE="Botas Nano" />
+    <!--헌터 장비 아이템-->
+    <STRING INDEX="201" VALUE="Espada corta Básica" />
+    <STRING INDEX="202" VALUE="Espada corta Experta" />
+    <STRING INDEX="203" VALUE="Espada corta Nano" />
+    <STRING INDEX="1201" VALUE="Escopeta Básica" />
+    <STRING INDEX="1202" VALUE="Escopeta Experta" />
+    <STRING INDEX="1203" VALUE="Escopeta Nano" />
+    <STRING INDEX="3201" VALUE="Máscara Básica" />
+    <STRING INDEX="3202" VALUE="Gafas Expertas" />
+    <STRING INDEX="3203" VALUE="Máscara Nano" />
+    <STRING INDEX="4201" VALUE="Traje Básico" />
+    <STRING INDEX="4202" VALUE="Traje Experto" />
+    <STRING INDEX="4203" VALUE="Traje Nano" />
+    <STRING INDEX="5201" VALUE="Falda Básico" />
+    <STRING INDEX="5202" VALUE="Falda Experto" />
+    <STRING INDEX="5203" VALUE="Falda Nano" />
+    <STRING INDEX="6201" VALUE="Guante Básico" />
+    <STRING INDEX="6202" VALUE="Guante Experto" />
+    <STRING INDEX="6203" VALUE="Guante Nano" />
+    <STRING INDEX="7201" VALUE="Faja Básica" />
+    <STRING INDEX="7202" VALUE="Faja Experta" />
+    <STRING INDEX="7203" VALUE="Faja Nano" />
+    <STRING INDEX="8201" VALUE="Zapatos Básico" />
+    <STRING INDEX="8202" VALUE="Zapatos Experto" />
+    <STRING INDEX="8203" VALUE="Zapatos Nano" />
+    <!--소모성 아이템-->
+    <STRING INDEX="26001" VALUE="Recuperación de HP 1" />
+    <STRING INDEX="26002" VALUE="Recuperación de HP 2" />
+    <STRING INDEX="26003" VALUE="Recuperación de HP 3" />
+    <STRING INDEX="26101" VALUE="Recuperación de MP 1" />
+    <STRING INDEX="26102" VALUE="Recuperación de MP 2" />
+    <STRING INDEX="26103" VALUE="Recuperación de MP 3" />
+    <!--영혼석-->
+    <STRING INDEX="21001" VALUE="Piedra alma de Fuego 1" />
+    <STRING INDEX="21002" VALUE="Piedra alma de Fuego 2" />
+    <STRING INDEX="21003" VALUE="Piedra alma de Fuego 3" />
+    <STRING INDEX="21004" VALUE="Piedra alma de Fuego 4" />
+    <STRING INDEX="21004" VALUE="Piedra alma de Fuego 5" />
+    <STRING INDEX="21004" VALUE="Piedra alma de Fuego 6" />
+    <STRING INDEX="21021" VALUE="Piedra alma Ígnea 1" />
+    <STRING INDEX="21022" VALUE="Piedra alma Ígnea 2" />
+    <STRING INDEX="21023" VALUE="Piedra alma Ígnea 3" />
+    <STRING INDEX="21024" VALUE="Piedra alma Ígnea 4" />
+    <STRING INDEX="21024" VALUE="Piedra alma Ígnea 5" />
+    <STRING INDEX="21024" VALUE="Piedra alma Ígnea 6" />
+    <STRING INDEX="22001" VALUE="Piedra alma de Agua 1" />
+    <STRING INDEX="22002" VALUE="Piedra alma de Agua 2" />
+    <STRING INDEX="22003" VALUE="Piedra alma de Agua 3" />
+    <STRING INDEX="22004" VALUE="Piedra alma de Agua 4" />
+    <STRING INDEX="22004" VALUE="Piedra alma de Agua 5" />
+    <STRING INDEX="22004" VALUE="Piedra alma de Agua 6" />
+    <STRING INDEX="22021" VALUE="Piedra alma Cascada 1" />
+    <STRING INDEX="22022" VALUE="Piedra alma Cascada 2" />
+    <STRING INDEX="22023" VALUE="Piedra alma Cascada 3" />
+    <STRING INDEX="22024" VALUE="Piedra alma Cascada 4" />
+    <STRING INDEX="22024" VALUE="Piedra alma Cascada 5" />
+    <STRING INDEX="22024" VALUE="Piedra alma Cascada 6" />
+    <STRING INDEX="23001" VALUE="Piedra de Alma del Bosque 1" />
+    <STRING INDEX="23002" VALUE="Piedra de Alma del Bosque 2" />
+    <STRING INDEX="23003" VALUE="Piedra de Alma del Bosque 3" />
+    <STRING INDEX="23004" VALUE="Piedra de Alma del Bosque 4" />
+    <STRING INDEX="23004" VALUE="Piedra de Alma del Bosque 5" />
+    <STRING INDEX="23004" VALUE="Piedra de Alma del Bosque 6" />
+    <STRING INDEX="23021" VALUE="Piedra alma de Madera 1" />
+    <STRING INDEX="23022" VALUE="Piedra alma de Madera 2" />
+    <STRING INDEX="23023" VALUE="Piedra alma de Madera 3" />
+    <STRING INDEX="23024" VALUE="Piedra alma de Madera 4" />
+    <STRING INDEX="23024" VALUE="Piedra alma de Madera 5" />
+    <STRING INDEX="23024" VALUE="Piedra alma de Madera 6" />
+    <STRING INDEX="24001" VALUE="Piedra alma de Metal 1" />
+    <STRING INDEX="24002" VALUE="Piedra alma de Metal 2" />
+    <STRING INDEX="24003" VALUE="Piedra alma de Metal 3" />
+    <STRING INDEX="24004" VALUE="Piedra alma de Metal 4" />
+    <STRING INDEX="24004" VALUE="Piedra alma de Metal 5" />
+    <STRING INDEX="24004" VALUE="Piedra alma de Metal 6" />
+    <STRING INDEX="24021" VALUE="Piedra alma de Acero 1" />
+    <STRING INDEX="24022" VALUE="Piedra alma de Acero 2" />
+    <STRING INDEX="24023" VALUE="Piedra alma de Acero 3" />
+    <STRING INDEX="24024" VALUE="Piedra alma de Acero 4" />
+    <STRING INDEX="24024" VALUE="Piedra alma de Acero 5" />
+    <STRING INDEX="24024" VALUE="Piedra alma de Acero 6" />
+    <STRING INDEX="25001" VALUE="Piedra alma Terrenal 1" />
+    <STRING INDEX="25002" VALUE="Piedra alma Terrenal 2" />
+    <STRING INDEX="25003" VALUE="Piedra alma Terrenal 3" />
+    <STRING INDEX="25004" VALUE="Piedra alma Terrenal 4" />
+    <STRING INDEX="25004" VALUE="Piedra alma Terrenal 5" />
+    <STRING INDEX="25004" VALUE="Piedra alma Terrenal 6" />
+    <STRING INDEX="25021" VALUE="Piedra alma de Tierra 1" />
+    <STRING INDEX="25022" VALUE="Piedra alma de Tierra 2" />
+    <STRING INDEX="25023" VALUE="Piedra alma de Tierra 3" />
+    <STRING INDEX="25024" VALUE="Piedra alma de Tierra 4" />
+    <STRING INDEX="25024" VALUE="Piedra alma de Tierra 5" />
+    <STRING INDEX="25024" VALUE="Piedra alma de Tierra 6" />
+    <!--공용스킬북-->
+    <STRING INDEX="31001" VALUE="Aumento de fuerza" />
+    <STRING INDEX="31002" VALUE="Aumento de fuerza 2" />
+    <STRING INDEX="31011" VALUE="Aumento de constitución" />
+    <STRING INDEX="31012" VALUE="Aumento de constitución2 " />
+    <STRING INDEX="31021" VALUE="Aumento de agilidad" />
+    <STRING INDEX="31022" VALUE="Aumento de agilidad 2" />
+    <STRING INDEX="31031" VALUE="Aumento de inteligencia" />
+    <STRING INDEX="31032" VALUE="Aumento de inteligencia 2" />
+    <STRING INDEX="31041" VALUE="Aumento de sabiduría" />
+    <STRING INDEX="31042" VALUE="Aumento de sabiduría 2" />
+    <!--워리어전용 스킬북-->
+    <STRING INDEX="32001" VALUE="Embestida" />
+    <STRING INDEX="32002" VALUE="Embestida 2" />
+    <STRING INDEX="32011" VALUE="Triple corte" />
+    <STRING INDEX="32012" VALUE="Triple corte 2" />
+    <STRING INDEX="32021" VALUE="Estocada descendente" />
+    <STRING INDEX="32022" VALUE="Estocada descendente 2" />
+    <STRING INDEX="32031" VALUE="Golpe" />
+    <STRING INDEX="32032" VALUE="Golpe 2" />
+    <STRING INDEX="32041" VALUE="Explosión de energía" />
+    <STRING INDEX="32042" VALUE="Explosión de energía 2" />
+    <STRING INDEX="32501" VALUE="Disparos salvajes" />
+    <STRING INDEX="32502" VALUE="Disparos salvajes 2" />
+    <STRING INDEX="32511" VALUE="Concentración" />
+    <STRING INDEX="32512" VALUE="Concentración 2" />
+    <STRING INDEX="32521" VALUE="Disparo de energía" />
+    <STRING INDEX="32522" VALUE="Disparo de energía 2" />
+    <STRING INDEX="32531" VALUE="Desvío mental" />
+    <STRING INDEX="32532" VALUE="Desvío mental 2" />
+    <!--헌터전용 스킬북-->
+    <STRING INDEX="33001" VALUE="Estocada evasiva" />
+    <STRING INDEX="33002" VALUE="Estocada evasiva 2" />
+    <STRING INDEX="33011" VALUE="Corte múltiple" />
+    <STRING INDEX="33012" VALUE="Corte múltiple 2" />
+    <STRING INDEX="33021" VALUE="Golpe invisible" />
+    <STRING INDEX="33022" VALUE="Golpe invisible 2" />
+    <STRING INDEX="33031" VALUE="Veneno" />
+    <STRING INDEX="33032" VALUE="Veneno 2" />
+    <STRING INDEX="33501" VALUE="Concentración" />
+    <STRING INDEX="33502" VALUE="Concentración 2" />
+    <STRING INDEX="33511" VALUE="Voltereta" />
+    <STRING INDEX="33512" VALUE="Voltereta 2" />
+    <STRING INDEX="33521" VALUE="Hielo" />
+    <STRING INDEX="33522" VALUE="Hielo 2" />
+    <STRING INDEX="33531" VALUE="Disparo explosivo" />
+    <STRING INDEX="33532" VALUE="Disparo explosivo 2" />
+    <STRING INDEX="33541" VALUE="Aumento de velocidad" />
+    <STRING INDEX="33542" VALUE="Aumento de velocidad 2" />
+    <!--ETC ITEM-->
+    <!--소켓 뚫기 아이템(드릴)-->
+    <STRING INDEX="40001" VALUE="Taladro de ranuras" />
+    <!--스킬북 확인 아이템(스크롤)-->
+    <STRING INDEX="40051" VALUE="Pergamino de identificación" />
+    <!--확인 전 스킬북(UnIdentify)-->
+    <STRING INDEX="40061" VALUE="Libro de habilidad desconocida" />
+    <!--확인 후 스킬북(Identify)-->
+    <STRING INDEX="40031" VALUE="Libro de habilidad identificado"></STRING>
+    <!--몬스터 이름-->
+    <STRING INDEX="64001" VALUE="Tarántula"></STRING>
+    <STRING INDEX="64002" VALUE="Cría de tarántula"></STRING>
+    <STRING INDEX="64003" VALUE="Madre tarántula"></STRING>
+    <STRING INDEX="64004" VALUE="Tarántula furiosa"></STRING>
+    <STRING INDEX="64005" VALUE="Reina tarántula"></STRING>
+    <STRING INDEX="64006" VALUE="Hombre Mutante"></STRING>
+    <STRING INDEX="64007" VALUE="Hombre Mutante Podrido"></STRING>
+    <STRING INDEX="64008" VALUE="Hombre Mutante Reprendido"></STRING>
+    <STRING INDEX="64009" VALUE="Hombre Mutante  Hambriento"></STRING>
+    <STRING INDEX="64010" VALUE="Hombre Mutante Cargador"></STRING>
+    <STRING INDEX="64011" VALUE="Cerberos"></STRING>
+    <STRING INDEX="64012" VALUE="Cerberos Celestiales"></STRING>
+    <STRING INDEX="64013" VALUE="Cerberos Infernales"></STRING>
+    <STRING INDEX="64014" VALUE="Cerberos Oscuros"></STRING>
+    <STRING INDEX="64015" VALUE="Rey Cerbero"></STRING>
+    <STRING INDEX="64016" VALUE="Insecto"></STRING>
+    <STRING INDEX="64017" VALUE="Insecto Contaminado"></STRING>
+    <STRING INDEX="64018" VALUE="Insecto Temerario"></STRING>
+    <STRING INDEX="64019" VALUE="Ruptura Insecto"></STRING>
+    <STRING INDEX="64020" VALUE="Insecto Cargador"></STRING>
+    <STRING INDEX="64021" VALUE="MetalLava"></STRING>
+    <STRING INDEX="64022" VALUE="Hambriento MetalLava"></STRING>
+    <STRING INDEX="64023" VALUE="Contaminado MetalLava"></STRING>
+    <STRING INDEX="64024" VALUE="Temerario MetalLava"></STRING>
+    <STRING INDEX="64025" VALUE="MetalLava Rey"></STRING>
+    <STRING INDEX="64026" VALUE="PirañaRaptor"></STRING>
+    <STRING INDEX="64027" VALUE="Contaminado PirañaRaptor"></STRING>
+    <STRING INDEX="64028" VALUE="Hambriento PirañaRaptor"></STRING>
+    <STRING INDEX="64029" VALUE="Temerario PirañaRaptor"></STRING>
+    <STRING INDEX="64030" VALUE="PirañaRaptor Rey"></STRING>
+    <STRING INDEX="64031" VALUE="Bigfoot"></STRING>
+    <STRING INDEX="64032" VALUE="Podrido Bigfoot"></STRING>
+    <STRING INDEX="64033" VALUE="Hambriento Bigfoot"></STRING>
+    <STRING INDEX="64034" VALUE="Temerario Bigfoot"></STRING>
+    <STRING INDEX="64035" VALUE="Bigfoot Rey"></STRING>
+    <STRING INDEX="64036" VALUE="Victor"></STRING>
+    <STRING INDEX="64037" VALUE="Contaminado Victor"></STRING>
+    <STRING INDEX="64038" VALUE="Hambriento Victor"></STRING>
+    <STRING INDEX="64039" VALUE="Temerario Victor"></STRING>
+    <STRING INDEX="64040" VALUE="Cargador Victor"></STRING>
+    <!--오퍼레이터 클래스 이름-->
+    <STRING INDEX="65001" VALUE="Operador"></STRING>
+    
+    <!--워리어, 헌터 캐릭터 생성 클래스 이름-->
+    <STRING INDEX="65501" VALUE="Guerrero"></STRING>
+    <STRING INDEX="65506" VALUE="Cazadora"></STRING>
+  </STRINGINFO>
+  <STRINGINFO>
+    <STRING INDEX="0" VALUE="" />
+    <!--워리어 장비 아이템-->
+    <STRING INDEX="1" VALUE="Espada larga básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="2" VALUE="Espada larga para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="3" VALUE="Espada larga ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="1001" VALUE="Pistola básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="1002" VALUE="Pistola para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="1003" VALUE="Pistola ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="3001" VALUE="Máscara básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="3002" VALUE="Gafas para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="3003" VALUE="Máscara ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="4001" VALUE="Armadura básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="4002" VALUE="Armadura para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="4003" VALUE="Armadura ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="5001" VALUE="Pantalón básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="5002" VALUE="Pantalón para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="5003" VALUE="Pantalón ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="6001" VALUE="Brazal básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="6002" VALUE="Brazal para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="6003" VALUE="Brazal ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="7001" VALUE="Cinturón básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="7002" VALUE="Cinturón para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="7003" VALUE="Cinturón ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="8001" VALUE="Botas básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="8002" VALUE="Botas para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="8003" VALUE="Botas ligera y lujosa, fabricada con tecnología Nano." />
+    <!--헌터 장비 아이템-->
+    <STRING INDEX="201" VALUE="Espada corta básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="202" VALUE="Espada corta para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="203" VALUE="Espada corta ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="1201" VALUE="Escopeta básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="1202" VALUE="Escopeta para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="1203" VALUE="Escopeta ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="3201" VALUE="Máscara básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="3202" VALUE="Gafas para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="3203" VALUE="Máscara ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="4201" VALUE="Traje básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="4202" VALUE="Traje para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="4203" VALUE="Traje ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="5201" VALUE="Falda básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="5202" VALUE="Falda para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="5203" VALUE="Falda ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="6201" VALUE="Guante básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="6202" VALUE="Guante para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="6203" VALUE="Guante ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="7201" VALUE="Faja básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="7202" VALUE="Faja para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="7203" VALUE="Faja ligera y lujosa, fabricada con tecnología Nano." />
+    <STRING INDEX="8201" VALUE="Zapatos básica para principiantes. Protege y ayuda a combatir mutantes." />
+    <STRING INDEX="8202" VALUE="Zapatos para expertos, diseñada para combatir con eficacia." />
+    <STRING INDEX="8203" VALUE="Zapatos ligera y lujosa, fabricada con tecnología Nano." />
+    <!--소모성 아이템-->
+    <STRING INDEX="26001" VALUE="Recupera un 15% de HP al usar la poción." />
+    <STRING INDEX="26002" VALUE="Recupera un 30% de HP al usar la poción." />
+    <STRING INDEX="26003" VALUE="Recupera un 50% de HP al usar la poción." />
+    <STRING INDEX="26101" VALUE="Recupera un 15% de MP al usar la poción." />
+    <STRING INDEX="26102" VALUE="Recupera un 30% de MP al usar la poción." />
+    <STRING INDEX="26103" VALUE="Recupera un 50% de MP al usar la poción." />
+    <!--영혼석-->
+    <STRING INDEX="21001" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21002" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21003" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21004" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21005" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21006" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21021" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21022" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21023" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21024" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21025" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="21026" VALUE="Piedra para ranura de equipo. Aumenta el ataque cuerpo a cuerpo en armas y la defensa cuerpo a cuerpo en armaduras." />
+    <STRING INDEX="22001" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22002" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22003" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22004" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22005" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22006" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22021" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22022" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22023" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22024" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22025" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="22026" VALUE="Piedra para ranura de equipo. Aumenta el ataque a distancia en armas y la defensa a distancia en armaduras." />
+    <STRING INDEX="23001" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23002" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23003" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23004" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23005" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23006" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23021" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23022" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23023" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23024" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23025" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="23026" VALUE="Piedra para ranura de equipo. Aumenta los MP máximos en armas y los MP máximos en armaduras." />
+    <STRING INDEX="24001" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24002" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24003" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24004" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24005" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24006" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24021" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24022" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24023" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24024" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24025" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="24026" VALUE="Piedra para ranura de equipo. Aumenta la velocidad de ataque en armas y la velocidad de movimiento en armaduras." />
+    <STRING INDEX="25001" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25002" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25003" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25004" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25005" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25006" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25021" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25022" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25023" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25024" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25025" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <STRING INDEX="25026" VALUE="Piedra para ranura de equipo. Aumenta el crítico en armas y el tiempo de tensión en armaduras." />
+    <!--공용스킬북-->
+    <STRING INDEX="31001" VALUE="El ataque y la defensa cuerpo a cuerpo aumentan en 6 permanentemente." />
+    <STRING INDEX="31002" VALUE="El ataque y la defensa cuerpo a cuerpo aumentan en 9 permanentemente." />
+    <STRING INDEX="31011" VALUE="Los HP aumentan en 12 permanentemente." />
+    <STRING INDEX="31012" VALUE="Los HP aumentan en 18 permanentemente." />
+    <STRING INDEX="31021" VALUE="El crítico aumenta en 2 permanentemente." />
+    <STRING INDEX="31022" VALUE="El crítico aumenta en 3 permanentemente." />
+    <STRING INDEX="31031" VALUE="El ataque y la defensa a distancia aumentan en 6 permanentemente." />
+    <STRING INDEX="31032" VALUE="El ataque y la defensa a distancia aumentan en 9 permanentemente." />
+    <STRING INDEX="31041" VALUE="Los MP aumentan en 12 permanentemente." />
+    <STRING INDEX="31042" VALUE="Los MP aumentan en 18 permanentemente." />
+    <!--워리어전용 스킬북-->
+    <STRING INDEX="32001" VALUE="Avanza una distancia fija y ataca." />
+    <STRING INDEX="32002" VALUE="Avanza una distancia fija y ataca." />
+    <STRING INDEX="32011" VALUE="Realiza tres golpes consecutivos." />
+    <STRING INDEX="32012" VALUE="Realiza tres golpes consecutivos." />
+    <STRING INDEX="32021" VALUE="Ataca ferozmente desde arriba a un enemigo derribado." />
+    <STRING INDEX="32022" VALUE="Ataca ferozmente desde arriba a un enemigo derribado." />
+    <STRING INDEX="32031" VALUE="Concentra toda la energía en un solo golpe." />
+    <STRING INDEX="32032" VALUE="Concentra toda la energía en un solo golpe." />
+    <STRING INDEX="32041" VALUE="Aturde al enemigo con una explosión de energía y lo ataca." />
+    <STRING INDEX="32042" VALUE="Aturde al enemigo con una explosión de energía y lo ataca." />
+    <STRING INDEX="32501" VALUE="Dispara ráfagas contra una zona seleccionada." />
+    <STRING INDEX="32502" VALUE="Dispara ráfagas contra una zona seleccionada." />
+    <STRING INDEX="32511" VALUE="Concentra toda la energía en un solo disparo." />
+    <STRING INDEX="32512" VALUE="Concentra toda la energía en un solo disparo." />
+    <STRING INDEX="32521" VALUE="Crea una bala de energía y la dispara." />
+    <STRING INDEX="32522" VALUE="Crea una bala de energía y la dispara." />
+    <STRING INDEX="32531" VALUE="Durante 6 segundos, los ataques dañan los MP del enemigo en lugar de sus HP." />
+    <STRING INDEX="32532" VALUE="Durante 12 segundos, los ataques dañan los MP del enemigo en lugar de sus HP." />
+    <!--헌터전용 스킬북-->
+    <STRING INDEX="33001" VALUE="Salta hacia atrás y luego se lanza hacia adelante para atacar." />
+    <STRING INDEX="33002" VALUE="Salta hacia atrás y luego se lanza hacia adelante para atacar." />
+    <STRING INDEX="33011" VALUE="Ataca al enemigo con cuatro golpes rápidos seguidos." />
+    <STRING INDEX="33012" VALUE="Ataca al enemigo con cuatro golpes rápidos seguidos." />
+    <STRING INDEX="33021" VALUE="Desaparece dos segundos y ataca desde arriba." />
+    <STRING INDEX="33022" VALUE="Desaparece dos segundos y ataca desde arriba." />
+    <STRING INDEX="33031" VALUE="Envenena al enemigo durante tres segundos al atacarlo con espada corta." />
+    <STRING INDEX="33032" VALUE="Envenena al enemigo durante tres segundos al atacarlo con espada corta." />
+    <STRING INDEX="33501" VALUE="Se concentra para atacar al enemigo con precisión." />
+    <STRING INDEX="33502" VALUE="Se concentra para atacar al enemigo con precisión." />
+    <STRING INDEX="33511" VALUE="Aturde al enemigo con energía y lo ataca con escopeta." />
+    <STRING INDEX="33512" VALUE="Aturde al enemigo con energía y lo ataca con escopeta." />
+    <STRING INDEX="33521" VALUE="La bala de hielo reduce la velocidad enemiga un 30% f durante 5 segundos." />
+    <STRING INDEX="33522" VALUE="La bala de hielo reduce la velocidad enemiga un 30% f durante 8 segundos." />
+    <STRING INDEX="33531" VALUE="La bala explota tras penetrar y daña a los enemigos cercanos." />
+    <STRING INDEX="33532" VALUE="La bala explota tras penetrar y daña a los enemigos cercanos." />
+    <STRING INDEX="33541" VALUE="La velocidad aumenta un 20% f durante 6 segundos." />
+    <STRING INDEX="33542" VALUE="La velocidad aumenta un 20% f durante 12 segundos." />
+    <!--ETC ITEM-->
+    <!--소켓 뚫기 아이템(드릴)-->
+    <STRING INDEX="40001" VALUE="Objeto que aumenta las ranuras de un equipo." />
+    <!--스킬북 확인 아이템(스크롤)-->
+    <STRING INDEX="40051" VALUE="Objeto para identificar libros de habilidades desconocidas." />
+    <!--확인 전 스킬북(UnIdentify)-->
+    <STRING INDEX="40061" VALUE="Libro de habilidad desconocida. Usa un pergamino para identificarla." />
+    <!--확인 후 스킬북(Identify)-->
+    <STRING INDEX="40031" VALUE="Libro de habilidad identificado. Haz doble clic para aprenderla."></STRING>
+    <!--워리어 클래스 설명, 특징-->
+    <STRING INDEX="65501" VALUE="Hombre reservado y solitario. Perdió a sus padres de niño y evita relacionarse con otros. Su actitud distante es una forma de protegerse."></STRING>
+    <STRING INDEX="65502" VALUE="Clase masculina fuerte que usa espada larga y dos pistolas. Equilibrada, con ataques potentes a distancia. Las pistolas infligen menos daño, pero disparan rápido y tienen poco retroceso."></STRING>
+    <!--헌터 클래스 설명, 특징-->
+    <STRING INDEX="65506" VALUE="Creció viajando con los gitanos y aprendió a luchar para protegerse. A pesar de su aspecto de muñeca, tiene una visión negativa del mundo."></STRING>
+    <STRING INDEX="65507" VALUE="Clase femenina que usa dos espadas cortas y una escopeta. Las espadas tienen poco alcance, pero atacan rápido. La escopeta causa mucho daño, aunque tiene gran retroceso."></STRING>
+  </STRINGINFO>
+</STRINGS>

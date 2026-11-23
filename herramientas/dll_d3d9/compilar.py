@@ -98,16 +98,17 @@ probar_locale=0
 url=
 
 #####################################################################
-# TRADUCCIÓN EN MEMORIA (23-nov) — apagada por defecto
+# TRADUCCIÓN EN MEMORIA (23-nov) — español embebido por defecto
 #####################################################################
 [traduccion]
-; idioma de la carpeta traducciones\\<idioma>\\ junto al juego (p. ej. es). Vacío o en = el juego de siempre
-; (sin enganchar nada). Respeta [general] mejoras=0. EDA_IDIOMA manda sobre esto.
-idioma=
+; idioma de la interfaz (es = español embebido en la dll; si existe traducciones\\<idioma>\\ junto al juego,
+; esos archivos sueltos tienen prioridad para probar cambios sin recompilar). en / off = el juego original
+; en inglés (sin enganchar nada). Respeta [general] mejoras=0. EDA_IDIOMA manda sobre esto.
+idioma=es
 ; 1 = con idioma=es, también traduce en memoria 3 etiquetas cortas del exe (LV%3d → Nv%3d, %dGold → %d Oro)
 cadenas_exe=1
-; 1 = diagnóstico temporal de glifos FreeType (anota en eda_d3d9.log medidas y mapa de ñ, Ñ, ó, n, ü)
-diag_glifos=1
+; 1 = diagnóstico de glifos FreeType (anota en eda_d3d9.log medidas y mapa de ñ, Ñ, ó, n, ü; 0 para jugar)
+diag_glifos=0
 
 #####################################################################
 # P2P: que los juegos se encuentren (sin pasar por el server)
@@ -177,10 +178,85 @@ def md5(p):
     return hashlib.md5(open(p, "rb").read()).hexdigest()
 
 
+GENERADOS = {"eda_version.h", "eda_traduccion_datos.h"}
+
+
+def traduccion_archivos(raiz=RAIZ):
+    """Lista ordenada [(idioma, ruta_solfs_norm, ruta_disco)] de traduccion/<idioma>/** para embeber en la DLL."""
+    import re
+    base = os.path.join(raiz, "traduccion")
+    if not os.path.isdir(base):
+        return []
+    salida = []
+    for idi in sorted(os.listdir(base)):
+        if idi == "herramientas" or idi.startswith((".", "_")):
+            continue
+        if not re.fullmatch(r"[a-z0-9_-]{2,15}", idi):
+            continue
+        carp_idi = os.path.join(base, idi)
+        if not os.path.isdir(carp_idi):
+            continue
+        for rdir, dirs, files in os.walk(carp_idi):
+            dirs.sort()
+            for fn in sorted(files):
+                p = os.path.join(rdir, fn)
+                rel = os.path.relpath(p, carp_idi).replace("/", "\\").lower()
+                salida.append((idi, rel, p))
+    return sorted(salida, key=lambda x: (x[0], x[1]))
+
+
+def generar_traduccion_header(ruta_h, raiz=RAIZ):
+    """Genera `eda_traduccion_datos.h` con cada archivo de traduccion/<idioma>/** como arreglo de bytes."""
+    entradas = traduccion_archivos(raiz)
+    lineas = [
+        "/* eda_traduccion_datos.h -- GENERADO por compilar.py desde traduccion/<idioma>/ (no editar ni commitear) */",
+        "#ifndef EDA_TRADUCCION_DATOS_H",
+        "#define EDA_TRADUCCION_DATOS_H",
+        "",
+        "typedef struct {",
+        "    const char *idioma;",
+        "    const char *ruta;",
+        "    const unsigned char *datos;",
+        "    unsigned long tam;",
+        "} TR_EMBEBIDO;",
+        "",
+    ]
+    total_bytes = 0
+    idiomas = sorted({idi for idi, _, _ in entradas})
+    for idx, (idi, rel, p) in enumerate(entradas):
+        raw = open(p, "rb").read()
+        total_bytes += len(raw)
+        lineas.append("/* %s/%s (%d B) */" % (idi, rel.replace("\\", "/"), len(raw)))
+        lineas.append("static const unsigned char TR_EMB_D%d[%d] = {" % (idx, max(1, len(raw))))
+        if raw:
+            for off in range(0, len(raw), 16):
+                chunk = raw[off:off + 16]
+                lineas.append("    " + ",".join("0x%02X" % b for b in chunk) + ",")
+        else:
+            lineas.append("    0x00")
+        lineas.append("};")
+        lineas.append("")
+    lineas.append("static const TR_EMBEBIDO TR_EMBEBIDOS[] = {")
+    if entradas:
+        for idx, (idi, rel, p) in enumerate(entradas):
+            sz = os.path.getsize(p)
+            rel_c = rel.replace("\\", "\\\\").replace('"', '\\"')
+            lineas.append('    {"%s", "%s", TR_EMB_D%d, %du},' % (idi, rel_c, idx, sz))
+    else:
+        lineas.append("    {0, 0, 0, 0u}")
+    lineas.append("};")
+    lineas.append("#define TR_NEMBEBIDOS %d" % len(entradas))
+    lineas.append("")
+    lineas.append("#endif /* EDA_TRADUCCION_DATOS_H */")
+    os.makedirs(os.path.dirname(os.path.abspath(ruta_h)), exist_ok=True)
+    open(ruta_h, "w", encoding="utf-8", newline="\n").write("\n".join(lineas) + "\n")
+    return len(entradas), total_bytes, idiomas
+
+
 def fuentes():
     """lo que se copia a la carpeta de compilación"""
     return sorted(x for x in os.listdir(AQUI) if x.startswith("eda_") and x.endswith((".c", ".h"))
-                  and x != "eda_version.h") + ["d3d9.def"]          # (eda_version.h lo genera version.py, abajo)
+                  and x not in GENERADOS) + ["d3d9.def"]            # (los GENERADOS los arman version.py y compilar.py)
 
 
 def control_fuentes():
@@ -189,9 +265,12 @@ def control_fuentes():
     d = tempfile.mkdtemp()
     for f in fuentes():
         shutil.copy(os.path.join(AQUI, f), d)
+    n_emb, b_emb, idis = generar_traduccion_header(os.path.join(d, "eda_traduccion_datos.h"))
     faltan = incluidos_que_faltan(os.path.join(d, "eda_d3d9.c"), d)
     shutil.rmtree(d, ignore_errors=True)
-    print("fuentes: %d copiados, %s" % (len(fuentes()), "faltan: " + ", ".join(faltan) if faltan else "ninguno falta"))
+    print("fuentes: %d copiados · embebidos: %d (%d B, %s) · %s" % (
+        len(fuentes()), n_emb, b_emb, ",".join(idis) or "ninguno",
+        "faltan: " + ", ".join(faltan) if faltan else "ninguno falta"))
     return not faltan
 
 
@@ -220,6 +299,7 @@ def compilar():
     # ★ (21-nov) TODOS los eda_*.c y eda_*.h (antes una lista fija: un módulo nuevo, eda_apis.c, quedaba afuera)
     for f in fuentes():
         shutil.copy(os.path.join(AQUI, f), SALIDA)
+    n_emb, b_emb, idis = generar_traduccion_header(os.path.join(SALIDA, "eda_traduccion_datos.h"))
     faltan = incluidos_que_faltan(os.path.join(SALIDA, "eda_d3d9.c"), SALIDA)
     if faltan:
         raise SystemExit("⛔ eda_d3d9.c incluye archivos que no están: %s" % ", ".join(faltan))
@@ -241,7 +321,8 @@ def compilar():
     manif = dict(ident, archivo="d3d9.dll", tam=len(datos), md5=hashlib.md5(datos).hexdigest(),
                  sha256=hashlib.sha256(datos).hexdigest())
     open(dll + ".json", "w", encoding="utf-8", newline="\n").write(json.dumps(manif, ensure_ascii=False, indent=2) + "\n")
-    print("★ %s\n  %d B · md5 %s" % (dll, len(datos), manif["md5"]))
+    print("★ %s\n  %d B · md5 %s · traducción embebida: %d archivo(s) (%d B, %s)" % (
+        dll, len(datos), manif["md5"], n_emb, b_emb, ",".join(idis) or "ninguno"))
     print("  EDA %s · commit %s%s · build %s · %s%s" % (ident["version"], ident["commit"],
           "-dirty (LOCAL: cambios sin commitear)" if ident["sucio"] else "", ident["build"], ident["fecha"],
           "" if ident["en_github"] is None else " · en GitHub: %s" % ("sí" if ident["en_github"] else "NO (sólo local)")))
@@ -272,7 +353,13 @@ if __name__ == "__main__":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:                                         # noqa: BLE001
         pass
-    if "--sacar" in sys.argv:
+    if "--generar-traduccion" in sys.argv:
+        i = sys.argv.index("--generar-traduccion")
+        ruta = sys.argv[i + 1] if i + 1 < len(sys.argv) else os.path.join(AQUI, "eda_traduccion_datos.h")
+        n_emb, b_emb, idis = generar_traduccion_header(ruta)
+        print("%s → %d archivo(s) embebido(s) (%d B, idiomas: %s)" % (
+            ruta, n_emb, b_emb, ", ".join(idis) or "ninguno"))
+    elif "--sacar" in sys.argv:
         sacar()
     else:
         compilar()

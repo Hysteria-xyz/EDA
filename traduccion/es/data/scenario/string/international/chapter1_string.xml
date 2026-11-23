@@ -1,0 +1,594 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<STRINGS>
+ <STRINGINFO>
+
+   <!-- Chapter 1-1 -->
+    <STRING INDEX="1101" VALUE="Has entrado en the Research Lab for Spirit Stone expedition. Open the front door and continue with the expedition." />
+    <STRING INDEX="1102" VALUE="Aparecieron enemigos. Derrota a todos los que veas." />
+    <STRING INDEX="1103" VALUE="La puerta está abierta. Continúa la expedición." />
+    <STRING INDEX="1104" VALUE="¡Es una emboscada! Cuidado con los ataques." />
+    <STRING INDEX="1105" VALUE="La madre tarántula invocó a sus subordinados. Prepárate para atacar." />
+    <STRING INDEX="1106" VALUE="La puerta está cerrada. Derrota a todos los enemigos para continuar." />
+    <STRING INDEX="1107" VALUE="Todos los enemigos fueron derrotados. Continúa la expedición." />
+    <STRING INDEX="1108" VALUE="Todos los enemigos fueron derrotados. Misión completada." />
+    <STRING INDEX="1109" VALUE="¡Apareció la madre tarántula! Sus ataques son más fuertes. Ten cuidado." />
+
+   <!-- Chapter 1-2 -->
+    <STRING INDEX="1201" VALUE="Los enemigos detectaron nuestra llegada y esperan en cada área. Derrótalos para avanzar." />
+    <STRING INDEX="1202" VALUE="La puerta del área 1 se abrirá en 5 segundos. Entra y derrota a los enemigos." />
+    <STRING INDEX="1203" VALUE="Aparecieron enemigos en el área 1. Derrótalos a todos." />
+    <STRING INDEX="1204" VALUE="¡Nos emboscaron! Cuidado con los ataques." />
+    <STRING INDEX="1205" VALUE="Los enemigos del área 1 fueron derrotados. Prepárate para el próximo combate." />
+    <STRING INDEX="1206" VALUE="La puerta del área 2 se abrirá en 5 segundos. Entra y derrota a los enemigos." />
+    <STRING INDEX="1207" VALUE="Aparecieron enemigos en el área 2. Derrótalos a todos." />
+    <STRING INDEX="1208" VALUE="¡Nos emboscaron! Cuidado con los ataques." />
+    <STRING INDEX="1209" VALUE="Los enemigos del área 2 fueron derrotados. Prepárate para el próximo combate." />
+    <STRING INDEX="1210" VALUE="La puerta del área 3 se abrirá en 5 segundos. Entra y derrota a los enemigos." />
+    <STRING INDEX="1211" VALUE="¡Nos emboscaron! Cuidado con los ataques." />
+    <STRING INDEX="1212" VALUE="¡Apareció la madre tarántula! Sus ataques son más fuertes. Ten cuidado." />
+    <STRING INDEX="1213" VALUE="La madre tarántula invocó a sus aliados. Prepárate para atacar." />
+    <STRING INDEX="1214" VALUE="Los enemigos del área 3 fueron derrotados. Prepárate para el próximo combate." />
+    <STRING INDEX="1215" VALUE="La puerta del área 4 se abrirá en 5 segundos. Entra y derrota a los enemigos." />
+    <STRING INDEX="1216" VALUE="Aparecieron enemigos en el centro. Derrótalos a todos." />
+    <STRING INDEX="1217" VALUE="¡Nos emboscaron! Cuidado con los ataques." />
+    <STRING INDEX="1218" VALUE="¡Apareció la madre tarántula! Sus ataques son más fuertes. Ten cuidado." />
+    <STRING INDEX="1219" VALUE="La madre tarántula invocó a sus aliados. Prepárate para atacar." />
+    <STRING INDEX="1220" VALUE="Todos los enemigos fueron derrotados. Puedes continuar la expedición." />
+
+
+   <!-- Chapter 1-3 -->
+    <STRING INDEX="1301" VALUE="Para reparar la puerta dañada, encuentra la caja de herramientas." />
+    <STRING INDEX="1302" VALUE="Busca la caja de herramientas entre las cajas de las cuatro salas." />
+    <STRING INDEX="1303" VALUE="Parece que la caja de herramientas no está en este montón." />
+    <STRING INDEX="1304" VALUE="%s encontró la caja de herramientas cerrada." />
+    <STRING INDEX="1305" VALUE="Para abrir la caja de herramientas, debes encontrar la llave." />
+    <STRING INDEX="1306" VALUE="Recupera la llave que robó la tarántula furiosa." />
+    <STRING INDEX="1307" VALUE="Ha aparecido Angry Tarantula." />
+    <STRING INDEX="1308" VALUE="La tarántula furiosa invocó a sus aliados." />
+    <STRING INDEX="1309" VALUE="Recuperaste la llave de la tarántula furiosa. La caja de herramientas está abierta." />
+    <STRING INDEX="1310" VALUE="%s debe volver a salvo al inicio con la caja de herramientas." />
+    <STRING INDEX="1311" VALUE="%s regresó a salvo al punto de inicio." />
+    <STRING INDEX="1312" VALUE="Aparecieron enemigos en el área 1. Derrótalos a todos." />
+    <STRING INDEX="1313" VALUE="¡Nos emboscaron! Cuidado con los ataques." />
+
+
+   <!-- Chapter 1-4 -->
+    <STRING INDEX="1401" VALUE="Hay mal olor en el laboratorio. Encuentra su origen." />
+    <STRING INDEX="1402" VALUE="Abre la puerta y avanza al área 1. Derrota a los enemigos." />
+    <STRING INDEX="1403" VALUE="Aparecieron monstruos. Derrótalos a todos." />
+    <STRING INDEX="1404" VALUE="¡Los enemigos caen del cielo! Prepárate para luchar." />
+    <STRING INDEX="1405" VALUE="All enemies in Area 1 ha sido derrotado." />
+    <STRING INDEX="1406" VALUE="La puerta del área 2 se abrió. Entra y derrota a los monstruos." />
+    <STRING INDEX="1407" VALUE="Ha aparecido Mother Tarantula." />
+    <STRING INDEX="1408" VALUE="La madre tarántula invocó a sus aliados." />
+    <STRING INDEX="1409" VALUE="¡Los enemigos caen del cielo! Prepárate para luchar." />
+    <STRING INDEX="1410" VALUE="All enemines in Area 2 ha sido derrotado." />
+    <STRING INDEX="1411" VALUE="La puerta del área 3 se abrió. Entra y derrota a los monstruos." />
+    <STRING INDEX="1412" VALUE="¡Los enemigos caen del cielo! Prepárate para luchar." />
+    <STRING INDEX="1413" VALUE="All enemines in Area 3 ha sido derrotado." />
+    <STRING INDEX="1414" VALUE="La puerta del área 4 se abrió. Entra y derrota a los monstruos." />
+    <STRING INDEX="1415" VALUE="Apareció la tarántula furiosa maloliente. Derrótala." />
+    <STRING INDEX="1416" VALUE="La tarántula furiosa invocó a sus aliados." />
+    <STRING INDEX="1417" VALUE="¡Los enemigos caen del cielo! Prepárate para luchar." />
+    <STRING INDEX="1418" VALUE="Derrotaste a la tarántula furiosa. El mal olor empieza a desaparecer." />
+    <STRING INDEX="1419" VALUE="Hay mal olor en el laboratorio. Encuentra su origen." />
+
+
+   <!-- Chapter 1-5 -->
+    <STRING INDEX="1501" VALUE="Caíste en una trampa. Sobrevive y elimina suficientes monstruos antes del límite." />
+    <STRING INDEX="1502" VALUE="La oleada 1 empezará en 5 segundos. Prepárate para atacar." />
+    <STRING INDEX="1503" VALUE="La oleada 2 empezará en 5 segundos. Prepárate para atacar." />
+    <STRING INDEX="1504" VALUE="La oleada 3 empezará en 5 segundos. Prepárate para atacar." />
+    <STRING INDEX="1505" VALUE="La oleada 4 empezará en 5 segundos. Prepárate para atacar." />
+    <STRING INDEX="1506" VALUE="La oleada 5 empezará en 5 segundos. Prepárate para atacar." />
+    <STRING INDEX="1507" VALUE="La oleada 6 empezará en 5 segundos. Prepárate para atacar." />
+    <STRING INDEX="1508" VALUE="Has eliminado la cantidad necesaria de monstruos." />
+
+
+    <!-- Chapter 1-6 -->
+    <STRING INDEX="1601" VALUE="El enemigo está escapando. Sigue su rastro y elimina los monstruos que aparezcan." />
+    <STRING INDEX="1602" VALUE="Los enemigos intentan detenerte con emboscadas. Prepárate." />
+    <STRING INDEX="1603" VALUE="Apareció la tarántula furiosa. Es más fuerte que la madre tarántula. ¡Cuidado!" />
+    <STRING INDEX="1604" VALUE="Angry Tarantula ha sido derrotado." />
+    <STRING INDEX="1605" VALUE="La puerta cerrada se está abriendo. Derrota a la reina tarántula fugitiva." />
+    <STRING INDEX="1606" VALUE="Apareció la reina tarántula fugitiva. Ataca más fuerte que la tarántula furiosa." />
+    <STRING INDEX="1607" VALUE="La reina tarántula invocó aliados. Prepárate para atacar." />
+    <STRING INDEX="1608" VALUE="La reina tarántula ha muerto." />
+    <STRING INDEX="1609" VALUE="Has impedido que el enemigo escape." />
+
+	<!-- Chapter 1-7 -->
+	<STRING INDEX="1701" VALUE="Apareció un nuevo tipo de monstruo: hombres mutantes. Son peligrosos en grupo. Ve con un compañero." />
+	<STRING INDEX="1702" VALUE="Destruye la puerta para abrir el camino y encontrar al grupo de hombres mutantes." />
+	<STRING INDEX="1703" VALUE="Aparecieron monstruos en el área 1. Prepárate para atacar." />
+	<STRING INDEX="1704" VALUE="¡Los monstruos nos emboscan! Prepárate para atacar." />
+	<STRING INDEX="1705" VALUE="Aparecieron monstruos en el área 2. Prepárate para atacar." />
+	<STRING INDEX="1706" VALUE="¡Los monstruos nos emboscan! Prepárate para atacar." />
+	<STRING INDEX="1707" VALUE="Aparecieron monstruos en el área 3. Prepárate para atacar." />
+	<STRING INDEX="1708" VALUE="¡Los monstruos nos emboscan! Prepárate para atacar." />
+	<STRING INDEX="1709" VALUE="¡Los monstruos nos emboscan! Prepárate para atacar." />
+	<STRING INDEX="1710" VALUE="Has encontrado the traces of Mutant Mans in Area 4. All battle personnel must gather in Area 4." />
+	<STRING INDEX="1711" VALUE="Se detectó calor y la puerta quedó cerrada. Están apareciendo muchos insectores." />
+	<STRING INDEX="1712" VALUE="Derrota rápidamente a los hombres mutantes que aparezcan." />
+	<STRING INDEX="1713" VALUE="Encuentra y derrota al hombre mutante reprendido." />
+	<STRING INDEX="1714" VALUE="Apareció el hombre mutante reprendido. Derrótalo." />
+	<STRING INDEX="1715" VALUE="La puerta está cerrada y no se puede usar." />
+	<STRING INDEX="1716" VALUE="La puerta del área 1 está abierta." />
+	<STRING INDEX="1717" VALUE="La puerta del área 2 está abierta." />
+	<STRING INDEX="1718" VALUE="La puerta del área 3 está abierta." />
+	<STRING INDEX="1719" VALUE="Derrotaste al hombre mutante reprendido. Los demás hombres mutantes desaparecieron." />
+
+	<!-- Chapter 1-8 -->
+	<STRING INDEX="1801" VALUE="Un investigador del proyecto Gaia fue capturado. Encuéntralo y asegura una ruta de rescate." />
+	<STRING INDEX="1802" VALUE="Encuentra y rescata al investigador." />
+	<STRING INDEX="1803" VALUE="La puerta del área 1 está abierta. Avanza al área 1." />
+	<STRING INDEX="1804" VALUE="Aparecieron enemigos en el área 1. Elimínalos a todos." />
+	<STRING INDEX="1805" VALUE="La puerta del área 2 está abierta. Avanza al área 1." />
+	<STRING INDEX="1806" VALUE="Aparecieron enemigos en el área 2. Elimínalos a todos." />
+	<STRING INDEX="1807" VALUE="La puerta del área 3 está abierta. Avanza al área 1." />
+	<STRING INDEX="1808" VALUE="Aparecieron enemigos en el área 3. Elimínalos a todos." />
+	<STRING INDEX="1809" VALUE="La puerta del área 4 está abierta. Avanza al área 1." />
+	<STRING INDEX="1810" VALUE="Aparecieron enemigos en el área 4. Elimínalos a todos." />
+	<STRING INDEX="1811" VALUE="El investigador está prisionero detrás de la puerta bloqueada por obstáculos." />
+	<STRING INDEX="1812" VALUE="Hay obstáculos bloqueando la entrada. Destrúyelos todos." />
+	<STRING INDEX="1813" VALUE="Ya no quedan obstáculos. Elimina los monstruos del camino y asegura el regreso del investigador." />
+	<STRING INDEX="1814" VALUE="¡Los enemigos caen del cielo! Prepárate para luchar." />
+	<STRING INDEX="1815" VALUE="¡Los enemigos caen del cielo! Prepárate para luchar." />
+	<STRING INDEX="1816" VALUE="¡Los enemigos caen del cielo! Prepárate para luchar." />
+	<STRING INDEX="1817" VALUE="¡Los enemigos caen del cielo! Prepárate para luchar." />
+	<STRING INDEX="1818" VALUE="Todos los enemigos del camino fueron derrotados. Rescataste al investigador." />
+	<STRING INDEX="1819" VALUE="¡Emboscada enemiga! Prepárate para atacar." />
+	<STRING INDEX="1820" VALUE="La puerta está cerrada." />
+	<STRING INDEX="1821" VALUE="Los enemigos invocaron aliados. Prepárate para luchar." />
+        
+    <!-- Chapter 1-9 -->
+    <STRING INDEX="1901" VALUE="Los enemigos destruyeron el laboratorio. Elimina a los enemigos ocultos y restáuralo." />
+    <STRING INDEX="1902" VALUE="Aparecieron monstruos en el área 1. Derrota a todos los enemigos." />
+    <STRING INDEX="1903" VALUE="¡Emboscada enemiga! Elimínalos a todos." />
+    <STRING INDEX="1904" VALUE="¡Los enemigos caen del cielo! Prepárate para luchar." />
+    <STRING INDEX="1905" VALUE="Enemigos derrotados. Sigue eliminando monstruos." />
+    <STRING INDEX="1906" VALUE="Apareció el hombre mutante reprendido. Derrótalo." />
+    <STRING INDEX="1907" VALUE="Apareció el hombre mutante hambriento. Derrótalo." />
+    <STRING INDEX="1908" VALUE="El hombre mutante hambriento invocó aliados. Prepárate para atacar." />
+    <STRING INDEX="1909" VALUE="Derrotaste a todos los enemigos y ganaste tiempo para restaurar el laboratorio." />
+    <STRING INDEX="1910" VALUE="" />
+    <STRING INDEX="1911" VALUE="" />
+    <STRING INDEX="1912" VALUE="" />
+    
+    <!-- Chapter 1-10 -->
+    <STRING INDEX="11001" VALUE="Esta zona está infestada de hombres mutantes que vuelan muy rápido. ¡Cuidado!" />
+    <STRING INDEX="11002" VALUE="Los enemigos caen del cielo en el área 1. Prepárate para luchar." />
+    <STRING INDEX="11003" VALUE="Derrotaste a los enemigos del área 1. Avanza a la siguiente área." />
+    <STRING INDEX="11004" VALUE="Los enemigos caen del cielo en el área 2. Prepárate para luchar." />
+    <STRING INDEX="11005" VALUE="Derrotaste a los enemigos del área 2. Avanza a la siguiente área." />
+    <STRING INDEX="11006" VALUE="Los enemigos caen del cielo en el área 3. Prepárate para luchar." />
+    <STRING INDEX="11007" VALUE="Derrotaste a los enemigos del área 3. Avanza a la siguiente área." />
+    <STRING INDEX="11008" VALUE="Los enemigos caen del cielo en el área 4. Prepárate para luchar." />
+    <STRING INDEX="11009" VALUE="Derrotaste a los enemigos del área 4. Avanza a la siguiente área." />
+    <STRING INDEX="11010" VALUE="Los enemigos caen del cielo en el área 5. Prepárate para luchar." />
+    <STRING INDEX="11011" VALUE="Derrotaste a los enemigos del área 5. Avanza a la siguiente área." />
+    <STRING INDEX="11012" VALUE="Apareció el hombre mutante hambriento. Derrótalo." />
+    <STRING INDEX="11013" VALUE="El hombre mutante hambriento invocó a sus aliados. Prepárate para atacar." />
+    <STRING INDEX="11014" VALUE="Has sido infectado por el virus." />
+    <STRING INDEX="11015" VALUE="La puerta del área 1 está abierta. Derrota a todos los enemigos." />
+    <STRING INDEX="11016" VALUE="La puerta del área 2 está abierta. Derrota a todos los enemigos." />
+    <STRING INDEX="11017" VALUE="La puerta del área 3 está abierta. Derrota a todos los enemigos." />
+    <STRING INDEX="11018" VALUE="La puerta del área 4 está abierta. Derrota a todos los enemigos." />
+    <STRING INDEX="11019" VALUE="La puerta del área 5 está abierta. Derrota a todos los enemigos." />
+    <STRING INDEX="11020" VALUE="La puerta del área 6 está abierta. Derrota a todos los enemigos." />
+    <STRING INDEX="11021" VALUE="Derrotaste a todos los enemigos." />
+    
+    <!-- Chapter 1-11 -->
+    <STRING INDEX="11101" VALUE="Se detectó una piedra espiritual. Derrota al enemigo que la lleva y recupérala." />
+    <STRING INDEX="11102" VALUE="Derrotaste a los enemigos del área 1, pero no encontraste la piedra espiritual. Sigue buscando." />
+    <STRING INDEX="11103" VALUE="Derrotaste a los enemigos del área 2, pero no encontraste la piedra espiritual. Sigue buscando." />
+    <STRING INDEX="11104" VALUE="El hombre mutante hambriento invocó aliados. Prepárate para atacar." />
+    <STRING INDEX="11105" VALUE="El hombre mutante hambriento huyó con la piedra espiritual. Encuéntralo y recupérala." />
+    <STRING INDEX="11106" VALUE="Has obtenido Spirit Stone de Starved MutantMan." />
+    <STRING INDEX="11107" VALUE="El hombre mutante cargador robó la piedra espiritual y escapó." />
+    <STRING INDEX="11108" VALUE="Todos los monstruos desaparecieron." />
+    <STRING INDEX="11109" VALUE="Derrotaste a los enemigos del área 3, pero no encontraste la piedra espiritual. Sigue buscando." />
+    <STRING INDEX="11110" VALUE="Derrotaste a los enemigos del área 4, pero no encontraste la piedra espiritual. Sigue buscando." />
+    <STRING INDEX="11111" VALUE="Localizaste al hombre mutante con la piedra espiritual en el área 5. Todos deben acudir allí." />
+    <STRING INDEX="11112" VALUE="Se detectó una fuente de calor y la puerta se cerró." />
+    <STRING INDEX="11113" VALUE="Derrotaste a los enemigos del área 5, pero no encontraste la piedra espiritual. Sigue buscando." />
+    <STRING INDEX="11114" VALUE="Apareció el hombre mutante hambriento con la piedra espiritual en el área 2." />
+    <STRING INDEX="11115" VALUE="Apareció el hombre mutante cargador, furioso por perder la piedra espiritual. ¡Evita sus poderosos ataques!" />
+    <STRING INDEX="11116" VALUE="La puerta del área 1 está abierta. Derrota a todos los enemigos." />
+    <STRING INDEX="11117" VALUE="La puerta del área 2 está abierta. Derrota a todos los enemigos." />
+    <STRING INDEX="11118" VALUE="La puerta del área 3 está abierta. Derrota a todos los enemigos." />
+    <STRING INDEX="11119" VALUE="La puerta del área 4 está abierta. Derrota a todos los enemigos." />
+    <STRING INDEX="11120" VALUE="La puerta del área 5 está abierta. Derrota a todos los enemigos." />
+    
+    <!-- Chapter 1-12 -->
+    <STRING INDEX="11201" VALUE="Según el investigador rescatado, el hombre mutante cargador robó los planos de objetos y huyó. Búscalo en las cuatro salas." />
+    <STRING INDEX="11202" VALUE="El hombre mutante cargador invocó aliados. Prepárate para atacar." />
+    <STRING INDEX="11203" VALUE="El hombre mutante cargador escapó. Encuéntralo." />
+    <STRING INDEX="11204" VALUE="Recuperaste los planos del objeto del hombre mutante cargador. Los enemigos desaparecieron." />
+    <STRING INDEX="11205" VALUE="¡Los enemigos nos emboscaron! Cuidado con sus ataques." />
+
+    <!-- Chapter 1-13 -->
+    <STRING INDEX="11301" VALUE="Todas las salidas están bloqueadas. Algo parece impedir que se abra la puerta." />
+    <STRING INDEX="11302" VALUE="Se detectó calor y la puerta se cerró. ¡Cuidado con los enemigos!" />
+    <STRING INDEX="11303" VALUE="La cría de tarántula invocó aliados al morir." />
+    <STRING INDEX="11304" VALUE="El ataque enemigo se debilitó. Recupérate y prepárate para la próxima oleada." />
+    <STRING INDEX="11305" VALUE="El enemigo volvió a atacar. Prepárate." />
+    <STRING INDEX="11306" VALUE="El hombre mutante invocó aliados al morir." />
+    <STRING INDEX="11307" VALUE="Enemigos derrotados." />
+    <STRING INDEX="11308" VALUE="Aparecieron enemigos. Prepárate para atacar." />
+    <STRING INDEX="11309" VALUE="El enemigo volvió a atacar. Prepárate." />
+    <STRING INDEX="11310" VALUE="Se detecta energía sospechosa en el área 1. ¡Todos al área 1!" />
+   
+    <!-- Chapter 1-14 -->
+    <STRING INDEX="11401" VALUE="Estás infectado por un virus. Reúne información sobre el monstruo que robó la vacuna." />
+    <STRING INDEX="11402" VALUE="¡Apareció el monstruo que protege el portal!\nPrepárate para atacar." />
+    <STRING INDEX="11403" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="11404" VALUE="¡Apareció el monstruo que protege el portal!\nPrepárate para atacar." />
+    <STRING INDEX="11405" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="11406" VALUE="¡Apareció el monstruo que protege el portal!\nPrepárate para atacar." />
+    <STRING INDEX="11407" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="11408" VALUE="¡Apareció el monstruo que protege el portal!\nPrepárate para atacar." />
+    <STRING INDEX="11409" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="11410" VALUE="La puerta está abierta.\nTodos los monstruos fueron derrotados." />
+    <STRING INDEX="11411" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="11412" VALUE="Ha aparecido Boss." />
+    <STRING INDEX="11413" VALUE="Recuperaste la vacuna del monstruo. El virus ha sido curado." />
+    <STRING INDEX="11414" VALUE="Se encontraron escamas del monstruo que robó la vacuna. Consigue el controlador del portal del guardián." />
+    <STRING INDEX="11415" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-15 -->
+    <STRING INDEX="11501" VALUE="Se detectó una piedra espiritual. Busca sus rastros." />
+    <STRING INDEX="11502" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="11503" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="11504" VALUE="Apareció el monstruo jefe con la piedra espiritual. Derrótalo y recupérala." />
+    <STRING INDEX="11505" VALUE="Recuperaste la piedra espiritual del monstruo jefe." />
+    <STRING INDEX="11506" VALUE="Se detecta energía de una piedra espiritual en el portal. Úsalo para llegar hasta ella." />
+    <STRING INDEX="11507" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-16 -->
+    <STRING INDEX="11601" VALUE="Según el investigador, los enemigos robaron los planos de objetos. Derrótalos y recupera los planos." />
+    <STRING INDEX="11602" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="11603" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="11604" VALUE="¡Apareció Boss Monster carrying the Item Building Plans! Prepárate para luchar." />
+    <STRING INDEX="11605" VALUE="Recuperaste los planos del monstruo jefe." />
+    <STRING INDEX="11606" VALUE="Los enemigos cortaron la energía del portal. Derrótalos para restaurarla." />
+    <STRING INDEX="11607" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-17 -->
+    <STRING INDEX="11701" VALUE="Según el investigador, los enemigos robaron los planos de armadura. Derrótalos y recupera los planos." />
+    <STRING INDEX="11702" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="11703" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="11704" VALUE="¡Apareció Boss Monster carrying the Armor Building Plans! Prepárate para luchar." />
+    <STRING INDEX="11705" VALUE="Recuperaste los planos del monstruo jefe." />
+    <STRING INDEX="11706" VALUE="Los enemigos cortaron la energía del portal. Derrótalos para restaurarla." />
+    <STRING INDEX="11707" VALUE="Atravesando el portal." />
+
+    <!-- Chapter 1-18 -->
+    <STRING INDEX="11801" VALUE="Busca pistas del monstruo que lleva la piedra espiritual." />
+    <STRING INDEX="11802" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="11803" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="11804" VALUE="Has obtenido Scale of the Monster seeming to be carrying the Spirit Stone." />
+    <STRING INDEX="11805" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="11806" VALUE="Se detecta energía de una piedra espiritual en el portal. Úsalo para llegar hasta ella." />
+    <STRING INDEX="11807" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-19 -->
+    <STRING INDEX="11901" VALUE="Derrota a todos los monstruos para detener sus ataques." />
+    <STRING INDEX="11902" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="11903" VALUE="El portal está activo. ¡Entra rápido!" />
+    <STRING INDEX="11904" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="11905" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="11906" VALUE="Los enemigos cortaron la energía del portal. Derrótalos para restaurarla." />
+    <STRING INDEX="11907" VALUE="Atravesando el portal." />
+    <STRING INDEX="11908" VALUE="Todos los enemigos fueron derrotados." />
+    
+    <!-- Chapter 1-20 -->
+    <STRING INDEX="12001" VALUE="Se necesitan escamas de MetalLava contaminado para fabricar armas." />
+    <STRING INDEX="12002" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="12003" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="12004" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="12005" VALUE="Has obtenido las escamas de MetalLava contaminado." />
+    <STRING INDEX="12006" VALUE="Los enemigos cortaron la energía del portal. Derrótalos para restaurarla." />
+    <STRING INDEX="12007" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-21 -->
+    <STRING INDEX="12101" VALUE="Se necesitan los ojos de MetalLava temerario para fabricar armaduras. Encuéntralo." />
+    <STRING INDEX="12102" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="12103" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="12104" VALUE="¡Apareció Recklace MetalLava! Prepárate para luchar." />
+    <STRING INDEX="12105" VALUE="Has obtenido los ojos de MetalLava temerario." />
+    <STRING INDEX="12106" VALUE="Los enemigos cortaron la energía del portal. Derrótalos para restaurarla." />
+    <STRING INDEX="12107" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-22 -->
+    <STRING INDEX="12201" VALUE="Se oyen gritos enemigos a lo lejos. Encuéntralos y elimínalos." />
+    <STRING INDEX="12202" VALUE="La puerta está abierta.\nDerrota a todos los enemigos." />
+    <STRING INDEX="12203" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="12204" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="12205" VALUE="Aparecieron los guardias del monstruo jefe. Prepárate para atacar." />
+    <STRING INDEX="12206" VALUE="Has derrotado al monstruo jefe." />
+    <STRING INDEX="12207" VALUE="Los enemigos cortaron la energía del portal. Derrótalos para restaurarla." />
+    <STRING INDEX="12208" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-23 -->
+    <STRING INDEX="12301" VALUE="Necesitamos la cabeza del jefe enemigo para levantar la moral de los aliados. Encuéntralo." />
+    <STRING INDEX="12302" VALUE="La puerta está abierta.\nDerrota a todos los enemigos." />
+    <STRING INDEX="12303" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="12304" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="12305" VALUE="Has conseguido la cabeza del jefe enemigo." />
+    <STRING INDEX="12306" VALUE="Los enemigos cortaron la energía del portal. Derrótalos para restaurarla." />
+    <STRING INDEX="12307" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-24 -->
+    <STRING INDEX="12401" VALUE="La radiación está fortaleciendo a los monstruos. Derrota a todos los contaminados." />
+    <STRING INDEX="12402" VALUE="¡Apareció el monstruo que protege el portal!\nPrepárate para atacar." />
+    <STRING INDEX="12403" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="12404" VALUE="¡Apareció el monstruo que protege el portal!\nPrepárate para atacar." />
+    <STRING INDEX="12405" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="12406" VALUE="¡Apareció el monstruo que protege el portal!\nPrepárate para atacar." />
+    <STRING INDEX="12407" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="12408" VALUE="¡Apareció el monstruo que protege el portal!\nPrepárate para atacar." />
+    <STRING INDEX="12409" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="12410" VALUE="La puerta está abierta.\nDerrota a todos los enemigos." />
+    <STRING INDEX="12411" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="12412" VALUE="Han aparecido Monsters contanimated by radiation." />
+    <STRING INDEX="12413" VALUE="Monster polluted by Radiation ha sido derrotado." />
+    <STRING INDEX="12414" VALUE="Se detectó radiación en el portal. Conduce a monstruos contaminados. Busca el controlador del portal." />
+    <STRING INDEX="12415" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-25 -->
+    <STRING INDEX="12501" VALUE="Encuentra al reptil gigante contaminado por radiación." />
+    <STRING INDEX="12502" VALUE="La puerta está abierta.\nDerrota a todos los monstruos que aparezcan." />
+    <STRING INDEX="12503" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="12504" VALUE="¡Apareció Giant Raptile contaminated by radiation! Prepárate para luchar." />
+    <STRING INDEX="12505" VALUE="Has derrotado a Giant Raptile contaminated by radiation." />
+    <STRING INDEX="12506" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="12507" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-26 -->
+    <STRING INDEX="12601" VALUE="Consigue los dientes de PiranhaRaptor hambriento para fabricar armas." />
+    <STRING INDEX="12602" VALUE="La puerta está abierta.\nDerrota a todos los enemigos." />
+    <STRING INDEX="12603" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="12604" VALUE="¡Apareció Starved PiranhaRaptor! Prepárate para luchar." />
+    <STRING INDEX="12605" VALUE="Has obtenido Starved PiranhaRaptor's Teeth." />
+    <STRING INDEX="12606" VALUE="Los enemigos cortaron la energía del portal. Derrótalos para restaurarla." />
+    <STRING INDEX="12607" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-27 -->
+    <STRING INDEX="12701" VALUE="Consigue las escamas de PiranhaRaptor temerario para fabricar armaduras." />
+    <STRING INDEX="12702" VALUE="La puerta está abierta.\nDerrota a todos los enemigos." />
+    <STRING INDEX="12703" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="12704" VALUE="¡Apareció Recklace PiranhaRaptor's! Prepárate para luchar." />
+    <STRING INDEX="12705" VALUE="Has obtenido Recklace PiranhaRaptor's Scales." />
+    <STRING INDEX="12706" VALUE="Se detectaron enemigos y el portal se desactivó. Derrota a todos los enemigos." />
+    <STRING INDEX="12707" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-28 -->
+    <STRING INDEX="12801" VALUE="Un monstruo poderoso destruyó el laboratorio. Encuentra a los monstruos y derrótalos." />
+    <STRING INDEX="12802" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="12803" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="12804" VALUE="Has derrotado al monstruo poderoso." />
+    <STRING INDEX="12805" VALUE="¡Apareció un monstruo poderoso! Prepárate para atacar." />
+    <STRING INDEX="12806" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="12807" VALUE="Atravesando el portal." />
+        
+    <!-- Chapter 1-29 -->
+    <STRING INDEX="12901" VALUE="Derrota a todos los monstruos." />
+    <STRING INDEX="12902" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="12903" VALUE="El portal está activo. ¡Entra rápido!" />
+    <STRING INDEX="12904" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="12905" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="12906" VALUE="Resististe el ataque enemigo." />
+    <STRING INDEX="12907" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="12908" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-30 -->
+    <STRING INDEX="13001" VALUE="Se encontró un camino desconocido. Explóralo con cuidado." />
+    <STRING INDEX="13002" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="13003" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="13004" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="13005" VALUE="Exploración completada correctamente." />
+    <STRING INDEX="13006" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="13007" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-31 -->
+    <STRING INDEX="13101" VALUE="Derrota a todos los monstruos de todas las áreas." />
+    <STRING INDEX="13102" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="13103" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="13104" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="13105" VALUE="Has derrotado al monstruo jefe." />
+    <STRING INDEX="13106" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="13107" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-32 -->
+    <STRING INDEX="13201" VALUE="Para terminar el arma, necesitas la aleta del rey PiranhaRaptor. Encuéntralo." />
+    <STRING INDEX="13202" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="13203" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="13204" VALUE="¡Apareció PiranhaRaptor King! Prepárate para luchar." />
+    <STRING INDEX="13205" VALUE="Han aparecido PiranhaRaptor King Guards." />
+    <STRING INDEX="13206" VALUE="Has obtenido PiranhaRaptor King Fin." />
+    <STRING INDEX="13207" VALUE="Has obtenido la aleta del rey PiranhaRaptor en el portal." />
+    <STRING INDEX="13208" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-33 -->
+    <STRING INDEX="13301" VALUE="Para terminar la armadura, necesitas una uña de Bigfoot hambriento. Encuéntralo." />
+    <STRING INDEX="13302" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="13303" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="13304" VALUE="¡Apareció Starved Bigfoot! Prepárate para luchar." />
+    <STRING INDEX="13305" VALUE="Has obtenido Starved Bigfoot Nail piece." />
+    <STRING INDEX="13306" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="13307" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-34 -->
+    <STRING INDEX="13401" VALUE="Algo no va bien. Derrota a los monstruos y asegura una ruta de escape." />
+    <STRING INDEX="13402" VALUE="¡Aparecieron los guardianes del portal!\nPrepárate para atacar." />
+    <STRING INDEX="13403" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="13404" VALUE="¡Aparecieron los guardianes del portal!\nPrepárate para atacar." />
+    <STRING INDEX="13405" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="13406" VALUE="¡Aparecieron los guardianes del portal!\nPrepárate para atacar." />
+    <STRING INDEX="13407" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="13408" VALUE="¡Aparecieron los guardianes del portal!\nPrepárate para atacar." />
+    <STRING INDEX="13409" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="13410" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="13411" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="13412" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="13413" VALUE="Has derrotado al monstruo jefe." />
+    <STRING INDEX="13414" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="13415" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-35 -->
+    <STRING INDEX="13501" VALUE="Se encontró un camino desconocido. Derrota a los enemigos de todas las áreas." />
+    <STRING INDEX="13502" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="13503" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="13504" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="13505" VALUE="Has derrotado al monstruo jefe." />
+    <STRING INDEX="13506" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="13507" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-36 -->
+    <STRING INDEX="13601" VALUE="Se informó de un objeto desconocido que se mueve rápido. Encuéntralo y derrótalo." />
+    <STRING INDEX="13602" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="13603" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="13604" VALUE="¡Apareció el monstruo desconocido! Cuidado, se mueve muy rápido." />
+    <STRING INDEX="13605" VALUE="Monster ha sido derrotado." />
+    <STRING INDEX="13606" VALUE="Los enemigos cortaron la energía del portal. Derrótalos para restaurarla." />
+    <STRING INDEX="13607" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-37 -->
+    <STRING INDEX="13701" VALUE="Busca pistas sobre las piedras espirituales.\nEncuentra al monstruo que lleva las notas secretas." />
+    <STRING INDEX="13702" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="13703" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="13704" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="13705" VALUE="Has obtenido las notas secretas de la piedra espiritual." />
+    <STRING INDEX="13706" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="13707" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-38 -->
+    <STRING INDEX="13801" VALUE="Algo se mueve rápido en la oscuridad. Encuéntralo y derrótalo." />
+    <STRING INDEX="13802" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="13803" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="13804" VALUE="Has derrotado al monstruo poderoso." />
+    <STRING INDEX="13805" VALUE="¡Apareció un monstruo poderoso! Prepárate para atacar." />
+    <STRING INDEX="13806" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="13807" VALUE="Atravesando el portal." />
+        
+    <!-- Chapter 1-39 -->
+    <STRING INDEX="13901" VALUE="Busca pistas sobre las piedras espirituales. Encuentra al monstruo que lleva las notas secretas." />
+    <STRING INDEX="13902" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="13903" VALUE="El portal está activo. ¡Entra rápido!" />
+    <STRING INDEX="13904" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="13905" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="13906" VALUE="Has obtenido las notas secretas de la piedra espiritual." />
+    <STRING INDEX="13907" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="13908" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-40 -->
+    <STRING INDEX="14001" VALUE="El investigador creó un arma nueva con los materiales enviados. Asegura el camino de regreso." />
+    <STRING INDEX="14002" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="14003" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="14004" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="14005" VALUE="El monstruo jefe fue derrotado. La ruta al laboratorio está asegurada." />
+    <STRING INDEX="14006" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="14007" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-41 -->
+    <STRING INDEX="14101" VALUE="Los enemigos se infiltraron en el laboratorio de armaduras. Derrótalos a todos." />
+    <STRING INDEX="14102" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="14103" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="14104" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="14105" VALUE="Enemigo derrotado correctamente." />
+    <STRING INDEX="14106" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="14107" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-42 -->
+    <STRING INDEX="14201" VALUE="Puede haber un monstruo con una piedra espiritual. Búscalo." />
+    <STRING INDEX="14202" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="14203" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="14204" VALUE="Apareció el monstruo que lleva la piedra espiritual. Prepárate para atacar." />
+    <STRING INDEX="14205" VALUE="Han aparecido Boss Guards." />
+    <STRING INDEX="14206" VALUE="Has obtenido una piedra espiritual del monstruo." />
+    <STRING INDEX="14207" VALUE="Se encontraron rastros del enemigo en el portal." />
+    <STRING INDEX="14208" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-43 -->
+    <STRING INDEX="14301" VALUE="Es hora de probar el arma nueva. Úsala para derrotar a los enemigos." />
+    <STRING INDEX="14302" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="14303" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="14304" VALUE="¡Apareció el monstruo jefe!\nPrepárate para atacar." />
+    <STRING INDEX="14305" VALUE="Todos los monstruos fueron derrotados." />
+    <STRING INDEX="14306" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="14307" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-44 -->
+    <STRING INDEX="14401" VALUE="Continúa buscando la piedra espiritual. Derrota a los monstruos del laboratorio y busca rastros." />
+    <STRING INDEX="14402" VALUE="¡Aparecieron los guardianes del portal!\nPrepárate para atacar." />
+    <STRING INDEX="14403" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="14404" VALUE="¡Aparecieron los guardianes del portal!\nPrepárate para atacar." />
+    <STRING INDEX="14405" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="14406" VALUE="¡Aparecieron los guardianes del portal!\nPrepárate para atacar." />
+    <STRING INDEX="14407" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="14408" VALUE="¡Aparecieron los guardianes del portal!\nPrepárate para atacar." />
+    <STRING INDEX="14409" VALUE="Conseguiste el controlador del portal del monstruo guardián.\nUsa el portal para encontrar al monstruo que robó la vacuna." />
+    <STRING INDEX="14410" VALUE="¡La puerta está abierta!\nDerrota a todos los monstruos." />
+    <STRING INDEX="14411" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="14412" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="14413" VALUE="Has derrotado al monstruo jefe." />
+    <STRING INDEX="14414" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="14415" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-45 -->
+    <STRING INDEX="14501" VALUE="Prueba la nueva armadura. Equípala y derrota a los enemigos." />
+    <STRING INDEX="14502" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="14503" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="14504" VALUE="¡Apareció el monstruo jefe! Prepárate para luchar." />
+    <STRING INDEX="14505" VALUE="Has derrotado al monstruo jefe." />
+    <STRING INDEX="14506" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="14507" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-46 -->
+    <STRING INDEX="14601" VALUE="La puerta está cerrada y no puedes avanzar. Encuentra la llave." />
+    <STRING INDEX="14602" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="14603" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="14604" VALUE="Ha aparecido Boss Monster carrying the Key." />
+    <STRING INDEX="14605" VALUE="Has obtenido la llave del monstruo jefe." />
+    <STRING INDEX="14606" VALUE="Los enemigos cortaron la energía del portal. Derrótalos para restaurarla." />
+    <STRING INDEX="14607" VALUE="Atravesando el portal." />
+    
+	<!-- Chapter 1-47 -->
+    <STRING INDEX="14701" VALUE="La puerta está cerrada y no puedes avanzar. Encuentra la llave." />
+    <STRING INDEX="14702" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="14703" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="14704" VALUE="Ha aparecido Boss Monster carrying the Key." />
+    <STRING INDEX="14705" VALUE="Has obtenido la llave del monstruo jefe." />
+    <STRING INDEX="14706" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="14707" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-48 -->
+    <STRING INDEX="14801" VALUE="Continúa buscando la piedra espiritual. Derrota a todos los monstruos." />
+    <STRING INDEX="14802" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="14803" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="14804" VALUE="Has derrotado a todos los monstruos." />
+    <STRING INDEX="14805" VALUE="Ha aparecido Powerful Monster." />
+    <STRING INDEX="14806" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="14807" VALUE="Atravesando el portal." />
+        
+    <!-- Chapter 1-49 -->
+    <STRING INDEX="14901" VALUE="Se informó de un nuevo tipo de monstruo en esta zona. Recoge una muestra de ADN." />
+    <STRING INDEX="14902" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="14903" VALUE="El portal está activo. ¡Entra rápido!" />
+    <STRING INDEX="14904" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="14905" VALUE="Apareció un nuevo tipo de monstruo jefe. Prepárate para atacar." />
+    <STRING INDEX="14906" VALUE="Has obtenido el ADN del nuevo monstruo jefe." />
+    <STRING INDEX="14907" VALUE="El portal está inactivo y no se puede usar." />
+    <STRING INDEX="14908" VALUE="Atravesando el portal." />
+    
+    <!-- Chapter 1-50 -->
+    <STRING INDEX="15001" VALUE="Encuentra y derrota al Víctor cargador que escapó antes." />
+    <STRING INDEX="15002" VALUE="La puerta está abierta.\nDerrota a todos los monstruos." />
+    <STRING INDEX="15003" VALUE="Has entrado en la zona del jefe." />
+    <STRING INDEX="15004" VALUE="¡Apareció Loader Victor! Prepárate para luchar." />
+    <STRING INDEX="15005" VALUE="Has derrotado a Loader Victor." />
+    <STRING INDEX="15006" VALUE="El portal está inactivo y no se puede usar." />
+	    
+ </STRINGINFO>
+</STRINGS>
+

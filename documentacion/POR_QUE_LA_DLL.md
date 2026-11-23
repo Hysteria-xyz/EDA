@@ -155,8 +155,16 @@ dos juegos se congelaron (§42).
 - [ ] Una dll nueva **llega a los jugadores sólo con una release del cliente** (el manifiesto del
       launcher): el PR no basta. Avisarle al mantenedor.
 
+### La traducción en memoria (sin tocar `Data.dat` ni `LTMsg.dll`)
+
+La traducción al español (`traduccion/es/`) sigue las mismas reglas: **no toca un solo byte** de `EDA_limpio.exe`, `Data.dat` ni `LTMsg.dll`:
+
+- **Gancho SolFS (`eda_traduccion.c`):** toda lectura de `Data.dat` en el juego pasa por 7 funciones de EldoS SolFS llamadas desde 16 sitios verificados. Antes de tocar nada, la DLL comprueba el PE del exe, los 7 prólogos y las 16 llamadas. Al abrir un archivo, busca en orden: **1)** carpeta suelta `traducciones\<idioma>\` junto al juego (para probar cambios sin recompilar), **2)** los XML **embebidos dentro de `d3d9.dll`** (generados al compilar desde `traduccion/<idioma>/**` para que lleguen a todos los jugadores con el launcher), y **3)** `Data.dat` original.
+- **Por qué `LTMsg.dll` no se toca nunca:** su hash MD5 en mayúsculas es la clave AES-256 que descifra `Data.dat`. Alterar un solo byte en disco rompería la lectura de todos los archivos del cliente.
+- **Interruptor:** viene prendida en español (`[traduccion] idioma=es` en `eda_d3d9.ini`). Poner `idioma=en` (o `off`, `ninguno`) o `[general] mejoras=0` la apaga por completo y el juego lee `Data.dat` sin enganchar nada. La variable `EDA_IDIOMA` pisa el `.ini` para esa sesión.
+
 ### Los bloques de hoy (`eda_d3d9.ini`, ver `compilar.py`)
 
 `[red]` el server · `[video]` tope y contador (las escribe el launcher) · `[general] mejoras` ·
-`[cajanegra]` · `[p2p]` identidad, IP privada y red inmediata (prendidos: §52–53) · `[rui]` ·
-`[hysteria]` · `[mazino]`.
+`[cajanegra]` · `[apis]` · `[diag]` · `[traduccion]` español embebido (prendido; `idioma=en` lo apaga) ·
+`[p2p]` identidad, IP privada y red inmediata (prendidos: §52–53) · `[rui]` · `[hysteria]` · `[mazino]`.

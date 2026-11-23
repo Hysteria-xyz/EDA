@@ -1,12 +1,14 @@
 /* prueba_traduccion.c — ★ (23-nov) pruebas de eda_traduccion.c sin el juego, con el EDA_limpio.exe DE VERDAD:
+ *     python herramientas/dll_d3d9/compilar.py --generar-traduccion herramientas/dll_d3d9/eda_traduccion_datos.h
  *     gcc -std=gnu11 -Wall -Werror -o /tmp/prueba_traduccion herramientas/dll_d3d9/prueba_traduccion.c \
- *       && /tmp/prueba_traduccion exe/EDA_limpio.exe
+ *       && /tmp/prueba_traduccion exe/EDA_limpio.exe .
  *   Comprueba:
- *     1. Interruptor: apagado por defecto (vacío / "en" / mejoras=0), y sólo idiomas seguros.
+ *     1. Interruptor: apagado si vacío / "en" / mejoras=0, y sólo idiomas seguros.
  *     2. Normalización y armado de rutas: mayúsculas/minúsculas, separadores, y revés contra traversal (`..`, `:`).
  *     3. Verificación de bytes sobre `EDA_limpio.exe`: PE, los 7 prólogos SolFS, las 16 llamadas `E8` y las 3 cadenas
  *        UTF-16 de `.rdata` (con sus reveses: 1 byte cambiado anula todo).
- *     4. Simulación de redirección (archivo suelto presente → se redirige; ausente → cae a Data.dat).
+ *     4. Traducción embebida: búsqueda, lectura byte a byte con seek/pos/read contra `traduccion/es/`, prioridad
+ *        suelto → embebido → Data.dat, y reveses (archivo no embebido cae a Data.dat, otro idioma devuelve NULL).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -259,7 +261,89 @@ int main(int argc, char **argv)
              !tr_es_llamada(en(TR_SITIO_CREATE_GLYPH), TR_SITIO_CREATE_GLYPH, TR_FN_CREATE_GLYPH));
     en(TR_SITIO_CREATE_GLYPH)[1] ^= 0x01u;
 
-    /* 5. Redirección real sobre archivos temporales: existe → suelto, no existe → Data.dat */
+    /* 5. Redirección y traducción embebida: prioridad suelto → embebido → Data.dat */
+    const char *raiz_repo = argc > 2 ? argv[2] : ".";
+    char ruta_check[320];
+    snprintf(ruta_check, sizeof(ruta_check), "%s/traduccion/es/string/international/uistring.xml", raiz_repo);
+    if (!archivo_existe(ruta_check)) raiz_repo = "../..";
+
+    chequear("embebidos en la DLL: hay 5 XML para idioma=es y 0 para idioma desconocido",
+             tr_contar_embebidos("es") == 5 && tr_contar_embebidos("zz") == 0 && tr_contar_embebidos("en") == 0);
+
+    static const char *const rutas_es[5] = {
+        "Data/Scenario/String/International/Chapter1_string.xml",
+        "String/International/Err_String.xml",
+        "String/International/MapNameAndExplainString.xml",
+        "String/International/NameAndExplainString.xml",
+        "/.\\String//International\\UIString.xml",
+    };
+    int emb_ok = 0;
+    for (int i = 0; i < 5; i++) {
+        a_u16(rutas_es[i], in_w, 260);
+        if (!tr_normalizar_ruta(in_w, out_w, 260)) continue;
+        const TR_EMBEBIDO *e = tr_buscar_embebido("es", out_w);
+        if (!e || !e->datos || e->tam == 0u) continue;
+        char rel_slash[260], ruta_disco[400];
+        u16_a_ascii_slash(out_w, rel_slash, 260);
+        snprintf(ruta_disco, sizeof(ruta_disco), "%s/traduccion/es/%s", raiz_repo, rel_slash);
+        FILE *fd = fopen(ruta_disco, "rb");
+        if (!fd) continue;
+        fseek(fd, 0, SEEK_END);
+        long sz = ftell(fd);
+        fseek(fd, 0, SEEK_SET);
+        if (sz != (long)e->tam) { fclose(fd); continue; }
+        unsigned char *disk = (unsigned char *)malloc((size_t)sz);
+        unsigned char *leido = (unsigned char *)malloc((size_t)sz);
+        if (!disk || !leido || fread(disk, 1, (size_t)sz, fd) != (size_t)sz) {
+            free(disk); free(leido); fclose(fd); continue;
+        }
+        fclose(fd);
+        /* Leer por bloques usando tr_mem_read / tr_mem_seek como lo hace SolFS */
+        unsigned long pos = 0u, outp = 0u, tot = 0u;
+        int ok_io = (tr_mem_seek(e->tam, &pos, 0, 2u, &outp) == 0 && outp == e->tam)
+                    && (tr_mem_seek(e->tam, &pos, 0, 0u, &outp) == 0 && outp == 0u);
+        while (ok_io && tot < e->tam) {
+            unsigned long n = 0u;
+            if (tr_mem_read(e->datos, e->tam, &pos, leido + tot, 1024u, &n) != 0 || n == 0u) { ok_io = 0; break; }
+            tot += n;
+        }
+        unsigned long eof_n = 99u;
+        if (ok_io && tr_mem_read(e->datos, e->tam, &pos, leido, 16u, &eof_n) == 0 && eof_n == 0u
+            && tot == e->tam && pos == e->tam && memcmp(leido, disk, (size_t)sz) == 0) {
+            /* Seek relativo (FILE_CURRENT) y negativo desde el final (FILE_END) */
+            unsigned char tail[8], tail_disk[8];
+            unsigned long n2 = 0u;
+            if (tr_mem_seek(e->tam, &pos, -8L, 2u, &outp) == 0 && outp == e->tam - 8u
+                && tr_mem_read(e->datos, e->tam, &pos, tail, 8u, &n2) == 0 && n2 == 8u
+                && memcmp(tail, disk + sz - 8, 8) == 0) {
+                memcpy(tail_disk, disk + 4, 8);
+                if (tr_mem_seek(e->tam, &pos, 0, 0u, &outp) == 0
+                    && tr_mem_seek(e->tam, &pos, 4L, 1u, &outp) == 0 && outp == 4u
+                    && tr_mem_read(e->datos, e->tam, &pos, tail, 8u, &n2) == 0 && n2 == 8u
+                    && memcmp(tail, tail_disk, 8) == 0)
+                    emb_ok++;
+            }
+        }
+        free(disk);
+        free(leido);
+    }
+    chequear("los 5 XML embebidos coinciden byte a byte con traduccion/es/ (vía seek/pos/read)", emb_ok == 5);
+
+    unsigned long p_inv = 0u, o_inv = 0u;
+    chequear("★ revés seek en memoria: origen inválido (-24) y posición negativa (-1) se rechazan",
+             tr_mem_seek(100u, &p_inv, 0, 9u, &o_inv) == -24 && tr_mem_seek(100u, &p_inv, -5L, 0u, &o_inv) == -1);
+
+    a_u16("String/International/no_traducido.xml", in_w, 260);
+    tr_normalizar_ruta(in_w, out_w, 260);
+    chequear("★ revés embebido: archivo no embebido devuelve NULL (cae a Data.dat)",
+             tr_buscar_embebido("es", out_w) == NULL);
+
+    a_u16("String/International/UIString.xml", in_w, 260);
+    tr_normalizar_ruta(in_w, out_w, 260);
+    chequear("★ revés embebido: mismo archivo con otro idioma ('en'/'fr') devuelve NULL",
+             tr_buscar_embebido("en", out_w) == NULL && tr_buscar_embebido("fr", out_w) == NULL);
+
+    /* Prioridad real: 1) suelto en disco → 2) embebido → 3) Data.dat */
     const char *tmp = "tmp_prueba_traduccion_dir";
     char p1[260], p2[260], p3[260], p4[260], p5[260];
     snprintf(p1, sizeof(p1), "%s/traducciones", tmp);
@@ -276,13 +360,24 @@ int main(int argc, char **argv)
     char resuelta[260];
     int hit = tr_armar_ruta(base_w, "es", in_w, out_w, 260);
     u16_a_ascii_slash(out_w, resuelta, 260);
-    chequear("redirección: archivo presente en traducciones/es/ → se lee suelto", hit && archivo_existe(resuelta));
+    unsigned short norm_w[260];
+    tr_normalizar_ruta(in_w, norm_w, 260);
+    chequear("prioridad 1 (suelto > embebido): archivo presente en traducciones/es/ gana sobre el embebido",
+             hit && archivo_existe(resuelta) && tr_buscar_embebido("es", norm_w) != NULL);
+
+    a_u16("String/International/Err_String.xml", in_w, 260);
+    hit = tr_armar_ruta(base_w, "es", in_w, out_w, 260);
+    u16_a_ascii_slash(out_w, resuelta, 260);
+    tr_normalizar_ruta(in_w, norm_w, 260);
+    chequear("prioridad 2 (embebido): ausente en traducciones/es/ pero presente embebido → se sirve embebido",
+             hit && !archivo_existe(resuelta) && tr_buscar_embebido("es", norm_w) != NULL);
 
     a_u16("String/International/no_traducido.xml", in_w, 260);
     int miss = tr_armar_ruta(base_w, "es", in_w, out_w, 260);
     u16_a_ascii_slash(out_w, resuelta, 260);
-    chequear("★ revés redirección: archivo ausente → no existe en disco (cae a Data.dat)",
-             miss && !archivo_existe(resuelta));
+    tr_normalizar_ruta(in_w, norm_w, 260);
+    chequear("★ revés prioridad 3 (Data.dat): ausente en disco y no embebido → cae a Data.dat",
+             miss && !archivo_existe(resuelta) && tr_buscar_embebido("es", norm_w) == NULL);
 
     remove(p5);
 #ifdef _WIN32
