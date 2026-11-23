@@ -38,6 +38,7 @@ __pycache__/
 *.bak
 *.tmp
 
-# --- la identidad de la dll: la genera version.py al compilar ---
+# --- la identidad y los datos embebidos de la dll: los generan version.py / compilar.py al compilar ---
 herramientas/dll_d3d9/eda_version.h
+herramientas/dll_d3d9/eda_traduccion_datos.h
 herramientas/dll_d3d9/d3d9.dll.json

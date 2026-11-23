@@ -32,7 +32,7 @@ AQUI = os.path.dirname(os.path.abspath(__file__))
 RAIZ = os.path.dirname(os.path.dirname(AQUI))
 CARPETA = "herramientas/dll_d3d9"
 # lo que NO es código de la dll (lo genera la compilación, o son las pruebas)
-NO_ENTRA = {"eda_version.h", "d3d9.dll.json"}
+NO_ENTRA = {"eda_version.h", "eda_traduccion_datos.h", "d3d9.dll.json"}
 EXT_CODIGO = (".c", ".h", ".def")
 
 
@@ -65,7 +65,7 @@ def leer_version(carpeta=AQUI):
 
 
 def huella_codigo(carpeta=AQUI):
-    """sha256 del código que se compila: los .c/.h/.def + VERSION, con LF (igual en Windows y en Linux)."""
+    """sha256 del código que se compila: los .c/.h/.def + VERSION + traduccion/<idioma>/** (si existe), con LF."""
     h = hashlib.sha256()
     nombres = sorted(n for n in os.listdir(carpeta)
                      if (n.endswith(EXT_CODIGO) or n == "VERSION") and n not in NO_ENTRA
@@ -73,13 +73,35 @@ def huella_codigo(carpeta=AQUI):
     for n in nombres:
         datos = open(os.path.join(carpeta, n), "rb").read().replace(b"\r\n", b"\n")
         h.update(n.encode() + b"\0" + str(len(datos)).encode() + b"\0" + datos)
+    trad = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(carpeta))), "traduccion")
+    if os.path.isdir(trad):
+        entradas = []
+        for idi in sorted(os.listdir(trad)):
+            if idi == "herramientas" or idi.startswith((".", "_")):
+                continue
+            carp_idi = os.path.join(trad, idi)
+            if not os.path.isdir(carp_idi):
+                continue
+            for base, dirs, files in os.walk(carp_idi):
+                dirs.sort()
+                for fn in sorted(files):
+                    p = os.path.join(base, fn)
+                    rel_p = os.path.relpath(p, os.path.dirname(trad)).replace("\\", "/")
+                    entradas.append((rel_p, p))
+        for rel_p, p in sorted(entradas):
+            datos = open(p, "rb").read().replace(b"\r\n", b"\n")
+            h.update(rel_p.encode("utf-8") + b"\0" + str(len(datos)).encode() + b"\0" + datos)
     return "b" + h.hexdigest()[:10]
 
 
-def _codigo(rel):
+def _codigo(rel, raiz=None):
     """el código que entra en la dll, como pathspecs de git (lo mismo que huella_codigo)"""
-    return [":(glob)%s/*%s" % (rel, e) for e in EXT_CODIGO] + [":(glob)%s/VERSION" % rel,
-            ":(exclude,glob)%s/prueba_*" % rel] + [":(exclude)%s/%s" % (rel, n) for n in sorted(NO_ENTRA)]
+    specs = ([":(glob)%s/*%s" % (rel, e) for e in EXT_CODIGO] + [":(glob)%s/VERSION" % rel,
+             ":(exclude,glob)%s/prueba_*" % rel] + [":(exclude)%s/%s" % (rel, n) for n in sorted(NO_ENTRA)])
+    if raiz and os.path.isdir(os.path.join(raiz, "traduccion")):
+        specs += [":(glob)traduccion/*/**", ":(exclude,glob)traduccion/herramientas/**",
+                  ":(exclude)traduccion/LEEME.md"]
+    return specs
 
 
 def identidad(raiz=RAIZ, carpeta=AQUI, ahora=None):
@@ -93,13 +115,14 @@ def identidad(raiz=RAIZ, carpeta=AQUI, ahora=None):
     if not git or _correr(git, "rev-parse", "--is-inside-work-tree", raiz=raiz) != "true":
         ident["cambios"] = ["(no hay git: compilación LOCAL)"]
         return ident
-    largo = _correr(git, "log", "-1", "--format=%H", "--", *_codigo(rel), raiz=raiz)
+    specs = _codigo(rel, raiz)
+    largo = _correr(git, "log", "-1", "--format=%H", "--", *specs, raiz=raiz)
     if not largo:
         ident["cambios"] = ["(la carpeta no tiene commits: compilación LOCAL)"]
         return ident
     ident["commit_largo"] = largo
     ident["commit"] = largo[:7]
-    estado = _correr(git, "status", "--porcelain", "--untracked-files=all", "--", *_codigo(rel), raiz=raiz) or ""
+    estado = _correr(git, "status", "--porcelain", "--untracked-files=all", "--", *specs, raiz=raiz) or ""
     cambios = [l for l in estado.splitlines() if l.strip()
                and os.path.basename(l[3:].strip().strip('"')) not in NO_ENTRA]
     ident["cambios"] = cambios
