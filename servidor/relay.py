@@ -70,9 +70,9 @@ def identidad_de(conexion):
     return identidad_p2p()
 
 
-def punch_info(conexion, ahora=None):
+def punch_info(conexion, ahora=None, vence=True):
     """(IP como entero, puerto, hora) PÚBLICOS con que el server de punch vio a ese jugador (su 0x3006 o el
-    relay, en punch.json), sólo si es de ESTA sesión y no venció (`VENCE_PUBLICA`); o None."""
+    relay, en punch.json), sólo si es de ESTA sesión (y si `vence`, no venció `VENCE_PUBLICA`); o None."""
     try:
         e = json.load(open(config.PUNCH_MAPA)).get(str(conexion))
     except (OSError, ValueError, TypeError):
@@ -81,27 +81,27 @@ def punch_info(conexion, ahora=None):
         return None
     desde = (partida(conexion).get("desde") or 0) if conexion is not None else 0
     ahora = time.time() if ahora is None else ahora
-    if e[2] < desde - 1 or (VENCE_PUBLICA > 0 and ahora - e[2] > VENCE_PUBLICA):
+    if e[2] < desde - 1 or (vence and VENCE_PUBLICA > 0 and ahora - e[2] > VENCE_PUBLICA):
         return None
     return struct.unpack(">I", bytes(int(x) for x in e[0].split(".")))[0], e[1], float(e[2])
 
 
-def punch_de(conexion, ahora=None):
+def punch_de(conexion, ahora=None, vence=True):
     """(IP como entero, puerto) PÚBLICOS con que el server de punch vio a ese jugador (su 0x3006, lo
     anota `herramientas/relay_udp.py` en punch.json), o None.
     ★ (21-nov) Sólo si es de ESTA sesión: punch.json va por número de conexión y los números se reusan
     mientras el relay sigue andando. Medido en el server de prueba (21-nov 05:35 UTC): para la conexión 1
     decía el puerto 19745, visto a las 04:26 en OTRA sesión; el anfitrión de esta salía por el 18113, y al
     invitado se le dio el viejo → -1000 ms. Ahora cada entrada lleva su hora y vale sólo si es posterior al
-    comienzo de la sesión (`desde`) y no venció (`VENCE_PUBLICA`)."""
-    info = punch_info(conexion, ahora=ahora)
+    comienzo de la sesión (`desde`)."""
+    info = punch_info(conexion, ahora=ahora, vence=vence)
     return (info[0], info[1]) if info else None
 
 
-def publica_info(conexion, ahora=None):
+def publica_info(conexion, ahora=None, vence=True):
     """(IP como entero, puerto, hora) PÚBLICOS del 0x3002 (el más reciente entre `nat.json` de esta sesión y
-    lo que el juego mandó en su 0x100F), si son de verdad (no 127.0.0.1), no vencieron (`VENCE_PUBLICA`), y
-    sólo con P2P entre casas."""
+    lo que el juego mandó en su 0x100F), si son de verdad (no 127.0.0.1), de esta sesión (y si `vence`, no
+    vencieron `VENCE_PUBLICA`), y sólo con P2P entre casas."""
     if not config.P2P_ENTRE_CASAS or conexion is None:
         return None
     ahora = time.time() if ahora is None else ahora
@@ -113,29 +113,32 @@ def publica_info(conexion, ahora=None):
             p["publica_vista"] = tuple(pub)
             p["publica_desde"] = ahora
         t_pub = p.get("publica_desde") or p.get("desde") or ahora
-        if VENCE_PUBLICA <= 0 or ahora - t_pub <= VENCE_PUBLICA:
+        if not vence or VENCE_PUBLICA <= 0 or ahora - t_pub <= VENCE_PUBLICA:
             cand = (pub[0], pub[1], float(t_pub))
     if p.get("nat_0604"):
         from servidor import nat
         m = nat.buscar_con_hora(p)
-        if m and m[0] and m[0] >> 24 != 127 and (VENCE_PUBLICA <= 0 or ahora - m[2] <= VENCE_PUBLICA):
+        if m and m[0] and m[0] >> 24 != 127 and (not vence or VENCE_PUBLICA <= 0 or ahora - m[2] <= VENCE_PUBLICA):
             if cand is None or m[2] >= cand[2]:
                 cand = m
     return cand
 
 
-def publica_de(conexion, ahora=None):
+def publica_de(conexion, ahora=None, vence=True):
     """(IP como entero, puerto) PÚBLICOS que el juego mandó en su 0x100F (o su 0x3002 más reciente en
-    `nat.json`), si son de verdad (no la 127.0.0.1 del 0x0609 viejo), vigentes y sólo con P2P entre
+    `nat.json`), si son de verdad (no la 127.0.0.1 del 0x0609 viejo) y sólo con P2P entre
     casas. ★ La tiene también el ANFITRIÓN (§47, §53)."""
-    info = publica_info(conexion, ahora=ahora)
+    info = publica_info(conexion, ahora=ahora, vence=vence)
     return (info[0], info[1]) if info else None
 
 
-def actual_de(conexion, ahora=None):
-    """★ (22-nov) La dirección pública MÁS RECIENTE y vigente de `conexion`: compara la hora del punch/relay
-    (`punch_info`) y la del 0x3002 (`publica_info`) y devuelve la más nueva, o None si no hay o venció."""
-    a, b = punch_info(conexion, ahora=ahora), publica_info(conexion, ahora=ahora)
+def actual_de(conexion, ahora=None, vence=False):
+    """★ (22-nov) La dirección pública MÁS RECIENTE conocida de `conexion` en ESTA sesión: compara la hora del
+    punch/relay (`punch_info`) y la del 0x3002 (`publica_info`) y devuelve la más nueva, o None si no hay.
+    Para el P2P directo (`vence=False`) no vence por tiempo en la misma sala (si el puerto cambia, lo detecta la
+    re-medición periódica 0x1059 → 0x105A en la sala que espera); para `relay.json` (`vence=True`) exige vigencia."""
+    a = punch_info(conexion, ahora=ahora, vence=vence)
+    b = publica_info(conexion, ahora=ahora, vence=vence)
     if a and b:
         return (a[0], a[1]) if a[2] >= b[2] else (b[0], b[1])
     info = a or b
@@ -179,7 +182,7 @@ def dir_udp(conexion, para=None):
     p = partida(conexion)
     if config.P2P == "auto" and relay() and para is not None:
         return _dir_auto(conexion, para)
-    if (config.P2P == "directo" and mac_de(conexion) and (para is None or mac_de(para))
+    if (config.P2P in ("directo", "auto") and mac_de(conexion) and (para is None or mac_de(para))
             and not sin_directo(conexion, para)):
         mio = actual_de(conexion)
         suyo = actual_de(para) if para is not None else None
@@ -197,10 +200,10 @@ def dir_udp(conexion, para=None):
 
 def udp_para_relay(n):
     """★ (22-nov) La dirección UDP de `n` que va a `relay.json`:
-      · si el server conoce su dirección pública vigente (`actual_de`: 0x3006 o 0x3002), ésa;
+      · si el server conoce su dirección pública vigente (`actual_de(..., vence=True)`: 0x3006 o 0x3002), ésa;
       · si se conectó desde la misma PC (127.x, o sin `ip_tcp` en pruebas locales), su `udp` local (127.0.0.1);
       · si viene de otra PC y no tiene pública vigente, None (nunca `[2130706433, 57654]` en el VPS)."""
-    pub = actual_de(n)
+    pub = actual_de(n, vence=True)
     if pub:
         return list(pub)
     ip_tcp = partida(n).get("ip_tcp")
@@ -238,15 +241,19 @@ def estable(conexion):
 
 
 def ruta(a, b):
-    """★ (21-nov) El camino de la PAREJA a–b, el MISMO en los dos sentidos (nunca uno directo y el otro por el
-    relay): «casa» (las privadas: misma IP pública), «directo» (las públicas, sólo si las dos son confiables:
-    `estable`) o «relay». Con EDA_P2P=auto."""
+    """★ (21-nov / 22-nov) El camino de la PAREJA a–b en modo «auto», el MISMO en los dos sentidos (nunca uno
+    directo y el otro por el relay):
+      · «casa» (las privadas: misma IP pública);
+      · «directo» (primero el P2P directo: las públicas vigentes y más recientes de cada uno, `actual_de`);
+      · «relay» (sólo de respaldo: si falló el directo entre ese par — `0x105A` → `sin_directo` —, si alguno no
+        tiene dirección pública vigente, o si falta la MAC)."""
     if not (mac_de(a) and mac_de(b)) or sin_directo(a, b):
         return "relay"
     pa, pb = partida(a), partida(b)
-    if pa.get("privada") and pb.get("privada") and misma_casa(a, b, actual_de(a), actual_de(b)):
+    pub_a, pub_b = actual_de(a), actual_de(b)
+    if pa.get("privada") and pb.get("privada") and misma_casa(a, b, pub_a, pub_b):
         return "casa"
-    if estable(a) and estable(b):
+    if pub_a and pub_b:
         return "directo"
     return "relay"
 

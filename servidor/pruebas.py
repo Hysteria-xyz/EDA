@@ -18,6 +18,7 @@ from servidor.cuentas import EXPS, INICIO, cuenta_de, guardar, leer, nivel
 from servidor.datos import ESCENARIOS, NADA, PRECIOS, precios_venta, productos, puntos_de, tabla_habilidades, tabla_premios, tipos_item
 from servidor.objetos import PUNTOS_POR_NIVEL, casilleros_de, equipo, es_equipo, ficha, inventario, libre_en_bolsa, nivel_engarce, obj_habilidad, pj_cuenta, serial_nuevo, stats_de
 from servidor.relay import dir_udp, escribir_relay, identidad_de, identidad_falsa, relay
+from servidor.relay import actual_de as relay_actual_de
 from servidor.salas import miembro, pares
 from servidor.partida import cuerpo_1072, dar_premio
 from servidor.juego import cerrada, responder
@@ -732,18 +733,18 @@ def control():
     chequear("★ el revés: 0x105B sin sala → None", responder(0x105B, b"", 999) is None)
     del SALAS[55]
 
-    # ★ 0x1062: sincronización de vida/maná en cooperativo
+    # ★ 0x1063: reporte de golpes recibidos (sin responder 0x1062: en el exe 0x547440 desreferencia el slot en buf+4)
     SALAS[55] = {"sala": bytearray(0x59), "anfitrion": 301, "miembros": [301, 302]}
     partida(301)["sala"] = 55
     partida(302)["sala"] = 55
+    partida(301)["golpes"] = 0
     r = responder(0x1063, b"\x00\x64\x00", 301)
-    chequear("0x1063 (daño recibido) difunde 0x1062 (16 B) a los compañeros de equipo",
-             len(r) == 1 and r[0][0] == 0x1062 and len(r[0][1]) == 16 and r[0][3] == 302
-             and struct.unpack_from("<H", r[0][1], 8)[0] == 100)
+    chequear("0x1063 (daño recibido) suma golpes y NO emite 0x1062 (evita caída 0x547440 tras traspaso de jefe)",
+             r == [] and partida(301)["golpes"] == 1)
     partida(301).pop("sala", None)
     partida(302).pop("sala", None)
     del SALAS[55]
-    chequear("★ el revés: 0x1063 con un solo jugador no emite 0x1062",
+    chequear("★ el revés: 0x1063 con un solo jugador tampoco emite 0x1062",
              len(responder(0x1063, b"\x00\x64\x00", 203)) == 0)
 
     # ★ 0x1019 / 0x101A: entrar a sala desde la lista del lobby
@@ -1349,9 +1350,9 @@ def pruebas_multijugador(chequear):
     #     el juego); antes 0x105D / 0x1060 / 0x1062 / 0x1066 / 0x106D iban a todos los de la sala
     sala_cargando(66, [A, B])
     cuerpos = {0x105D: b"\1" * 8, 0x1060: b"\0" * 4, 0x1062: bytes(16), 0x1066: bytes(6), 0x106D: bytes(16),
-               0x105C: b"\1" * 8, 0x1063: b"\0\x64\0"}
+               0x105C: b"\1" * 8}
     ambos = all(any(len(x) > 3 and x[3] == B for x in responder(k, v, A)) for k, v in cuerpos.items())
-    chequear("multi: con los dos en la stage, lo de A le llega a B (0x105C/D, 1060, 1062/3, 1066, 106D)", ambos)
+    chequear("multi: con los dos en la stage, lo de A le llega a B (0x105C/D, 1060, 1062, 1066, 106D)", ambos)
     SALAS[66]["en_stage"].discard(B)                     # (B terminó: está en las cartas / volvió a la sala)
     fuera = [hex(k) for k, v in cuerpos.items() if any(len(x) > 3 and x[3] == B for x in responder(k, v, A))]
     chequear("★ multi: B ya salió de la stage → no le llega NADA de la stage de A (antes: 0x105D/1060/1062/1066/106D)",
@@ -1586,25 +1587,36 @@ def pruebas_entre_casas(chequear):
     cerrada(970)
     entra(970, "02:CC:00:00:00:01", ("192.168.50.10", 57654), ("198.51.100.26", 18113), "198.51.100.26")
     partida(970)["desde"] = ahora
-    # ── modo «auto»: por pareja, el mismo camino en los dos sentidos
+    # ── modo «auto»: primero P2P directo (relay sólo de respaldo), por pareja y el mismo camino en los dos sentidos
     config.P2P = "auto"
     json.dump({"971": ["203.0.113.77", 40500, ahora + 1]}, open(config.PUNCH_MAPA, "w"))
     rel = ip_int("203.0.113.9")
-    chequear("auto: el anfitrión sin 0x3006 (no se sabe si su NAT guarda el puerto) → la pareja por el RELAY, "
-             "los dos sentidos", ruta(970, 971) == ruta(971, 970) == "relay"
-             and dir_udp(970, 971) == (rel, config.RELAY_BASE + 1 + 970)
-             and dir_udp(971, 970) == (rel, config.RELAY_BASE + 1 + 971))
+    chequear("auto: dos públicas vigentes (970 por 0x3002/0x100F sin 0x3006, 971 por 0x3006) → DIRECTO primero, "
+             "los dos sentidos",
+             ruta(970, 971) == ruta(971, 970) == "directo"
+             and dir_udp(970, 971) == host
+             and dir_udp(971, 970) == (ip_int("203.0.113.77"), 40500))
     json.dump({"970": ["198.51.100.26", 18113, ahora + 1], "971": ["203.0.113.77", 40500, ahora + 1]},
               open(config.PUNCH_MAPA, "w"))
-    chequear("auto: las dos públicas confiables (0x3006 y 0x3002 por el mismo puerto) → DIRECTO, los dos sentidos",
+    chequear("auto: las dos públicas vigentes por 0x3006 y 0x3002 → DIRECTO, los dos sentidos",
              estable(970) and estable(971) and ruta(970, 971) == ruta(971, 970) == "directo"
              and dir_udp(970, 971) == host and dir_udp(971, 970) == (ip_int("203.0.113.77"), 40500))
     json.dump({"970": ["198.51.100.26", 16429, ahora + 1], "971": ["203.0.113.77", 40500, ahora + 1]},
               open(config.PUNCH_MAPA, "w"))
-    chequear("★ el revés: el NAT del anfitrión le cambia el puerto (0x3006 por 16429, 0x3002 por 18113) → RELAY, "
-             "los dos sentidos (nunca uno directo y el otro no)",
-             not estable(970) and ruta(970, 971) == ruta(971, 970) == "relay"
-             and dir_udp(971, 970)[1] == config.RELAY_BASE + 1 + 971)
+    chequear("auto: si el NAT de 970 cambió al puerto 16429 en su 0x3006 más reciente → DIRECTO con el puerto nuevo "
+             "(actual_de: 16429)",
+             not estable(970) and ruta(970, 971) == ruta(971, 970) == "directo"
+             and dir_udp(970, 971) == (ip_int("198.51.100.26"), 16429)
+             and dir_udp(971, 970) == (ip_int("203.0.113.77"), 40500))
+    # sin pública vigente en uno de los dos → relay en los dos sentidos
+    pub_970_vieja = partida(970).pop("publica", None)
+    json.dump({"971": ["203.0.113.77", 40500, ahora + 1]}, open(config.PUNCH_MAPA, "w"))
+    chequear("★ el revés (auto): uno sin pública vigente → RELAY en los dos sentidos",
+             ruta(970, 971) == ruta(971, 970) == "relay"
+             and dir_udp(970, 971) == (rel, config.RELAY_BASE + 1 + 970)
+             and dir_udp(971, 970) == (rel, config.RELAY_BASE + 1 + 971))
+    partida(970)["publica"] = pub_970_vieja
+    partida(970)["publica_desde"] = ahora
     partida(971)["ip_tcp"] = "198.51.100.26"
     chequear("auto: misma casa (misma IP de conexión) → las PRIVADAS, los dos sentidos",
              ruta(970, 971) == ruta(971, 970) == "casa"
@@ -1668,27 +1680,92 @@ def pruebas_entre_casas(chequear):
     responder(0x105F, b"\0" * 4, 971)
     responder(0x1064, b"\0", 970)
 
-    # ── ★ (22-nov) Caso B: un par sin directo → pasa automáticamente al relay (y relay.json sin 127.0.0.1 en VPS)
+    # ── ★ (22-nov) Caso B en «auto» con 3 jugadores: un 0x105A con -1000 pasa SOLO ese par al relay, los demás
+    #    siguen directos; el par marcado sin_directo se queda en el relay toda la sesión; sin pública vigente → relay
+    config.P2P = "auto"
+    entra(972, "02:CC:00:00:00:03", ("192.168.1.30", 57654), ("192.0.2.55", 51000), "192.0.2.55")
+    partida(972)["desde"] = ahora
+    json.dump({"970": ["198.51.100.26", 2330, ahora + 20], "971": ["203.0.113.77", 40500, ahora + 1],
+               "972": ["192.0.2.55", 51000, ahora + 2]}, open(config.PUNCH_MAPA, "w"))
+    responder(0x101F, struct.pack("<IH", 0, num_s) + bytes(20), 972)
+    chequear("★ auto con 3 jugadores y públicas vigentes: los 3 pares arrancan en DIRECTO",
+             ruta(970, 971) == ruta(971, 970) == "directo"
+             and ruta(970, 972) == ruta(972, 970) == "directo"
+             and ruta(971, 972) == ruta(972, 971) == "directo")
     r_ok = responder(0x105A, struct.pack("<IfB", 971, 0.075, 0), 971)
     chequear("★ el revés: un 0x105A con buen ping (timeouts=0) conserva el directo",
              r_ok == [] and dir_udp(970, 971) == (ip_int("198.51.100.26"), 2330))
-    r_mal = responder(0x105A, struct.pack("<IfB", 971, 0.300, 2), 971)
+    r_mal = responder(0x105A, struct.pack("<IfB", 971, -1000.0, 2), 971)
     p59_970 = next((x[1] for x in r_mal if x[0] == 0x1059 and x[3] == 970), b"")
     p59_971 = next((x[1] for x in r_mal if x[0] == 0x1059 and x[3] == 971), b"")
-    chequear("★ Caso B (0x105A -1000 ms): un par sin directo pasa al RELAY en los dos sentidos y recibe 0x1059",
-             dir_udp(970, 971) == (rel, config.RELAY_BASE + 1 + 970)
+    chequear("★ auto + 0x105A (-1000 ms): SOLO el par que falló (970–971) pasa al RELAY; los demás pares "
+             "(970–972 y 971–972) siguen DIRECTOS",
+             ruta(970, 971) == ruta(971, 970) == "relay"
+             and ruta(970, 972) == ruta(972, 970) == "directo"
+             and ruta(971, 972) == ruta(972, 971) == "directo"
+             and dir_udp(970, 971) == (rel, config.RELAY_BASE + 1 + 970)
              and dir_udp(971, 970) == (rel, config.RELAY_BASE + 1 + 971)
+             and dir_udp(970, 972) == (ip_int("198.51.100.26"), 2330)
+             and dir_udp(972, 970) == (ip_int("192.0.2.55"), 51000)
+             and dir_udp(971, 972) == (ip_int("203.0.113.77"), 40500)
+             and dir_udp(972, 971) == (ip_int("192.0.2.55"), 51000)
              and struct.pack("<IH", rel, config.RELAY_BASE + 1 + 971) in p59_970
-             and struct.pack("<IH", rel, config.RELAY_BASE + 1 + 970) in p59_971)
+             and struct.pack("<IH", ip_int("192.0.2.55"), 51000) in p59_970
+             and struct.pack("<IH", rel, config.RELAY_BASE + 1 + 970) in p59_971
+             and struct.pack("<IH", ip_int("192.0.2.55"), 51000) in p59_971
+             and not any(x[0] == 0x1059 and x[3] == 972 for x in r_mal))
+    chequear("★ el par marcado sin_directo (970–971) se queda en el relay toda la sesión",
+             ruta(970, 971) == "relay" and ruta(970, 972) == "directo")
     partida(970).pop("sin_directo", None)
     partida(971).pop("sin_directo", None)
-    # también si la dirección pública de uno venció (> VENCE_PUBLICA s sin renovar, como los 28 min de #2): al relay
-    partida(970)["publica_desde"] = ahora - 400
-    json.dump({"970": ["198.51.100.26", 2510, ahora - 400], "971": ["203.0.113.77", 40500, ahora + 1]},
+    pares(SALAS[num_s])
+    # ★ (22-nov) un par directo que lleva 10 min en la misma sala (varias stages seguidas, sin nadie nuevo que
+    #   dispare otro 0x3006, > VENCE_PUBLICA = 300 s) SIGUE DIRECTO con su última pública de esta sesión
+    partida(970)["publica_desde"] = ahora - 600
+    json.dump({"970": ["198.51.100.26", 2510, ahora - 600], "971": ["203.0.113.77", 40500, ahora + 1],
+               "972": ["192.0.2.55", 51000, ahora + 2]},
               open(config.PUNCH_MAPA, "w"))
-    chequear("★ Caso B (UDP vencido): sin renovar en 5 min, no se da el puerto viejo → la pareja pasa al RELAY",
-             dir_udp(970, 971) == (rel, config.RELAY_BASE + 1 + 970)
-             and dir_udp(971, 970) == (rel, config.RELAY_BASE + 1 + 971))
+    chequear("★ auto: un par directo que lleva 10 min en la misma sala (> VENCE_PUBLICA) SIGUE DIRECTO",
+             ruta(970, 971) == ruta(971, 970) == "directo"
+             and ruta(970, 972) == ruta(972, 970) == "directo"
+             # (la última conocida de 970 en ESTA sesión: su 0x3002 o su punch, la más reciente; aunque venció, no va al relay)
+             and dir_udp(970, 971) == relay_actual_de(970) and relay_actual_de(970) is not None
+             and relay_actual_de(970, vence=True) is None
+             and dir_udp(971, 970) == (ip_int("203.0.113.77"), 40500))
+    # ★ re-medición periódica en sala que espera (> 60 s desde el último 0x1059):
+    #   · durante `jugando` (en la carga o en plena stage) NUNCA se reenvía el 0x1059;
+    #   · con `jugando` en False, pasados > 60 s se vuelve a mandar el 0x1059 (mismas direcciones, +0x2DF=3);
+    #   · si después del re-envío llega un 0x105A con -1000 → SOLO ese par pasa al relay y los demás siguen directos.
+    s_esp = SALAS[num_s]
+    pares(s_esp)                                      # (lo anunciado = lo de ahora: que el re-envío sea SOLO por tiempo)
+    s_esp["anunciado_en"] = time.time() - 65
+    s_esp["jugando"] = True
+    s_esp["largada"] = False
+    chequear("★ el revés: durante la carga (jugando=True, largada=False), aunque pasen > 60 s NO se reenvía 0x1059",
+             reanunciar({num_s: s_esp}) == [])
+    s_esp["largada"] = True
+    chequear("★ el revés: en plena stage (jugando=True, largada=True), aunque pasen > 60 s NO se reenvía 0x1059",
+             reanunciar({num_s: s_esp}) == [])
+    s_esp["jugando"] = False
+    s_esp.pop("largada", None)
+    r_remed = reanunciar({num_s: s_esp})
+    chequear("★ sala que espera (> 60 s desde el último 0x1059): reenvía 0x1059 (mismas direcciones, +0x2DF=3) a los 3 "
+             "para repetir la medición",
+             sorted(x[3] for x in r_remed if x[0] == 0x1059) == [970, 971, 972]
+             and all(x[1][6] == 3 for x in r_remed)
+             and reanunciar({num_s: s_esp}) == [])
+    r_mal_remed = responder(0x105A, struct.pack("<IfB", 971, -1000.0, 2), 971)
+    chequear("★ tras el re-envío de 0x1059, un 0x105A con -1000 de 971 pasa SOLO el par 970–971 al RELAY y 970–972 / "
+             "971–972 siguen DIRECTOS",
+             ruta(970, 971) == ruta(971, 970) == "relay"
+             and ruta(970, 972) == ruta(972, 970) == "directo"
+             and ruta(971, 972) == ruta(972, 971) == "directo"
+             and any(x[0] == 0x1059 and x[3] == 970 for x in r_mal_remed)
+             and any(x[0] == 0x1059 and x[3] == 971 for x in r_mal_remed)
+             and not any(x[0] == 0x1059 and x[3] == 972 for x in r_mal_remed))
+    partida(970).pop("sin_directo", None)
+    partida(971).pop("sin_directo", None)
+    cerrada(972)
     ASIGNADAS[970], ASIGNADAS[971] = "gen_970", "gen_971"
     escribir_relay()
     mapa_vps = json.load(open(config.RELAY_MAPA))
@@ -1875,6 +1952,14 @@ def pruebas_fin_stage_grupo(chequear):
              (s["anfitrion"], nuevo, a_quien(r, 0x1073, ns[0])))
     responder(0x1061, struct.pack("<H", 3) + bytes(6), ns[2])
     responder(0x1061, struct.pack("<H", 4) + bytes(6), ns[2])
+    # ★ (22-nov, caída P-20261122-235248-s1 a las 23:55:24): tras salir el anfitrión original ns[0] (slot 0), su
+    #   miembro fue borrado de cuenta+0x240 por el 0x1058 tipo 3 (0x61CA30). Cuando al compañero ns[3] le pegan y
+    #   manda 0x1063, el server suma sus golpes y NO manda 0x1062 al nuevo máster ns[2] (que antes llevaba buf+4=0
+    #   y tiraba el cliente en 0x5475A5 / 0x6360F0 al buscar al miembro 0 ya borrado).
+    r_golpe = responder(0x1063, b"\x03\x0a\x00", ns[3])
+    chequear("★ tras traspaso de jefe (P-20261122-235248-s1): un 0x1063 de un compañero suma sus golpes y NO manda "
+             "0x1062 al nuevo máster (evita caída 0x547440 buscando al slot 0 que se fue)",
+             r_golpe == [] and partida(ns[3]).get("golpes") == 1)
     r_fin = responder(0x1064, bytes([2]), ns[2])
     bajas_fin = [struct.unpack_from("<IH", x[1])[1] for x in r_fin if x[0] == 0x106E]
     chequear("★ el nuevo máster manda bajas y el 0x1064 → cobran normal (0x1073/106E/106F, 2+2=4 bajas, EXP y desbloqueo)",
