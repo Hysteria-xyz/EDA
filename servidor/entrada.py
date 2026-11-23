@@ -6,10 +6,55 @@ import struct
 import time
 
 from servidor import config
-from servidor.estado import ASIGNADAS
+from servidor.cuentas import NOMBRES, guardar, leer, ruta_cuenta
+from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO
 from servidor.registro import maneja
 from servidor.objetos import cuerpo_cuenta
 from servidor.relay import escribir_relay, relay
+import os
+
+
+def cerrar_sesiones_de(cuenta, salvo=None):
+    """★ (22-nov) UNA SOLA SESIÓN POR CUENTA: si `cuenta` ya tenía una conexión activa (`vieja != salvo`),
+    guarda su cuenta antes de soltarla (sin que después pueda pisar a la nueva), la saca limpiamente de su
+    sala o stage (con el traspaso de máster de `_sacar_de_sala`), del messenger y del relay, y corta su TCP."""
+    if not cuenta or cuenta.startswith("_"):
+        return []
+    viejas = [n for n, cta in list(ASIGNADAS.items()) if cta == cuenta and n != salvo]
+    if not viejas:
+        return []
+    from servidor import messenger
+    from servidor.salas import _sacar_de_sala
+    avisos = []
+    for vieja in viejas:
+        if os.path.exists(ruta_cuenta(cuenta)) or not (config.LOGIN == "pase" and config.CUENTA_NUEVA == "vacia"):
+            try:
+                guardar(leer(vieja))
+            except Exception:                                 # noqa: BLE001
+                pass
+        ASIGNADAS.pop(vieja, None)
+        VIVO.__dict__.setdefault("DESCONECTADAS", set()).add(vieja)
+        messenger.msn_dll().pop(vieja, None)
+        messenger.al_salir(cuenta)
+        for k in list(SALAS.keys()):
+            if vieja in SALAS[k]["miembros"]:
+                avisos += _sacar_de_sala(SALAS[k], k, vieja)
+        PARTIDAS.pop(vieja, None)
+        for p_otro in PARTIDAS.values():
+            if "sin_directo" in p_otro:
+                p_otro["sin_directo"].discard(vieja)
+        VIVO.LISTA_CAMBIO = True
+        cortar_fn = getattr(VIVO, "CORTAR", None)
+        if cortar_fn:
+            cortar_fn(vieja, motivo="otra sesión")
+        try:
+            from servidor import red as _red
+            if vieja in _red.CONEXIONES and _red.cortar is not cortar_fn:
+                _red.cortar(vieja, motivo="otra sesión")
+        except Exception:                                     # noqa: BLE001
+            pass
+        print("#%s cuenta %s: sesión anterior #%s cerrada" % (salvo, cuenta, vieja), flush=True)
+    return avisos
 
 
 def lista_servidores():
@@ -72,6 +117,7 @@ def quien_soy(cmd, cuerpo, conexion, c, p):
         print("#%s 0x100F sin MAC válida en +0x7A: %s" % (conexion, cuerpo[0x7A:0x7A + 34].hex(" ")), flush=True)
     # ★★ EL LOGIN (servidor/porteria.py, MEDICIONES §45): el bloque del launcher trae «usuario
     #   ticket» → +0x04 y +0x2E del cuerpo (cuenta+0xF0 / +0x11A), UTF-16 hasta el 0 (después hay basura)
+    avisos = []
     if config.LOGIN == "pase":
         from servidor import porteria
         usuario, ticket = dato_launcher(cuerpo, 0x04), dato_launcher(cuerpo, 0x2E)
@@ -79,20 +125,35 @@ def quien_soy(cmd, cuerpo, conexion, c, p):
             ASIGNADAS.pop(conexion, None)
             return [(0x1010, struct.pack("<HIIH", LOGIN_RECHAZADO, 0, 0, 0), 0)]
         cuenta = config.PREFIJO_CUENTA + usuario
+        avisos = cerrar_sesiones_de(cuenta, salvo=conexion)
         ASIGNADAS[conexion] = cuenta
         # ★ el apodo (claim «nombre» del pase) al personaje que todavía se llama como su cuenta
         from servidor.personajes import bautizar
         if bautizar(cuenta, porteria.nombre_de(usuario, ticket)):
             print("#%s cuenta %s: su personaje toma el nombre del pase" % (conexion, cuenta), flush=True)
+    else:
+        usuario = dato_launcher(cuerpo, 0x04)
+        if re.fullmatch(r"[A-Za-z0-9_]{1,20}", usuario):
+            cuenta = ((config.PREFIJO_CUENTA + usuario)
+                      if (re.fullmatch(r"[0-9]{1,20}", usuario) and usuario not in NOMBRES) else usuario)
+            avisos = cerrar_sesiones_de(cuenta, salvo=conexion)
+            ASIGNADAS[conexion] = cuenta
+        elif not p.get("cuenta_auto") and ASIGNADAS.get(conexion):
+            avisos = cerrar_sesiones_de(ASIGNADAS[conexion], salvo=conexion)
     # ★ 0x1010 (`0x549742`, 12 B): u16 1 · u32 → cuenta+0x2B8 (🟡 id de la cuenta) · u32 IP y
     #   u16 puerto del SERVER UDP DE PUNCH (→ `0x6218F0`, «[Punch UDP IP, PORT]»): con
     #   0.0.0.1:0 nadie se encuentra. La IP va como entero (el cliente le hace htonl).
     escribir_relay()
     return [(0x1010, struct.pack("<HIIH", 1, conexion, *(relay() or (0x7F000001, config.PUNCH_PUERTO))),
-             0)]
+             0)] + avisos
 
 
 @maneja(0x1011)
 def elegir_personaje(cmd, cuerpo, conexion, c, p):
     """SELECT CHARACTER"""
-    return [(0x1012, cuerpo_cuenta(c, conexion), 0)]
+    avisos = []
+    if not p.get("cuenta_auto") and ASIGNADAS.get(conexion):
+        avisos = cerrar_sesiones_de(ASIGNADAS[conexion], salvo=conexion)
+        if avisos:
+            c = leer(conexion)
+    return [(0x1012, cuerpo_cuenta(c, conexion), 0)] + avisos

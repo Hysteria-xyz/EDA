@@ -8,7 +8,7 @@ from servidor import config
 from servidor.config import P
 from servidor.registro import maneja
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO, partida, numero, dar_numero, de_numero
-from servidor.cuentas import leer, nivel, nombre_visible, guardar, EXPS, INICIO
+from servidor.cuentas import fijar_stats_personaje, leer, nivel, nombre_visible, guardar, EXPS, INICIO
 from servidor.objetos import equipo_tipos, obj_habilidad, personaje_obj
 from servidor import relay
 from servidor.relay import dir_udp, identidad_de
@@ -397,9 +397,51 @@ def listo(cmd, cuerpo, conexion, c, p):
     return r
 
 
+def cuentas_gm():
+    """★ (22-nov) Las cuentas con permiso de GM (`config.GM_CUENTAS` / `EDA_GM_CUENTAS`, separadas por comas).
+    Vacía por defecto = nadie es GM."""
+    crudo = config.GM_CUENTAS
+    if isinstance(crudo, str):
+        return {x.strip() for x in crudo.split(",") if x.strip()}
+    return {str(x).strip() for x in (crudo or ()) if str(x).strip()}
+
+
+def es_gm(cuenta):
+    if not cuenta or cuenta.startswith("_"):
+        return False
+    gms = cuentas_gm()
+    if cuenta in gms:
+        return True
+    pref = config.PREFIJO_CUENTA or ""
+    return bool(pref and cuenta.startswith(pref) and cuenta[len(pref):] in gms)
+
+
+def log_gm(mensaje):
+    print(mensaje, flush=True)
+
+
+def _buscar_conectado(texto):
+    """(conexión, cuenta_dict) del jugador conectado con ese nick o nombre de cuenta, o (None, None)."""
+    t = (texto or "").strip().lower()
+    if not t:
+        return None, None
+    for n in sorted(ASIGNADAS):
+        nom = ASIGNADAS.get(n)
+        if not nom or nom.startswith("_"):
+            continue
+        cn = leer(n)
+        if nombre_visible(cn).lower() == t:
+            return n, cn
+    for n in sorted(ASIGNADAS):
+        nom = ASIGNADAS.get(n)
+        if nom and not nom.startswith("_") and nom.lower() == t:
+            return n, leer(n)
+    return None, None
+
+
 @maneja(0x100D)
 def chat(cmd, cuerpo, conexion, c, p):
-    """★ CHAT (lobby / sala) + COMANDOS GM (/oro, /nivel, /item, /ayuda)"""
+    """★ CHAT (lobby / sala) + COMANDOS GM (/oro, /nivel, /item, /ayuda: sólo cuentas en EDA_GM_CUENTAS)"""
     if not (len(cuerpo) >= 13):
         return None
     # C→S (medido 18:19): u8 tipo (1) · u32 destino (FFFFFFFF = todos) · u32 0 · u32 largo en
@@ -410,7 +452,7 @@ def chat(cmd, cuerpo, conexion, c, p):
     largo = struct.unpack_from("<I", cuerpo, 9)[0]
     texto = cuerpo[13:13 + largo]
 
-    # ★ Comandos de GM / Tester (aporte de Hysteria-xyz)
+    # ★ Comandos de chat y de GM
     try:
         texto_str = texto.decode("utf-16-le").rstrip("\x00").strip()
     except Exception:
@@ -422,35 +464,91 @@ def chat(cmd, cuerpo, conexion, c, p):
         if r is not None:
             return r
 
-        def _aviso(txt):
+        def _aviso(txt, dest=None):
             b = txt.encode("utf-16-le")
             nom = "[Sistema]".encode("utf-16-le")[:24].ljust(26, b"\0")
-            return [(0x1005, struct.pack("<HBII", 0, 4, 0xFF00FF00, 0) + nom
-                             + struct.pack("<I", len(b)) + b, 0)]
+            paq = (0x1005, struct.pack("<HBII", 0, 4, 0xFF00FF00, 0) + nom
+                           + struct.pack("<I", len(b)) + b, 0)
+            return [paq if dest is None else paq + (dest,)]
+
+        def _avisar_cambio(mensaje, destino):
+            texto = f"{mensaje}; se ve al volver a la pantalla de personajes"
+            avisos = _aviso(texto)
+            if destino is not None and destino != conexion:
+                avisos += _aviso(texto, dest=destino)
+            return avisos
+
+        def _auditar(accion, dest_c, detalle):
+            log_gm("gm: #%s (%s) · %s · a %s (%s) · %s"
+                   % (conexion, c["nombre"], accion, dest_c["nombre"], nombre_visible(dest_c), detalle))
 
         partes = texto_str[1:].split()
         sub = partes[0].lower() if partes else ""
-        if sub in ("oro", "gold"):
-            if len(partes) >= 2 and partes[1].isdigit():
-                c["plata"] = max(0, min(int(partes[1]), 2_000_000_000))
-                guardar(c)
-                return _aviso(f"Oro actualizado a {c['plata']}")
-            return _aviso("Uso: /oro <cantidad>")
-        elif sub == "cash":                                  # ★ (Paso 6) EDA usa sólo oro
+        gm = es_gm(c["nombre"])
+        if sub in ("ayuda", "help"):
+            if gm:
+                return _aviso(f"Eres GM. Comandos GM: /oro [+]<n> [pj], /monedas <n>, /nivel <1-{len(EXPS)}>, "
+                              f"/item <id> [cant] [pj], /stats [pj] <5 valores>, /reiniciar <pj> (/reset), /limpiar · Messenger: /messenger")
+            return _aviso("Comandos: /messenger, /amigos, /amigo <nick>, /quitar <nick>, /m <nick> <mensaje>")
+        if not gm:
+            return _aviso(f"Comando desconocido: /{sub}. Usa /ayuda")
+        if sub == "cash":                                    # ★ (Paso 6) EDA usa sólo oro
             return _aviso("El cash no existe en EDA: todo se compra con oro (/oro <cantidad>).")
+
+        if sub in ("oro", "gold"):
+            if len(partes) >= 2:
+                crudo_n = partes[1]
+                es_suma = crudo_n.startswith("+") and crudo_n[1:].isdigit()
+                es_fijo = crudo_n.isdigit()
+                if es_suma or es_fijo:
+                    val = int(crudo_n[1:] if es_suma else crudo_n)
+                    if len(partes) >= 3:
+                        dest_n, dest_c = _buscar_conectado(partes[2])
+                        if dest_c is None:
+                            return _aviso(f"El jugador {partes[2]} no está conectado.")
+                        if dest_n == conexion:
+                            dest_c = c
+                    else:
+                        dest_n, dest_c = conexion, c
+                    antes = dest_c.get("plata", 0)
+                    nuevo = antes + val if es_suma else val
+                    dest_c["plata"] = max(0, min(nuevo, 2_000_000_000))
+                    guardar(dest_c)
+                    _auditar(texto_str, dest_c, f"oro {antes} -> {dest_c['plata']}")
+                    quien = f" de {nombre_visible(dest_c)}" if dest_n != conexion else ""
+                    return _avisar_cambio(f"Oro{quien} actualizado a {dest_c['plata']}", dest_n)
+            return _aviso("Uso: /oro [+]<cantidad> [personaje]")
         elif sub in ("nivel", "lvl", "level"):
             if len(partes) >= 2 and partes[1].isdigit():
                 n = max(1, min(int(partes[1]), len(EXPS)))
+                antes = nivel(c["exp"])
                 c["exp"] = EXPS[n - 1]
                 guardar(c)
+                _auditar(texto_str, c, f"nivel {antes} -> {n} (EXP: {c['exp']})")
                 return _aviso(f"Nivel actualizado a {n} (EXP: {c['exp']})")
             return _aviso(f"Uso: /nivel <1-{len(EXPS)}>")
         elif sub == "item":
             if len(partes) >= 2 and partes[1].isdigit():
                 iid = int(partes[1])
-                cant = int(partes[2]) if len(partes) >= 3 and partes[2].isdigit() else 1
+                cant = 1
+                nom_dest = None
+                if len(partes) >= 3:
+                    if partes[2].isdigit():
+                        cant = max(1, min(int(partes[2]), 999))
+                        if len(partes) >= 4:
+                            nom_dest = partes[3]
+                    else:
+                        nom_dest = partes[2]
+                if nom_dest is not None:
+                    dest_n, dest_c = _buscar_conectado(nom_dest)
+                    if dest_c is None:
+                        return _aviso(f"El jugador {nom_dest} no está conectado.")
+                    if dest_n == conexion:
+                        dest_c = c
+                else:
+                    dest_n, dest_c = conexion, c
                 from servidor.objetos import inventario, libre_en_bolsa, serial_nuevo, es_equipo
-                inv = inventario(c)
+                inv = inventario(dest_c)
                 it = next((x for x in inv if x[0] == iid and x[2] >= 18 and not es_equipo(iid)), None)
                 if it:
                     it[1] = min(999, it[1] + cant)
@@ -460,34 +558,55 @@ def chat(cmd, cuerpo, conexion, c, p):
                         inv.append([iid, min(999, cant) if not es_equipo(iid) else 1, slot, serial_nuevo(inv), 1])
                     except StopIteration:
                         return _aviso("La bolsa está llena")
-                c["items"] = inv
-                guardar(c)
+                dest_c["items"] = inv
+                guardar(dest_c)
+                _auditar(texto_str, dest_c, f"item {iid} x{cant}")
+                if dest_n != conexion:
+                    return (_aviso(f"Item {iid} (x{cant}) agregado a {nombre_visible(dest_c)}")
+                            + _aviso(f"Item {iid} (x{cant}) agregado", dest=dest_n))
                 return _aviso(f"Item {iid} (x{cant}) agregado")
-            return _aviso("Uso: /item <id> [cantidad]")
+            return _aviso("Uso: /item <id> [cantidad] [personaje]")
         elif sub in ("moneda", "monedas"):
             if len(partes) >= 2 and partes[1].isdigit():
+                antes = c.get("monedas", 0)
                 c["monedas"] = max(0, min(int(partes[1]), 999))
                 guardar(c)
+                _auditar(texto_str, c, f"monedas {antes} -> {c['monedas']}")
                 return _aviso(f"Monedas actualizadas a {c['monedas']}")
             return _aviso("Uso: /monedas <cantidad>")
-        elif sub == "stats":
-            if len(partes) >= 2:
+        elif sub in ("stats", "reiniciar", "reset"):
+            if sub == "stats":
+                dirigido = len(partes) == 7
+                argumentos = partes[2:] if dirigido else partes[1:]
                 try:
-                    vals = [max(0, min(int(x), 9999)) for x in partes[1:6]]
-                    while len(vals) < 5:
-                        vals.append(0)
+                    if not 1 <= len(argumentos) <= 5:
+                        raise ValueError
+                    vals = [max(0, min(int(x), 9999)) for x in argumentos]
+                except ValueError:
+                    return _aviso("Uso: /stats [personaje] <str> <con> <dex> <int> <wis>")
+                vals += [0] * (5 - len(vals))
+                detalle = "Stats actualizados: STR %d CON %d DEX %d INT %d WIS %d" % tuple(vals)
+                if not dirigido:
                     c["stats"] = vals
                     guardar(c)
-                    return _aviso(f"Stats actualizados: STR {vals[0]} CON {vals[1]} DEX {vals[2]} INT {vals[3]} WIS {vals[4]}")
-                except ValueError:
-                    pass
-            return _aviso("Uso: /stats <str> <con> <dex> <int> <wis>")
+                    _auditar(texto_str, c, detalle)
+                    return _aviso(detalle)
+            else:
+                if len(partes) != 2:
+                    return _aviso(f"Uso: /{sub} <personaje>")
+                vals = [0] * 5
+                detalle = "Puntos repartidos devueltos"
+            dest_n, dest_c = fijar_stats_personaje(partes[1], vals)
+            if dest_c is None:
+                return _aviso(f"El personaje {partes[1]} no existe.")
+            _auditar(texto_str, dest_c, detalle)
+            return _avisar_cambio(f"{nombre_visible(dest_c)}: {detalle}", dest_n)
         elif sub in ("limpiar", "clear"):
+            antes = len(c.get("items", []))
             c["items"] = [x for x in c.get("items", []) if len(x) > 2 and x[2] < 18]
             guardar(c)
+            _auditar(texto_str, c, f"limpiar bolsa ({antes} -> {len(c['items'])} items)")
             return _aviso("Bolsa limpiada (equipo y atajos conservados)")
-        elif sub in ("ayuda", "help"):
-            return _aviso(f"Comandos GM: /oro <n>, /monedas <n>, /nivel <1-{len(EXPS)}>, /item <id> [cant], /stats <5 valores>, /limpiar · Messenger: /messenger")
         return _aviso(f"Comando desconocido: /{sub}. Usa /ayuda")
 
     # ⚠ medido con Frida (18:23): el TIPO lo lee en B+2 (con el tipo en B+0 leía 0xFF). La

@@ -162,9 +162,10 @@ def enviar_a(n, c, cuerpo):
     con["cola"].put((c, len(cuerpo), p))
 
 
-def cortar(n, espera=0):
-    """★ Corta la conexión `n` (el «echar» del panel, servidor/panel.py): `atender` ve el corte y hace lo de
-    siempre al cerrarse (su sala, sus amigos, la lista). Con `espera`, a los N segundos (que le llegue el aviso).
+def cortar(n, espera=0, motivo="panel"):
+    """★ Corta la conexión `n` (el «echar» del panel, servidor/panel.py, o una sesión vieja desplazada por otra):
+    `atender` ve el corte y hace lo de siempre al cerrarse (su sala, sus amigos, la lista). Con `espera`, a los N
+    segundos (que le llegue el aviso).
     ⚠ Medido en Windows (20-nov): ahí `shutdown` NO despierta al `recv` que espera (sigue dando timeout hasta que
     el otro cierra); por eso además se marca `cortada` y `atender` sale en el próximo timeout (≤ 5 s). En Linux el
     `recv` vuelve en el acto."""
@@ -174,7 +175,7 @@ def cortar(n, espera=0):
         con = CONEXIONES.get(n)
         if con is None or con is not era:              # (ya se fue, y el número quizá es de OTRO que entró)
             return
-        log("#%d la corto (panel)" % n)
+        log("#%d la corto (%s)" % (n, motivo))
         con["cortada"] = True
         try:
             con["cli"].shutdown(socket.SHUT_RDWR)
@@ -184,6 +185,10 @@ def cortar(n, espera=0):
         threading.Timer(espera, ya).start()
     else:
         ya()
+
+
+from servidor.estado import VIVO as _VIVO                     # noqa: E402
+_VIVO.CORTAR = cortar
 
 
 def despachar(n, resp):
@@ -276,9 +281,14 @@ def atender(cli, quien, n, guion):
             ultimo = time.time()
             pendiente += d
             while len(pendiente) >= 2 and len(pendiente) >= struct.unpack_from("<H", pendiente, 0)[0] + 4:
+                if (CONEXIONES.get(n) or {}).get("cortada"):
+                    break
                 largo = struct.unpack_from("<H", pendiente, 0)[0] + 4
                 pkt, pendiente = pendiente[:largo], pendiente[largo:]
                 contestar(cli, n, pkt, guion)
+            if (CONEXIONES.get(n) or {}).get("cortada"):
+                log("#%d cortada" % n)
+                break
     finally:
         con = CONEXIONES.pop(n, None)
         if con and "cola" in con:
@@ -472,6 +482,8 @@ def main():
     log("EDA server en %s:%d · estado %s · datos %s (%s)" % (
         ESCUCHAR, PUERTO, config.ESTADO, config.DATOS,
         "con los XML" if os.path.exists(config.PRODUCTOS_XML) else "⚠ SIN los XML: tienda y premios vacíos"))
+    from servidor.salas import cuentas_gm
+    log(f"Cuentas GM cargadas: {len(cuentas_gm())}")
     if config.RELAY_IP:
         log("relay UDP: IP pública %s, puertos %d … %d" % (
             config.RELAY_IP, config.RELAY_BASE, config.RELAY_BASE + MAX_CONEXIONES))
