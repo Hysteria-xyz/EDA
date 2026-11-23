@@ -72,6 +72,32 @@ docker exec eda-prod python servidor/juego.py estado  # las cuentas
 reemplaza nada: el contenedor que andaba sigue andando. Un PR roto en `develop` no tira el server
 de prueba.
 
+## Comandos de GM en el chat (`EDA_GM_CUENTAS`)
+
+Los comandos de GM del chat (`/oro <N>`, `/oro +<N>`, `/oro [+]<N> <personaje>`, `/item <id> [cant] [personaje]`,
+`/nivel <N>`, `/monedas <N>`, `/stats [personaje] <5 valores>`, `/reiniciar <personaje>` (alias `/reset`), `/limpiar`) están **apagados por defecto** (`EDA_GM_CUENTAS`
+vacía = nadie es GM). Para una cuenta que no está en la lista, esos comandos no hacen nada y responden
+«Comando desconocido», y `/ayuda` sólo muestra los comandos del Messenger.
+
+Para un GM, `/ayuda` empieza con «Eres GM». Los comandos de stats y reinicio por nombre también funcionan con personajes desconectados. El reinicio devuelve todos los puntos repartidos.
+
+Para habilitar una o más cuentas de GM (por ejemplo, en el server de prueba `/opt/eda/prueba.env`), agregar la
+variable con los nombres de cuenta separados por comas:
+
+```ini
+EDA_GM_CUENTAS=<cuenta_1>,<cuenta_2>
+```
+
+Y recrear el contenedor para que tome el `.env` nuevo (`despliegue/docker-compose.yml` ya le pasa `EDA_GM_CUENTAS`):
+
+```bash
+bash /opt/eda/prod/despliegue/actualizar.sh prueba --forzar
+```
+
+Cada comando de GM ejecutado queda anotado en el `server.log` (`docker logs eda-prueba`, líneas `gm: #<conexión> (<cuenta>) · <comando> · a <destino> · <detalle>`) para poder auditar quién lo usó, qué cambió y a quién.
+⚠ En el cliente de 2009, el oro (`cuenta+0x2C5`), nivel, stats e inventario en memoria se recargan al pasar por
+`Select Character` (o, en el caso del oro, al vender/comprar un ítem o terminar una stage).
+
 ## Los registros del server de prueba, para quien investiga una falla
 
 Quien trabaja en `develop` necesita ver qué hizo el server de prueba en una partida (los mensajes, el

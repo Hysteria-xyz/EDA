@@ -39,6 +39,9 @@ services:
       EDA_DIAG: ${EDA_DIAG:-}
       EDA_DIAG_DIAS: ${EDA_DIAG_DIAS:-}
       EDA_DIAG_MAX_MB: ${EDA_DIAG_MAX_MB:-}
+      # ★ (22-nov) cuentas con comandos de GM en el chat (/oro, /nivel, /item…; servidor/config.py): lista separada
+      #   por comas; vacía = nadie es GM
+      EDA_GM_CUENTAS: ${EDA_GM_CUENTAS:-}
       # ★ el panel del Coordinador Eñeños (servidor/panel.py): la ficha interna (vacía = la puerta no existe), un HTTP
       #   aparte sólo para el panel en la IP de la máquina en la red de Docker (ver despliegue/LEEME.md) y el nombre
       #   del entorno que muestra el panel

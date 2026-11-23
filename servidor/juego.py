@@ -63,12 +63,25 @@ def _responder(cmd, cuerpo, conexion):
         return None
     # (la cuenta y la partida se piden SIEMPRE, aunque nadie atienda el comando: así la conexión
     #   queda con su cuenta desde el primer mensaje, como antes de partir el server en módulos)
+    # ★ (22-nov) si esta conexión fue desplazada por una sesión nueva de la misma cuenta, ya no
+    #   puede tocar la cuenta ni reasignarse otra antes de terminar de cerrarse
+    desconectadas = VIVO.__dict__.setdefault("DESCONECTADAS", set())
+    if cmd == 0x100F:
+        desconectadas.discard(conexion)
+    elif conexion in desconectadas:
+        return []
     # ★ con login (config.LOGIN == "pase"), hasta que el 0x100F no trae un ticket válido, nada más
     #   se atiende: ni las reglas fijas (por eso [] y no None)
     if config.LOGIN == "pase" and cmd != 0x100F and conexion not in ASIGNADAS:
         return []
+    tenia_cuenta = conexion in ASIGNADAS
     c = leer(conexion)
     p = partida(conexion)
+    if cmd == 0x100F:
+        if not tenia_cuenta and ASIGNADAS.get(conexion):
+            p["cuenta_auto"] = True
+        else:
+            p.pop("cuenta_auto", None)
     ahora = time.time()
     p.setdefault("desde", ahora)                             # (21-nov) el comienzo de ESTA sesión (red.py ya lo pone)
     p["ultimo_mensaje"] = ahora                              # (22-nov) para detectar un máster colgado en plena stage
@@ -156,6 +169,7 @@ def cerrada(conexion):
 def _cerrada(conexion):
     """El espía avisa que la conexión se cerró: olvidar su partida, su sala y soltar su cuenta.
     (Sin forma de devolver mensajes acá: la lista nueva sale con el próximo `tick`.)"""
+    VIVO.__dict__.setdefault("DESCONECTADAS", set()).discard(conexion)
     nombre = ASIGNADAS.pop(conexion, None)
     if nombre:                                              # el aviso a sus amigos, con el tick
         messenger.al_salir(nombre)

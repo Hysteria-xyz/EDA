@@ -145,6 +145,47 @@ def guardar(c):
     escribir(c["nombre"], datos)
 
 
+def fijar_stats_personaje(nick, valores):
+    """Actualiza sólo el personaje pedido, sin cambiar el seleccionado por la cuenta."""
+    buscado = nick.lower()
+    conexiones = {nombre: n for n, nombre in ASIGNADAS.items()}
+    try:
+        archivos = os.listdir(config.CUENTAS)
+    except FileNotFoundError:
+        archivos = []
+    for archivo in archivos:
+        if not archivo.endswith(".json"):
+            continue
+        nombre = archivo[:-5]
+        try:
+            with open(ruta_cuenta(nombre), encoding="utf-8") as origen:
+                crudo = json.load(origen)
+        except (FileNotFoundError, ValueError):
+            continue
+        pjs, _ = personajes_de(crudo)
+        for pj in pjs:
+            visible = pj.get("nick") or nombre
+            if visible.lower() != buscado:
+                continue
+            pj["stats"] = valores
+            if "pjs" in crudo:
+                crudo["pjs"] = pjs
+            else:
+                crudo["stats"] = valores
+            escribir(nombre, crudo)
+            return conexiones.get(nombre), {"nombre": nombre, "nick": visible}
+    for nombre, n in conexiones.items():
+        if os.path.exists(ruta_cuenta(nombre)):
+            continue
+        c = leer(n)
+        if c["pjs"] and nombre_visible(c).lower() == buscado:
+            c["stats"] = valores
+            guardar(c)
+            return n, c
+
+    return None, None
+
+
 def escribir(nombre, datos):
     """★ (PR #5, Urek-Mazinoo) a un archivo temporal y después se REEMPLAZA de una: si el server se corta
     a mitad de escribir, la cuenta vieja queda entera (antes podía quedar un JSON a medias)."""
