@@ -41,6 +41,9 @@ jobs:
       - name: el relay UDP
         run: python herramientas/relay_udp.py control
 
+      - name: las versiones del cliente y sus novedades (NOVEDADES.json, la regla de publicación)
+        run: python herramientas/version_cliente.py control
+
       - name: las piezas (mensajes y llamadas, medidas sobre exe/EDA_limpio.exe)
         run: |
           python herramientas/contar_piezas.py control

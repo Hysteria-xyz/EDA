@@ -43,6 +43,15 @@ programás, también sirve un issue con una foto y lo que dice la consola.
 - **Los finales de línea** los ordena git solo (`.gitattributes`: todo en LF). No hay que configurar nada.
   Cómo trabaja cada agente y qué cambia de un entorno a otro: `documentacion/ENTORNOS.md`.
 
+## ★ Versiones: lo que llega a los jugadores (regla permanente, 21-nov)
+
+Todo lo que el launcher reparte lleva **versión nueva + novedades + revisión**:
+- si tu PR cambia la DLL, sube `herramientas/dll_d3d9/VERSION`;
+- toda PR que cambie lo que se reparte agrega su entrada en `NOVEDADES.json` (como `"borrador"`);
+- al publicar, `py herramientas\version_cliente.py revisar` tiene que dar ✅.
+
+Los cambios solo del server no generan descarga. Detalle: `documentacion/VERSIONES.md`.
+
 ## Paso a paso (con un fork)
 
 1. **Fork** del repo en GitHub (botón *Fork*) y clonalo.

@@ -1,0 +1,23 @@
+{
+ "_leeme": "Las novedades de cada RELEASE del cliente que reparte el launcher (una entrada por versión, la más nueva primero). Texto para el JUGADOR: corto, sin HTML, sin direcciones de memoria. Regla y flujo: documentacion/VERSIONES.md. Se revisa con: py herramientas\\version_cliente.py revisar.",
+ "versiones": [
+  {
+   "version": "2026.11.22",
+   "borrador": true,
+   "fecha": "2026-11-22",
+   "dll": "0.5.3",
+   "resumen": "Corregimos un cierre inesperado en plena stage, y el servidor de prueba ya recibe solo los informes técnicos.",
+   "corregidos": [
+    "El juego ya no se cierra solo en algunas stages al cargar ciertos textos del escenario."
+   ],
+   "mejoras": [
+    "En el servidor de prueba, si el juego se congela o se cierra, el equipo recibe solo un informe técnico. Ya no hace falta mandar registros.",
+    "Si el juego se cae, el registro ahora dice exactamente dónde, para corregirlo antes."
+   ],
+   "avisos": [
+    "El informe automático funciona sólo en el servidor de prueba y no lleva contraseñas, IP, datos de tu PC ni el chat.",
+    "Si antes el juego se te cerraba dentro de una stage, vuelve a probarla y cuéntanos cómo te fue."
+   ]
+  }
+ ]
+}
