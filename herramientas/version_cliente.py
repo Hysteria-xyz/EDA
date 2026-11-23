@@ -1,8 +1,8 @@
 r"""version_cliente -- ★ (21-nov) LA REGLA DE VERSIONES del cliente que reparte el launcher, y sus NOVEDADES.
 
 Usa el sistema que YA existe (no inventa otro):
-  · la RELEASE del cliente = `version` del manifiesto `eda.json` (armar_cliente.py), «AAAA.MM.DD» (o «AAAA.MM.DDa/b/c»
-    si ya salió otra ese mismo día). El launcher guarda la última que aceptó («eda_ver_ok») y RECHAZA una menor
+  · la RELEASE del cliente = `version` del manifiesto `eda.json` (armar_cliente.py), «AAAA.MM.DD» (o «AAAA.MM.DD.N»
+    si ya salió otra ese mismo día: .1, .2…). El launcher guarda la última que aceptó («eda_ver_ok») y RECHAZA una menor
     (firmar_manifiesto.py): por eso cada publicación tiene que SUBIR la versión;
   · la DLL = `herramientas/dll_d3d9/VERSION` (x.y.z) + commit y build, que la dll lleva adentro («EDA-ID|v=…|c=…|s=…»,
     identificar.py).
@@ -10,15 +10,18 @@ Y agrega lo que faltaba: `NOVEDADES.json` (en la raíz del repo), UNA entrada po
 
     py herramientas\version_cliente.py revisar NUEVO\eda.json [ANTERIOR\eda.json] [--carpeta CLIENTE_REPARTIR]
         ANTES DE FIRMAR. Para si algo no cumple la regla. Dice: versión anterior y nueva, archivos que cambian (y los que
-        NO se van a bajar), la dll que va (versión, commit, ¿sucia?), y el texto del POP-UP.
+        NO se van a bajar), la dll que va (versión, commit, ¿sucia?), y el texto de la página de EDA.
     py herramientas\version_cliente.py novedades NUEVO\eda.json
         agrega al manifiesto el bloque «novedades» de su versión (va FIRMADO con el resto: ver documentacion/VERSIONES.md)
-    py herramientas\version_cliente.py popup VERSION        el texto del POP-UP de esa versión
-    py herramientas\version_cliente.py noticia VERSION      ★ la NOTICIA del panel que el launcher abre sola después de instalar
+    py herramientas\version_cliente.py popup VERSION        el texto de esa versión, como lo verá el jugador
+    py herramientas\version_cliente.py noticia VERSION      la entrada en el formato de las noticias del launcher
+  ★ (23-nov) Lo que ve el jugador lo publica el COORDINADOR: importa las entradas de NOVEDADES.json de `main`
+    como BORRADOR en «Página de EDA», el staff las revisa y las publica, y el launcher las muestra en la pantalla
+    de EDA (ver documentacion/VERSIONES.md). NOVEDADES.json es la fuente: escribirla bien es lo que importa.
     py herramientas\version_cliente.py control              las pruebas (con sus reveses)
 
 La regla (que `revisar` hace cumplir):
-  1. la versión nueva es «AAAA.MM.DD» (o «AAAA.MM.DDa/b/c» si ya salió otra ese día) y MAYOR que la anterior;
+  1. la versión nueva es «AAAA.MM.DD» (o «AAAA.MM.DD.N» si ya salió otra ese día) y MAYOR que la anterior;
   2. tiene su entrada en NOVEDADES.json, completa y NO «borrador»: fecha, resumen; y corregidos / mejoras / avisos;
   3. algo cambia (si ningún archivo cambia, no hay nada que publicar);
   4. si cambia d3d9.dll: su marca EDA-ID está, NO es una compilación sucia, y su VERSION (x.y.z) es MAYOR que la de la
@@ -42,13 +45,12 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOVEDADES = os.path.join(RAIZ, "NOVEDADES.json")
 DEL_USUARIO = ("autoexec.cfg", "eda_d3d9.ini")
 MARCA = re.compile(rb"EDA-ID\|v=([0-9.]{1,16})\|c=([0-9A-Za-z-]{1,40})\|s=([01])\|f=([^|\x00]{1,40})\|b=([0-9A-Za-z-]{1,40})\|")
-VERSION = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})([a-z])?$")
-# ★ (21-nov 19:30 · 22-nov) lo que el launcher YA aceptó: «2026.11.19» y «2026.11.21» (tres números, en launcher.json
-#   eda_ver_ok). El launcher trae la biblioteca `semver` de Rust, que sólo acepta TRES números y sin ceros a la izquierda:
-#   si la usa para la versión de EDA, «2026.11.22a» (con letra) o «2026.12.05» (cero) darían «número de versión inválido»
-#   y no se bajaría nada. Sin letra («2026.11.22», tres números) no hay aviso. Con letra, hasta que el dueño del launcher
-#   confirme que la acepta, `revisar` lo AVISA.
-SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+VERSION = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})(?:\.([1-9]\d{0,2}))?$")
+# ★ (23-nov, CONFIRMADO con el dueño del launcher) el launcher NO usa `semver` para la versión de EDA: la valida con
+#   RX_VERSION = ^[0-9]{1,8}(\.[0-9]{1,8}){0,7}$ (sólo números separados por puntos, hasta 8 partes) y la compara
+#   número por número (eda.rs: version_tupla). «2026.11.22.1» > «2026.11.22» → entra. «2026.11.22a» (con LETRA) no
+#   pasa RX_VERSION → «número de versión inválido» y NADIE baja esa actualización. Por eso la segunda del día es .1.
+LAUNCHER = re.compile(r"^[0-9]{1,8}(\.[0-9]{1,8}){0,7}$")
 LIMITES = {"resumen": 280, "item": 160, "items": 8}
 
 
@@ -57,13 +59,13 @@ class Regla(Exception):
 
 
 def v_release(v):
-    """→ (año, mes, día, n), comparable: n = 0 sin letra, a = 1, b = 2…
-    Así 2026.11.21 < 2026.11.21a < 2026.11.21b < 2026.11.22."""
+    """→ (año, mes, día, n), comparable: n = 0 la primera del día, .1 = 1, .2 = 2…
+    Así 2026.11.21 < 2026.11.21.1 < 2026.11.21.2 < 2026.11.22 (igual que compara el launcher)."""
     m = VERSION.match(str(v))
     if not m:
-        raise Regla("versión «%s»: va AAAA.MM.DD, o AAAA.MM.DDa/b/c si ya salió otra ese día" % v)
-    anio, mes, dia, letra = m.groups()
-    return (int(anio), int(mes), int(dia), ord(letra) - ord("a") + 1 if letra else 0)
+        raise Regla("versión «%s»: va AAAA.MM.DD, o AAAA.MM.DD.N (.1, .2…) si ya salió otra ese día" % v)
+    anio, mes, dia, n = m.groups()
+    return (int(anio), int(mes), int(dia), int(n) if n else 0)
 
 
 def v_dll(v):
@@ -131,14 +133,8 @@ def revisar(nuevo, anterior=None, carpeta=None, novedades=None):
                      % (nuevo["version"], anterior["version"]))
     info.append("Versión anterior: %s" % (anterior["version"] if anterior else "(ninguna dada)"))
     info.append("Versión nueva:    %s" % nuevo["version"])
-    if not SEMVER.match(str(nuevo["version"])):
-        if re.search(r"[a-z]$", str(nuevo["version"])):
-            info.append("⚠ «%s» lleva letra y NO es semver (el launcher compara tres números, como 2026.11.21): "
-                        "el dueño del launcher tiene que confirmar que la acepta antes de publicar" % nuevo["version"])
-        else:
-            info.append("⚠ «%s» no tiene la forma de las que el launcher ya aceptó (tres números sin ceros a la "
-                        "izquierda, como 2026.11.21): confirmar con el dueño del launcher que la compara bien antes de "
-                        "publicar" % nuevo["version"])
+    if not LAUNCHER.match(str(nuevo["version"])):
+        p.append("«%s»: el launcher la rechazaría (sólo acepta números separados por puntos)" % nuevo["version"])
     e = novedades.get(nuevo["version"])
     if not e:
         p.append("NOVEDADES.json no tiene la entrada de %s" % nuevo["version"])
@@ -201,7 +197,8 @@ def texto_popup(e):
 def noticia(e):
     """★ (21-nov) el POP-UP del launcher de R2Beat: una NOTICIA del panel (`launcher_contenido`) con el formato de
     noticias.js (# título, - lista, **negrita**; todo se escapa allá). El id `eda-<versión>` y la etiqueta `parche` son
-    los que abre solo launcher/popup-novedades/novedades.js después de instalar (una vez: `noticias_vistas`)."""
+    el formato de las noticias del launcher (★ 23-nov: ya no hay POP-UP; lo que ve el jugador lo publica el
+    Coordinador en la página de EDA, ver documentacion/VERSIONES.md)."""
     t = ["**Nueva versión instalada: EDA %s**" % e["version"]]
     if e.get("resumen"):
         t.append(e["resumen"])
@@ -253,32 +250,33 @@ def control():
              and "No se vuelven a bajar (iguales): 2" in info)
     chequear("…y el texto del POP-UP con la versión, la fecha y lo corregido",
              "EDA 2026.11.22 · 2026-11-22" in info and "Corregido:" in info and "⚠ Importante" in info)
-    chequear("…y sin letra (tres números) NO avisa nada del launcher", "no es semver" not in info)
+    chequear("…y la versión es una que el launcher acepta (sólo números)", not any("launcher la rechazaría" in x for x in p))
     p, _ = revisar(nuevo("2026.11.19", m), viejo, t, nov)
     chequear("★ el revés: la MISMA versión que la anterior → no (el launcher la rechazaría)",
              any("no es MAYOR" in x for x in p))
     p, _ = revisar(nuevo("2026.11.18", m), viejo, t, nov)
     chequear("★ el revés: una versión MENOR → no", any("no es MAYOR" in x for x in p))
-    chequear("★ una letra es MAYOR que la del mismo día sin letra: 2026.11.22 < 2026.11.22a < 2026.11.22b < 2026.11.23",
-             v_release("2026.11.22") < v_release("2026.11.22a") < v_release("2026.11.22b") < v_release("2026.11.23"))
-    p, _ = revisar(nuevo("2026.11.22a", m), dict(viejo, version="2026.11.22"), t, nov)
-    chequear("★ 2026.11.22a es MAYOR que 2026.11.22 (no se frena por la comparación), pero le falta su entrada en "
+    chequear("★ la segunda del día es .1 y es MAYOR: 2026.11.22 < 2026.11.22.1 < 2026.11.22.2 < 2026.11.23",
+             v_release("2026.11.22") < v_release("2026.11.22.1") < v_release("2026.11.22.2") < v_release("2026.11.23"))
+    chequear("★ …y compara IGUAL que el launcher (eda.rs: número por número, la más corta es menor)",
+             [int(x) for x in "2026.11.22".split(".")] < [int(x) for x in "2026.11.22.1".split(".")]
+             < [int(x) for x in "2026.11.23".split(".")])
+    p, _ = revisar(nuevo("2026.11.22.1", m), dict(viejo, version="2026.11.22"), t, nov)
+    chequear("★ 2026.11.22.1 es MAYOR que 2026.11.22 (no se frena por la comparación), pero le falta su entrada en "
              "NOVEDADES.json → no",
              any("no tiene la entrada" in x for x in p) and not any("no es MAYOR que la anterior" in x for x in p))
-    p, info = revisar(nuevo("2026.11.22a", m), dict(viejo, version="2026.11.21"), t,
-                      dict(nov, **{"2026.11.22a": dict(nov["2026.11.22"], version="2026.11.22a")}))
-    chequear("★ …y con su entrada pasa, pero AVISA que con letra no es semver (el dueño del launcher tiene que confirmarla)",
-             not p and "no es semver" in info.lower(), p)
+    p, info = revisar(nuevo("2026.11.22.1", m), dict(viejo, version="2026.11.21"), t,
+                      dict(nov, **{"2026.11.22.1": dict(nov["2026.11.22"], version="2026.11.22.1")}))
+    chequear("★ …y con su entrada pasa (el launcher la acepta)", not p, p)
     p, info = revisar(nuevo(dll_md5=m), dict(viejo, version="2026.11.21"), t, nov)
-    chequear("la anterior con tres números (2026.11.21, la que publicó TEST) se acepta y compara bien, sin aviso",
-             not p and "no es semver" not in info, p)
-    p, _ = revisar(nuevo("2026.11.21", m), dict(viejo, version="2026.11.21a"), t, nov)
-    chequear("★ el revés: 2026.11.21 es MENOR que 2026.11.21a", any("no es MAYOR" in x for x in p))
-    formato_viejo = "2026.11.22" + ".1"                     # el formato anterior: AAAA.MM.DD y un cuarto número
-    p, _ = revisar(nuevo(formato_viejo, m), viejo, t, nov)
-    chequear("★ el revés: el formato viejo de cuatro números (2026.11.22 + .1) → no", any("va AAAA.MM.DD" in x for x in p))
-    p, _ = revisar(nuevo("2026.11.22A", m), viejo, t, nov)
-    chequear("★ el revés: la letra en MAYÚSCULA (2026.11.22A) → no", any("va AAAA.MM.DD" in x for x in p))
+    chequear("la anterior con tres números (2026.11.21, la que publicó TEST) se acepta y compara bien", not p, p)
+    p, _ = revisar(nuevo("2026.11.21", m), dict(viejo, version="2026.11.21.1"), t, nov)
+    chequear("★ el revés: 2026.11.21 es MENOR que 2026.11.21.1", any("no es MAYOR" in x for x in p))
+    p, _ = revisar(nuevo("2026.11.22a", m), viejo, t, nov)
+    chequear("★ el revés: con LETRA (2026.11.22a) → no: el launcher diría «número de versión inválido»",
+             any("va AAAA.MM.DD" in x for x in p))
+    p, _ = revisar(nuevo("2026.11.22.0", m), viejo, t, nov)
+    chequear("★ el revés: .0 → no (la primera del día va sin número)", any("va AAAA.MM.DD" in x for x in p))
     p, _ = revisar(nuevo("22-nov", m), viejo, t, nov)
     chequear("★ el revés: una versión con otro formato → no", any("va AAAA.MM.DD" in x for x in p))
     p, _ = revisar(nuevo("2026.11.23", m), viejo, t, nov)
