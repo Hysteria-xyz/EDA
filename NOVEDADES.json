@@ -2,6 +2,20 @@
  "_leeme": "Las novedades de cada RELEASE del cliente que reparte el launcher (una entrada por versión, la más nueva primero). Texto para el JUGADOR: corto, sin HTML, sin direcciones de memoria. Regla y flujo: documentacion/VERSIONES.md. Se revisa con: py herramientas\\version_cliente.py revisar.",
  "versiones": [
   {
+   "version": "2026.11.23",
+   "fecha": "2026-11-23",
+   "dll": "0.5.4",
+   "resumen": "¡EDA ahora está en español!",
+   "mejoras": [
+    "Todo el juego en español: menús, tienda, inventario, misiones, ítems, habilidades y los mensajes durante las stages.",
+    "Las misiones y sus historias se leen mejor: las palabras ya no se cortan por la mitad."
+   ],
+   "avisos": [
+    "Algunos títulos y botones que son imágenes (como LOBBY o WAITING ROOM) siguen en inglés por ahora.",
+    "Si ves un texto cortado o mal traducido, avísanos con una captura."
+   ]
+  },
+  {
    "version": "2026.11.22",
    "borrador": true,
    "fecha": "2026-11-22",
