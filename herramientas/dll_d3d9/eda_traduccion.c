@@ -52,6 +52,14 @@
 #define TR_FN_READ  0x007FA800u
 #define TR_FN_INFO  0x007FA260u
 
+/* Diagnóstico de glifos FreeType (23-nov: investigar la «ñ» deformada): hgeFTFont::CreateGlyph y FT_Load_Glyph */
+#define TR_SITIO_CREATE_GLYPH 0x00771FF1u
+#define TR_FN_CREATE_GLYPH    0x00770A00u
+#define TR_FN_FT_LOAD_GLYPH   0x0081DD30u
+
+static const unsigned char TR_PROLOGO_CREATE_GLYPH[8] = {0x83, 0xEC, 0x08, 0x55, 0x56, 0x8B, 0xE9, 0x6A};
+static const unsigned char TR_PROLOGO_FT_LOAD[8]      = {0x55, 0x8B, 0x6C, 0x24, 0x08, 0x85, 0xED, 0x56};
+
 enum {
     TR_OP_OPEN = 0,
     TR_OP_CLOSE,
@@ -270,6 +278,24 @@ static void tr_escribir_utf16(unsigned char *p, const char *ascii)
     p[2 * i + 1] = 0;
 }
 
+/* ¿Este carácter entra en el diagnóstico de glifos (ñ, Ñ, ó, n, ü)? */
+static int tr_es_glifo_diag(unsigned short ch)
+{
+    return ch == 0x00F1u || ch == 0x00D1u || ch == 0x00F3u || ch == 0x006Eu || ch == 0x00FCu;
+}
+
+static const char *tr_nombre_glifo_diag(unsigned short ch)
+{
+    switch (ch) {
+    case 0x00F1u: return "ñ";
+    case 0x00D1u: return "Ñ";
+    case 0x00F3u: return "ó";
+    case 0x006Eu: return "n";
+    case 0x00FCu: return "ü";
+    default:      return "?";
+    }
+}
+
 #if !EDA_TRADUCCION_SOLO_LOGICA
 
 /* ── parte Windows (integrada en d3d9.dll) ────────────────────────────────────────────────────────────── */
@@ -291,7 +317,12 @@ typedef struct {
 static char g_tr_idioma_cfg[32];
 static char g_tr_idioma[16];
 static int g_tr_cadenas_exe = 1;
+static int g_tr_diag_glifos = 1;
 static int g_tr_instalado;
+static int g_tr_diag_instalado;
+static volatile LONG g_tr_diag_n;
+static LONG g_tr_diag_cmp_enie;
+static LONG g_tr_diag_cmp_oac;
 static WCHAR g_tr_base_w[MAX_PATH];
 static TR_SLOT g_tr_slots[TR_MAX_SLOTS];
 static CRITICAL_SECTION g_tr_cs;
@@ -310,9 +341,11 @@ static void tr_leer_ini(HMODULE self, const char *ini)
     }
     GetPrivateProfileStringA("traduccion", "idioma", "", g_tr_idioma_cfg, sizeof(g_tr_idioma_cfg), ini);
     g_tr_cadenas_exe = GetPrivateProfileIntA("traduccion", "cadenas_exe", 1, ini);
+    g_tr_diag_glifos = GetPrivateProfileIntA("traduccion", "diag_glifos", 1, ini);
     char env[32];
     DWORD n = GetEnvironmentVariableA("EDA_IDIOMA", env, sizeof(env));
     if (n && n < sizeof(env)) lstrcpynA(g_tr_idioma_cfg, env, (int)sizeof(g_tr_idioma_cfg));
+    if (GetEnvironmentVariableA("EDA_DIAG_GLIFOS", env, sizeof(env))) g_tr_diag_glifos = atoi(env);
 }
 
 static TR_SLOT *tr_slot_de(DWORD handle)
@@ -503,6 +536,164 @@ static int tr_parchear_cadenas_es(void)
     return hechas;
 }
 
+typedef void *(__fastcall *TR_CREATE_GLYPH)(void *self, void *edx_unused, DWORD ch);
+typedef int (__cdecl *TR_FT_LOAD_GLYPH)(void *face, DWORD gid, int load_flags);
+
+static void tr_volcar_bitmap_ft(const char *etiq, const BYTE *buf, int bw, int bh, int pitch, unsigned char pmode)
+{
+    static const char PAL[11] = " .:-=+*#%@";
+    if (!buf || bw <= 0 || bh <= 0) {
+        apuntar("  [diag-glifo]   %s: (vacío %dx%d)", etiq, bw, bh);
+        return;
+    }
+    int mw = bw > 32 ? 32 : bw;
+    int mh = bh > 24 ? 24 : bh;
+    for (int y = 0; y < mh; y++) {
+        char fila[40];
+        const BYTE *src = buf + (SIZE_T)y * (SIZE_T)pitch;
+        for (int x = 0; x < mw; x++) {
+            int v = 0;
+            if (pmode == 1) {
+                v = (src[x >> 3] & (0x80 >> (x & 7))) ? 255 : 0;
+                fila[x] = v ? '#' : '.';
+            } else {
+                v = src[x];
+                fila[x] = PAL[(v * 9) / 255];
+            }
+        }
+        fila[mw] = 0;
+        apuntar("  [diag-glifo]   %s y=%02d |%s|", etiq, y, fila);
+    }
+}
+
+static void tr_probar_flag_ft(void *face, DWORD gid, int flag, const char *etiq)
+{
+    int rc = ((TR_FT_LOAD_GLYPH)(ULONG_PTR)TR_FN_FT_LOAD_GLYPH)(face, gid, flag);
+    if (rc != 0) {
+        apuntar("  [diag-glifo]   %s: FT_Load_Glyph err=%d", etiq, rc);
+        return;
+    }
+    const BYTE *slot = *(const BYTE *const *)((const BYTE *)face + 0x54);
+    if (!slot || !legible(slot, 0x6C)) return;
+    int adv_raw = *(const int *)(slot + 0x40);
+    int bh = *(const int *)(slot + 0x4C);
+    int bw = *(const int *)(slot + 0x50);
+    int pitch = *(const int *)(slot + 0x54);
+    const BYTE *buf = *(const BYTE *const *)(slot + 0x58);
+    unsigned char pmode = *(const unsigned char *)(slot + 0x5E);
+    int bleft = *(const int *)(slot + 0x64);
+    int btop = *(const int *)(slot + 0x68);
+    apuntar("  [diag-glifo]   %s: bmp=%dx%d left=%d top=%d adv=%d (raw=%d/64) pmode=%u pitch=%d",
+            etiq, bw, bh, bleft, btop, adv_raw >> 6, adv_raw, (unsigned)pmode, pitch);
+    tr_volcar_bitmap_ft(etiq, buf, bw, bh, pitch, pmode);
+}
+
+static void *__fastcall tr_mi_create_glyph(void *self, void *edx_unused, DWORD ch_arg)
+{
+    (void)edx_unused;
+    void *res = ((TR_CREATE_GLYPH)(ULONG_PTR)TR_FN_CREATE_GLYPH)(self, NULL, ch_arg);
+    unsigned short ch = (unsigned short)(ch_arg & 0xFFFFu);
+    if (!res || !tr_es_glifo_diag(ch)) return res;
+    LONG n = InterlockedIncrement(&g_tr_diag_n);
+    if (n > 48) return res;
+    if (!legible(res, 0x28) || !self || !legible(self, 0x10)) return res;
+    const DWORD *g = (const DWORD *)res;
+    void *htex = (void *)(ULONG_PTR)g[0];
+    DWORD gid = g[1];
+    int adv = (int)g[2];
+    DWORD fsz = g[3];
+    int tw = (int)g[4], th = (int)g[5];
+    int bw = (int)g[6], bh = (int)g[7];
+    int bleft = (int)g[8], btop = (int)g[9];
+
+    void *face = *(void *const *)((const BYTE *)self + 8);
+    const BYTE *slot = (face && legible(face, 0x58)) ? *(const BYTE *const *)((const BYTE *)face + 0x54) : NULL;
+    int adv_raw = 0, ft_pitch = 0;
+    unsigned char pmode = 0;
+    const BYTE *ft_buf = NULL;
+    if (slot && legible(slot, 0x6C)) {
+        adv_raw = *(const int *)(slot + 0x40);
+        ft_pitch = *(const int *)(slot + 0x54);
+        ft_buf = *(const BYTE *const *)(slot + 0x58);
+        pmode = *(const unsigned char *)(slot + 0x5E);
+    }
+
+    /* Inspeccionar la textura D3D9 recién llenada (sólo lectura): pitch real, diferencias y basura fuera de caja */
+    DWORD d3d_fmt = 0, d3d_w = 0, d3d_h = 0, d3d_pitch = 0;
+    int diff = -1, basura = -1;
+    void *tex = (htex && legible(htex, 4)) ? *(void *const *)htex : NULL;
+    if (tex && legible(tex, 4)) {
+        void **vt = *(void ***)tex;
+        DWORD desc[8] = {0};
+        if (vt && legible(vt, 21 * sizeof(void *))
+            && ((long (WINAPI *)(void *, UINT, void *))vt[17])(tex, 0, desc) == 0) {
+            d3d_fmt = desc[0];
+            d3d_w = desc[6];
+            d3d_h = desc[7];
+            DWORD lr[2] = {0, 0};
+            if (((long (WINAPI *)(void *, UINT, void *, const RECT *, DWORD))vt[19])(tex, 0, lr, NULL, 0x10) == 0) {
+                d3d_pitch = lr[0];
+                const BYTE *bits = (const BYTE *)(ULONG_PTR)lr[1];
+                diff = 0;
+                basura = 0;
+                for (int y = 0; y < (int)d3d_h; y++) {
+                    const DWORD *row = (const DWORD *)(bits + (SIZE_T)y * d3d_pitch);
+                    for (int x = 0; x < (int)d3d_w; x++) {
+                        unsigned char a = (unsigned char)(row[x] >> 24);
+                        if (x < bw && y < bh && ft_buf) {
+                            unsigned char fa = 0;
+                            if (pmode == 1) fa = (ft_buf[(SIZE_T)y * ft_pitch + (x >> 3)] & (0x80 >> (x & 7))) ? 255 : 0;
+                            else fa = ft_buf[(SIZE_T)y * ft_pitch + x];
+                            if (a != fa) diff++;
+                        } else if (a != 0) {
+                            basura++;
+                        }
+                    }
+                }
+                ((long (WINAPI *)(void *, UINT))vt[20])(tex, 0);
+            }
+        }
+    }
+
+    apuntar("  [diag-glifo] #%ld '%s' (U+%04X) fs=%lu gid=%lu | bmp=%dx%d left=%d top=%d adv=%d (raw=%d/64) pmode=%u ft_pitch=%d | tex=%dx%d d3d=%lux%lu fmt=%lu pitch=%lu (esp=%d) | diff=%d basura=%d",
+            (long)n, tr_nombre_glifo_diag(ch), (unsigned)ch, (unsigned long)fsz, (unsigned long)gid,
+            bw, bh, bleft, btop, adv, adv_raw, (unsigned)pmode, ft_pitch,
+            tw, th, (unsigned long)d3d_w, (unsigned long)d3d_h, (unsigned long)d3d_fmt,
+            (unsigned long)d3d_pitch, tw * 4, diff, basura);
+    tr_volcar_bitmap_ft("default(4)", ft_buf, bw, bh, ft_pitch, pmode);
+
+    /* Comparación A/B en caliente (sin tocar la textura ya creada; al final restaura FT_LOAD_RENDER=4) */
+    if (face && gid && ((ch == 0x00F1u && ++g_tr_diag_cmp_enie <= 3) || (ch == 0x00F3u && ++g_tr_diag_cmp_oac <= 2))) {
+        tr_probar_flag_ft(face, gid, 0x00010004, "light(0x10004)");
+        tr_probar_flag_ft(face, gid, 0x00000006, "nohint(0x6)");
+        ((TR_FT_LOAD_GLYPH)(ULONG_PTR)TR_FN_FT_LOAD_GLYPH)(face, gid, 4);
+    }
+    return res;
+}
+
+static void tr_instalar_diag_glifos(void)
+{
+    if (!g_tr_diag_glifos) return;
+    const BYTE *sitio = (const BYTE *)(ULONG_PTR)TR_SITIO_CREATE_GLYPH;
+    const BYTE *fn_cg = (const BYTE *)(ULONG_PTR)TR_FN_CREATE_GLYPH;
+    const BYTE *fn_fl = (const BYTE *)(ULONG_PTR)TR_FN_FT_LOAD_GLYPH;
+    if (!legible(sitio, 5) || !tr_es_llamada(sitio, TR_SITIO_CREATE_GLYPH, TR_FN_CREATE_GLYPH)
+        || !legible(fn_cg, 8) || memcmp(fn_cg, TR_PROLOGO_CREATE_GLYPH, 8) != 0
+        || !legible(fn_fl, 8) || memcmp(fn_fl, TR_PROLOGO_FT_LOAD, 8) != 0) {
+        apuntar("  [traduccion] ⚠ diag_glifos: bytes en 0x771FF1/0x770A00/0x81DD30 no coinciden: no se engancha");
+        return;
+    }
+    BYTE *p = (BYTE *)(ULONG_PTR)TR_SITIO_CREATE_GLYPH;
+    LONG rel = (LONG)((ULONG_PTR)(void *)tr_mi_create_glyph - (TR_SITIO_CREATE_GLYPH + 5u));
+    DWORD prot;
+    if (!VirtualProtect(p, 5, PAGE_EXECUTE_READWRITE, &prot)) return;
+    memcpy(p + 1, &rel, 4);
+    VirtualProtect(p, 5, prot, &prot);
+    FlushInstructionCache(GetCurrentProcess(), p, 5);
+    g_tr_diag_instalado = 1;
+    apuntar("  [traduccion] diag_glifos: enganchado CreateGlyph (0x771FF1) para medir ñ, Ñ, ó, n, ü en eda_d3d9.log");
+}
+
 static void tr_instalar(void)
 {
     if (!g_mejoras) {
@@ -577,13 +768,16 @@ static void tr_instalar(void)
         cad = tr_parchear_cadenas_es();
     apuntar("  [traduccion] idioma=%s · %d/%d llamadas SolFS enganchadas · carpeta traducciones\\%s\\ · cadenas exe %d/%d",
             g_tr_idioma, puestos, TR_NSITIOS, g_tr_idioma, cad, TR_NCADENAS);
+    if (g_tr_instalado) tr_instalar_diag_glifos();
 }
 
 static void tr_cerrar(void)
 {
     if (!g_tr_instalado) return;
-    apuntar("  [traduccion] resumen: %ld archivo(s) redirigido(s) desde traducciones\\%s\\",
-            (long)g_tr_redirigidos, g_tr_idioma);
+    apuntar("  [traduccion] resumen: %ld archivo(s) redirigido(s) desde traducciones\\%s\\%s",
+            (long)g_tr_redirigidos, g_tr_idioma, g_tr_diag_instalado ? " · diag_glifos activo" : "");
+    if (g_tr_diag_instalado)
+        apuntar("  [traduccion] diag_glifos: %ld glifo(s) medido(s) en eda_d3d9.log ([diag-glifo])", (long)g_tr_diag_n);
     for (int i = 0; i < TR_MAX_SLOTS; i++) {
         if (g_tr_slots[i].en_uso && g_tr_slots[i].fh != INVALID_HANDLE_VALUE) {
             CloseHandle(g_tr_slots[i].fh);

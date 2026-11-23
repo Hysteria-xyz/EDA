@@ -243,6 +243,22 @@ int main(int argc, char **argv)
     chequear("cadenas vecinas intactas ([%s] en 0x89970C y %dCash en 0x899FA4)",
              tr_coincide_utf16(en(0x0089970Cu), "[%s]") && tr_coincide_utf16(en(0x00899FA4u), "%dCash"));
 
+    /* 4b. Diagnóstico de glifos FreeType: filtro de caracteres y bytes exactos del exe */
+    chequear("filtro diag_glifos selecciona ñ, Ñ, ó, n, ü y excluye otras letras (a, o, A, ¡)",
+             tr_es_glifo_diag(0x00F1u) && tr_es_glifo_diag(0x00D1u) && tr_es_glifo_diag(0x00F3u)
+             && tr_es_glifo_diag(0x006Eu) && tr_es_glifo_diag(0x00FCu)
+             && strcmp(tr_nombre_glifo_diag(0x00F1u), "ñ") == 0
+             && strcmp(tr_nombre_glifo_diag('a'), "?") == 0
+             && !tr_es_glifo_diag('a') && !tr_es_glifo_diag('o') && !tr_es_glifo_diag('A') && !tr_es_glifo_diag(0x00A1u));
+    chequear("sitio CreateGlyph (0x771FF1 → 0x770A00) y prólogos CreateGlyph/FT_Load_Glyph coinciden en el exe",
+             tr_es_llamada(en(TR_SITIO_CREATE_GLYPH), TR_SITIO_CREATE_GLYPH, TR_FN_CREATE_GLYPH)
+             && memcmp(en(TR_FN_CREATE_GLYPH), TR_PROLOGO_CREATE_GLYPH, 8) == 0
+             && memcmp(en(TR_FN_FT_LOAD_GLYPH), TR_PROLOGO_FT_LOAD, 8) == 0);
+    en(TR_SITIO_CREATE_GLYPH)[1] ^= 0x01u;
+    chequear("★ revés diag_glifos: 1 byte cambiado en 0x771FF1 anula el gancho",
+             !tr_es_llamada(en(TR_SITIO_CREATE_GLYPH), TR_SITIO_CREATE_GLYPH, TR_FN_CREATE_GLYPH));
+    en(TR_SITIO_CREATE_GLYPH)[1] ^= 0x01u;
+
     /* 5. Redirección real sobre archivos temporales: existe → suelto, no existe → Data.dat */
     const char *tmp = "tmp_prueba_traduccion_dir";
     char p1[260], p2[260], p3[260], p4[260], p5[260];

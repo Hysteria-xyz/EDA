@@ -106,6 +106,8 @@ url=
 idioma=
 ; 1 = con idioma=es, también traduce en memoria 3 etiquetas cortas del exe (LV%3d → Nv%3d, %dGold → %d Oro)
 cadenas_exe=1
+; 1 = diagnóstico temporal de glifos FreeType (anota en eda_d3d9.log medidas y mapa de ñ, Ñ, ó, n, ü)
+diag_glifos=1
 
 #####################################################################
 # P2P: que los juegos se encuentren (sin pasar por el server)
