@@ -78,6 +78,7 @@ def _responder(cmd, cuerpo, conexion):
     c = leer(conexion)
     p = partida(conexion)
     if cmd == 0x100F:
+        p.pop("pantalla_gm", None)
         if not tenia_cuenta and ASIGNADAS.get(conexion):
             p["cuenta_auto"] = True
         else:
@@ -88,6 +89,17 @@ def _responder(cmd, cuerpo, conexion):
     f = MANEJADORES.get(cmd)
     antes = ASIGNADAS.get(conexion)
     r = f(cmd, cuerpo, conexion, c, p) if f else None
+    for opcode, datos, demora, *destino in r or ():
+        if opcode not in PANTALLAS_GM and opcode != 0x102E:
+            continue
+        if demora or datos[:2] != b"\1\0":
+            continue
+        estado = PARTIDAS.get(destino[0]) if destino else p
+        if estado is not None:
+            pantalla = PANTALLAS_GM.get(opcode)
+            if opcode == 0x102E:
+                pantalla = {b"\3": "lobby", b"\x09": "sala"}.get(datos[2:3])
+            estado["pantalla_gm"] = pantalla
     if cmd == 0x100F and ASIGNADAS.get(conexion) and ASIGNADAS.get(conexion) != antes:
         # (21-nov, sólo registro) qué conexión es qué cuenta: para cruzar las pruebas entre casas
         print("#%s es la cuenta %s" % (conexion, ASIGNADAS[conexion]), flush=True)
@@ -99,6 +111,12 @@ def _responder(cmd, cuerpo, conexion):
 # crear, entrar, salir, echar, abandonar la stage, fallo de ping UDP: se reescribe el mapa del relay
 CAMBIAN_SALAS = (0x101D, 0x101F, 0x1045, 0x1051, 0x105A, 0x1074)   # (0x1074: sale de la sala, Punto 3)
 
+# Las respuestas inmediatas de transición son la evidencia disponible de la pantalla del cliente.
+PANTALLAS_GM = {
+    0x1018: "lobby", 0x1046: "lobby", 0x1054: "lobby", 0x1075: "lobby",
+    0x101E: "sala", 0x1020: "sala",
+    0x1012: None, 0x1024: None, 0x1028: None, 0x104D: None, 0x104F: None,
+}
 
 def segundos_fin_rapido():
     """🧪 ATAJO DE PRUEBA (apagado si no existe el archivo): con <EDA_ESTADO>/fin_rapido la stage

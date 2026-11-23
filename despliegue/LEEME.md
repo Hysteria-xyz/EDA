@@ -74,12 +74,17 @@ de prueba.
 
 ## Comandos de GM en el chat (`EDA_GM_CUENTAS`)
 
-Los comandos de GM del chat (`/oro <N>`, `/oro +<N>`, `/oro [+]<N> <personaje>`, `/item <id> [cant] [personaje]`,
+Los comandos de GM del chat (`/oro <N> [personaje]`, `/oro +<N> [personaje]`, `/oro -<N> [personaje]`, `/item <id> [cant] [personaje]`,
 `/nivel <N>`, `/monedas <N>`, `/stats [personaje] <5 valores>`, `/reiniciar <personaje>` (alias `/reset`), `/limpiar`) están **apagados por defecto** (`EDA_GM_CUENTAS`
 vacía = nadie es GM). Para una cuenta que no está en la lista, esos comandos no hacen nada y responden
 «Comando desconocido», y `/ayuda` sólo muestra los comandos del Messenger.
 
 Para un GM, `/ayuda` empieza con «Eres GM». Los comandos de stats y reinicio por nombre también funcionan con personajes desconectados. El reinicio devuelve todos los puntos repartidos.
+`/oro -<N>` resta oro con piso cero. Al omitir el personaje, se aplica al propio GM.
+
+`/fin` completa la stage del GM y la de su grupo cuando todos han cargado. Aplica la liquidación normal del escenario.
+`/desbloquear [personaje]` marca todo el catálogo como completado para el personaje indicado o el propio GM.
+El selector lee los desbloqueos al volver a elegir el personaje y entrar al lobby.
 
 Para habilitar una o más cuentas de GM (por ejemplo, en el server de prueba `/opt/eda/prueba.env`), agregar la
 variable con los nombres de cuenta separados por comas:
@@ -97,6 +102,12 @@ bash /opt/eda/prod/despliegue/actualizar.sh prueba --forzar
 Cada comando de GM ejecutado queda anotado en el `server.log` (`docker logs eda-prueba`, líneas `gm: #<conexión> (<cuenta>) · <comando> · a <destino> · <detalle>`) para poder auditar quién lo usó, qué cambió y a quién.
 ⚠ En el cliente de 2009, el oro (`cuenta+0x2C5`), nivel, stats e inventario en memoria se recargan al pasar por
 `Select Character` (o, en el caso del oro, al vender/comprar un ítem o terminar una stage).
+
+`EDA_GM_EN_VIVO` habilita el refresco **experimental** con `1`. Vacía o con `0` queda apagada.
+Pruébala con un jugador antes de dejarla prendida. Agrégala al mismo archivo de entorno y recrea el
+contenedor. El servidor solo intenta el refresco para el personaje activo en el lobby o en una sala
+que espera. El paquete de oro puede mostrar el aviso de reparación. Confirma en juego que el cliente
+recibe el cambio y conserva el inventario, el equipo y la durabilidad.
 
 ## Los registros del server de prueba, para quien investiga una falla
 

@@ -102,6 +102,7 @@ NIVEL_INICIAL = int(os.environ.get("EDA_NIVEL_INICIAL") or 25)
 # ★ (22-nov) CUENTAS DE GM (servidor/salas.py · es_gm): lista separada por comas de las cuentas que pueden
 #   usar los comandos de GM en el chat (/oro, /monedas, /nivel, /item, /stats, /limpiar). Vacía por defecto = nadie es GM.
 GM_CUENTAS = os.environ.get("EDA_GM_CUENTAS", "")
+GM_EN_VIVO = os.environ.get("EDA_GM_EN_VIVO", "").strip() == "1"
 
 # ★ (20-nov) LA PUERTA INTERNA DEL PANEL del Coordinador Eñeños (servidor/panel.py, el «contrato del panel v1»):
 #   R2_CUENTAS_FICHA_INTERNA es la ficha que tiene que traer cada pedido (la MISMA variable que el resto del conjunto

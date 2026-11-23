@@ -46,6 +46,10 @@ def ordenar(n_defecto, resp, ahora=None):
             g.append((c, cuerpo))
             continue
         sale.append((c, cuerpo, 0, d))
+        # 0x1075 también puede salir diferido desde game over, sin pasar
+        # como transición inmediata por juego._responder.
+        if c == 0x1075 and cuerpo[:2] == b"\1\0":
+            p["pantalla_gm"] = "lobby"
         if c == 0x104F:
             p["cargando"] = ahora
         elif c in (0x105E, 0x1075, 0x1069) and p.get("cargando"):

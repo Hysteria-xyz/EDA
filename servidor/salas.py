@@ -8,7 +8,8 @@ from servidor import config
 from servidor.config import P
 from servidor.registro import maneja
 from servidor.estado import ASIGNADAS, PARTIDAS, SALAS, VIVO, partida, numero, dar_numero, de_numero
-from servidor.cuentas import fijar_stats_personaje, leer, nivel, nombre_visible, guardar, EXPS, INICIO
+from servidor.cuentas import fijar_dato_personaje, leer, nivel, nombre_visible, guardar, EXPS, INICIO
+from servidor.datos import ESCENARIOS
 from servidor.objetos import equipo_tipos, obj_habilidad, personaje_obj
 from servidor import relay
 from servidor.relay import dir_udp, identidad_de
@@ -439,6 +440,38 @@ def _buscar_conectado(texto):
     return None, None
 
 
+def _refresco_gm(destino, cuenta, cambio):
+    if not config.GM_EN_VIVO or destino not in ASIGNADAS:
+        return None
+    if destino in VIVO.__dict__.get("DESCONECTADAS", ()):
+        return None
+    estado = PARTIDAS.get(destino, {})
+    pantalla = estado.get("pantalla_gm")
+    if pantalla not in ("lobby", "sala") or estado.get("cargando"):
+        return None
+    sala = SALAS.get(estado.get("sala"))
+    if sala is not None and (sala.get("jugando") or sala.get("en_stage")):
+        return None
+    if pantalla == "sala" and (sala is None or destino not in sala["miembros"]):
+        return None
+    if pantalla == "lobby" and estado.get("sala") is not None:
+        return None
+    if cambio == "oro":
+        # 0x54A7A0 lee u16 resultado, u32 oro y u8 cantidad. Con cero salta
+        # todos los cambios de durabilidad, pero activa el aviso de reparación 0xDD.
+        return (0x103A, struct.pack("<HIB", 1, cuenta["plata"], 0), 0, destino)
+    activa = leer(destino)
+    if nombre_visible(activa).lower() != nombre_visible(cuenta).lower():
+        return None
+    from servidor.inventario import cola_inventario
+
+    # 0x54BBB0 copia stats y equipo del personaje activo. Mandamos su equipo
+    # guardado y ambas listas vacías. Pestaña 0 evita abrir una pestaña de
+    # inventario: 0x528CA0 sólo selecciona controles para valores 4 a 7.
+    # El despacho fuera del inventario requiere confirmación en el juego.
+    return (0x102C, struct.pack("<HB", 1, 0) + cola_inventario(activa), 0, destino)
+
+
 @maneja(0x100D)
 def chat(cmd, cuerpo, conexion, c, p):
     """★ CHAT (lobby / sala) + COMANDOS GM (/oro, /nivel, /item, /ayuda: sólo cuentas en EDA_GM_CUENTAS)"""
@@ -471,12 +504,17 @@ def chat(cmd, cuerpo, conexion, c, p):
                            + struct.pack("<I", len(b)) + b, 0)
             return [paq if dest is None else paq + (dest,)]
 
-        def _avisar_cambio(mensaje, destino):
-            texto = f"{mensaje}; se ve al volver a la pantalla de personajes"
+        def _avisar_cambio(mensaje, destino, cuenta, cambio, sin_recordatorio=False):
+            refresco = _refresco_gm(destino, cuenta, cambio)
+            texto = mensaje
+            if refresco:
+                texto += " · actualizado en vivo (experimental)"
+            elif not sin_recordatorio:
+                texto += " · se ve al volver a la pantalla de personajes"
             avisos = _aviso(texto)
             if destino is not None and destino != conexion:
                 avisos += _aviso(texto, dest=destino)
-            return avisos
+            return [refresco] + avisos if refresco else avisos
 
         def _auditar(accion, dest_c, detalle):
             log_gm("gm: #%s (%s) · %s · a %s (%s) · %s"
@@ -487,21 +525,65 @@ def chat(cmd, cuerpo, conexion, c, p):
         gm = es_gm(c["nombre"])
         if sub in ("ayuda", "help"):
             if gm:
-                return _aviso(f"Eres GM. Comandos GM: /oro [+]<n> [pj], /monedas <n>, /nivel <1-{len(EXPS)}>, "
-                              f"/item <id> [cant] [pj], /stats [pj] <5 valores>, /reiniciar <pj> (/reset), /limpiar · Messenger: /messenger")
+                return _aviso(f"Eres GM. Comandos GM: /oro <n> [pj] fija, /oro +<n> [pj] suma, /oro -<n> [pj] resta, "
+                              f"/monedas <n>, /nivel <1-{len(EXPS)}>, "
+                              f"/item <id> [cant] [pj], /stats [pj] <5 valores>, /reiniciar <pj> (/reset), "
+                              f"/fin, /desbloquear [pj], /limpiar · Messenger: /messenger")
             return _aviso("Comandos: /messenger, /amigos, /amigo <nick>, /quitar <nick>, /m <nick> <mensaje>")
         if not gm:
             return _aviso(f"Comando desconocido: /{sub}. Usa /ayuda")
         if sub == "cash":                                    # ★ (Paso 6) EDA usa sólo oro
             return _aviso("El cash no existe en EDA: todo se compra con oro (/oro <cantidad>).")
 
+        if sub == "fin":
+            if len(partes) != 1:
+                return _aviso("Uso: /fin")
+            sala = SALAS.get(p.get("sala"), {})
+            en_stage = sala.get("en_stage", set())
+            if not sala.get("jugando") or conexion not in en_stage or p.get("resultado_guardado"):
+                return _aviso("Debes estar en una stage para usar /fin.")
+            if not en_stage.issubset(sala.get("cargados", ())) or any(
+                    PARTIDAS.get(n, {}).get("cargando") for n in en_stage):
+                return _aviso("Espera a que todo el grupo termine de cargar la stage.")
+            from servidor.partida import fin_de_stage
+
+            # Como fin_rapido: la misma liquidación que 0x1064. Si el GM
+            # es invitado, usar al máster para aplicar el cierre al grupo.
+            master = sala["anfitrion"]
+            cuenta_master = c if master == conexion else leer(master)
+            r = fin_de_stage(0x1064, b"", master, cuenta_master, partida(master))
+            _auditar(texto_str, c, f"stage {p['escenario']} completada para el grupo")
+            return [x if len(x) > 3 else x + (master,) for x in r]
+        if sub == "desbloquear":
+            if len(partes) > 2:
+                return _aviso("Uso: /desbloquear [personaje]")
+            terminadas = sorted(ESCENARIOS)
+            if len(partes) == 2:
+                destino, cuenta = fijar_dato_personaje(partes[1], "terminadas", terminadas)
+                if cuenta is None:
+                    return _aviso(f"El personaje {partes[1]} no existe.")
+            else:
+                if not c.get("pjs"):
+                    return _aviso("Selecciona un personaje para usar /desbloquear.")
+                c["terminadas"] = terminadas
+                guardar(c)
+                destino, cuenta = conexion, c
+            _auditar(texto_str, cuenta, f"{len(terminadas)} stages marcadas como terminadas")
+            # 0x1018 carga las terminadas al volver a entrar al lobby (0x621620).
+            aviso = (f"{nombre_visible(cuenta)}: {len(terminadas)} stages desbloqueadas"
+                     " · se ve al volver a la pantalla de personajes")
+            avisos = _aviso(aviso)
+            if destino is not None and destino != conexion:
+                avisos += _aviso(aviso, dest=destino)
+            return avisos
+
         if sub in ("oro", "gold"):
             if len(partes) >= 2:
                 crudo_n = partes[1]
-                es_suma = crudo_n.startswith("+") and crudo_n[1:].isdigit()
-                es_fijo = crudo_n.isdigit()
-                if es_suma or es_fijo:
-                    val = int(crudo_n[1:] if es_suma else crudo_n)
+                es_delta = crudo_n.startswith(("+", "-"))
+                magnitud = crudo_n[1:] if es_delta else crudo_n
+                if magnitud.isdecimal():
+                    val = int(crudo_n)
                     if len(partes) >= 3:
                         dest_n, dest_c = _buscar_conectado(partes[2])
                         if dest_c is None:
@@ -511,13 +593,13 @@ def chat(cmd, cuerpo, conexion, c, p):
                     else:
                         dest_n, dest_c = conexion, c
                     antes = dest_c.get("plata", 0)
-                    nuevo = antes + val if es_suma else val
+                    nuevo = antes + val if es_delta else val
                     dest_c["plata"] = max(0, min(nuevo, 2_000_000_000))
                     guardar(dest_c)
                     _auditar(texto_str, dest_c, f"oro {antes} -> {dest_c['plata']}")
                     quien = f" de {nombre_visible(dest_c)}" if dest_n != conexion else ""
-                    return _avisar_cambio(f"Oro{quien} actualizado a {dest_c['plata']}", dest_n)
-            return _aviso("Uso: /oro [+]<cantidad> [personaje]")
+                    return _avisar_cambio(f"Oro{quien} actualizado a {dest_c['plata']}", dest_n, dest_c, "oro")
+            return _aviso("Uso: /oro <cantidad>, /oro +<cantidad> o /oro -<cantidad> [personaje]")
         elif sub in ("nivel", "lvl", "level"):
             if len(partes) >= 2 and partes[1].isdigit():
                 n = max(1, min(int(partes[1]), len(EXPS)))
@@ -590,17 +672,17 @@ def chat(cmd, cuerpo, conexion, c, p):
                     c["stats"] = vals
                     guardar(c)
                     _auditar(texto_str, c, detalle)
-                    return _aviso(detalle)
+                    return _avisar_cambio(detalle, conexion, c, "stats", sin_recordatorio=True)
             else:
                 if len(partes) != 2:
                     return _aviso(f"Uso: /{sub} <personaje>")
                 vals = [0] * 5
                 detalle = "Puntos repartidos devueltos"
-            dest_n, dest_c = fijar_stats_personaje(partes[1], vals)
+            dest_n, dest_c = fijar_dato_personaje(partes[1], "stats", vals)
             if dest_c is None:
                 return _aviso(f"El personaje {partes[1]} no existe.")
             _auditar(texto_str, dest_c, detalle)
-            return _avisar_cambio(f"{nombre_visible(dest_c)}: {detalle}", dest_n)
+            return _avisar_cambio(f"{nombre_visible(dest_c)}: {detalle}", dest_n, dest_c, "stats")
         elif sub in ("limpiar", "clear"):
             antes = len(c.get("items", []))
             c["items"] = [x for x in c.get("items", []) if len(x) > 2 and x[2] < 18]
