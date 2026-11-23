@@ -94,7 +94,13 @@ def miembro(c, indice, completo=False, conexion=None, para=None, listo=False):
     return bytes(m)
 
 
-def pares(s, espera=0, anotar=True):
+# ★ (22-nov) En una sala que ESPERA (`jugando` en False), cada cuántos segundos sin 0x1059 se vuelve a mandar el
+#   0x1059 (`+0x2DF = 3`, mismas direcciones) para que el cliente repita su medición (`0x550D6B` → `0x534D50` →
+#   `0x535000` → `0x4DC330`) y mande `0x105A` si un NAT cambió de puerto y quedó en -1000 ms.
+REMEDIR_SALA = float(os.environ.get("EDA_REMEDIR_SALA") or 60)
+
+
+def pares(s, espera=0, anotar=True, ahora=None):
     """★ 0x1059 «Peer Public IP» (`0x550BE0`) a CADA miembro de la sala: las direcciones UDP de
     todos, para el P2P (el ping de la sala, la partida). 7 B: u8 N · 4 B 🟡 · u8 → +0x2DE · u8 →
     +0x2DF; y N × 7 B: u8 id · u32 IP · u16 puerto, COMO ENTEROS (el cliente les hace htonl /
@@ -128,24 +134,40 @@ def pares(s, espera=0, anotar=True):
         cuerpo = struct.pack("<B4xBB", len(regs), listo_dest, 3) + b"".join(regs)
         s.setdefault("anunciado", {})[dest] = b"".join(regs)         # (21-nov) lo último que se le dio: ver `reanunciar`
         r.append((0x1059, cuerpo, espera, dest))
+    if anotar:
+        s["anunciado_en"] = time.time() if ahora is None else ahora
     return r
 
 
-def reanunciar(salas):
-    """★ (21-nov) Del `tick`: si en una sala que ESPERA (no jugando) la dirección de alguien cambió (su NAT le dio
-    otro puerto, llegó su 0x3006 de esta sesión, o se olvidó una vieja), se les vuelve a dar el 0x1059 a los que
-    les cambió. Antes se daba una sola vez, al entrar: con una dirección que cambiaba, el otro le seguía hablando
-    a la vieja."""
+def reanunciar(salas, ahora=None, por_tiempo=True):
+    """★ (21-nov / 22-nov) Del `tick`: sólo en una sala que ESPERA (`jugando` en False; nunca durante la carga ni
+    en plena stage):
+      1) si la dirección de alguien cambió (su NAT le dio otro puerto, llegó su 0x3006 de esta sesión, o un par
+         pasó al relay por 0x105A), se les vuelve a dar el 0x1059 a los que les cambió;
+      2) si `por_tiempo` y pasaron más de `REMEDIR_SALA` s (60 s) desde el último 0x1059 de la sala, se les vuelve
+         a mandar el 0x1059 (mismas direcciones, `+0x2DF = 3`) para que el cliente repita su medición y mande
+         `0x105A` si un puerto cambió y quedó en -1000 ms."""
+    ahora = time.time() if ahora is None else ahora
     r = []
     for s in list(salas.values()):
         if s.get("jugando") or len(s["miembros"]) < 2 or "anunciado" not in s:
             continue
         antes = dict(s["anunciado"])
-        nuevos = pares(s, anotar=False)
+        ultimo = s.get("anunciado_en")
+        if ultimo is None:
+            ultimo = s["anunciado_en"] = ahora
+        nuevos = pares(s, anotar=False, ahora=ahora)
+        cambiados = []
         for x in nuevos:
             if antes.get(x[3]) != x[1][7:]:
                 print("sala: a #%s le cambió una dirección de su sala: 0x1059 otra vez" % x[3], flush=True)
-                r.append(x)
+                cambiados.append(x)
+        if cambiados:
+            s["anunciado_en"] = ahora
+            r.extend(cambiados)
+        elif por_tiempo and REMEDIR_SALA > 0 and ahora - ultimo >= REMEDIR_SALA:
+            s["anunciado_en"] = ahora
+            r.extend(nuevos)
     return r
 
 
@@ -154,11 +176,11 @@ def reporte_ping_udp(cmd, cuerpo, conexion, c, p):
     """★ (22-nov) 0x105A C→S (`0x4DC330`, 9 B: u32 id_cuenta · f32 ping_s · u8 timeouts):
     1 s después del 0x1059 (con +0x2DF = 3), el invitado mide con `0x748120` si conectó por UDP con el
     anfitrión. Si el directo falló (-1000 ms, «[UDP ERROR] PingError! PingInfo Not Collect!!!»), manda
-    timeouts = 2 (`0x4DC453`). El server marca ese par sin directo y les manda el 0x1059 por el relay."""
+    timeouts = 2 (`0x4DC453`). El server marca SOLO ese par sin directo y les manda el 0x1059 por el relay."""
     if len(cuerpo) >= 9:
-        _, ping, timeouts = struct.unpack_from("<IfB", cuerpo, 0)
+        id_cuerpo, ping, timeouts = struct.unpack_from("<IfB", cuerpo, 0)
     elif len(cuerpo) >= 1:
-        ping, timeouts = -1.0, cuerpo[0]
+        id_cuerpo, ping, timeouts = 0, -1.0, cuerpo[0]
     else:
         return []
     s = SALAS.get(p.get("sala"))
@@ -166,15 +188,19 @@ def reporte_ping_udp(cmd, cuerpo, conexion, c, p):
         return []
     if timeouts >= 2 or ping < 0:
         anf = s.get("anfitrion")
-        otros = [anf] if anf and anf != conexion and anf in s["miembros"] else [
-            m for m in s["miembros"] if m != conexion]
+        if id_cuerpo and id_cuerpo != conexion and id_cuerpo in s["miembros"]:
+            otros = [id_cuerpo]
+        elif anf and anf != conexion and anf in s["miembros"]:
+            otros = [anf]
+        else:
+            otros = [m for m in s["miembros"] if m != conexion]
         for otro in otros:
             relay.marcar_sin_directo(conexion, otro)
         print("sala %s: #%s reportó fallo de UDP directo (0x105A, timeouts=%d) → pasa al relay"
               % (p.get("sala"), conexion, timeouts), flush=True)
         if not s.get("jugando") and len(s["miembros"]) >= 2:
             if "anunciado" in s:
-                return reanunciar({p.get("sala"): s})
+                return reanunciar({p.get("sala"): s}, por_tiempo=False)
             return pares(s)
     return []
 
@@ -715,7 +741,7 @@ def largar(cmd, cuerpo, conexion, c, p):
     if s and len(miembros) >= 2:
         # ★ (22-nov) antes de cada partida (0x104F), asegurar que todos tengan la dirección ACTUAL de los demás
         if "anunciado" in s:
-            previos = reanunciar({p.get("sala"): s})
+            previos = reanunciar({p.get("sala"): s}, por_tiempo=False)
         elif any(relay.actual_de(n) or partida(n).get("sin_directo") for n in miembros):
             previos = pares(s)
     if s:

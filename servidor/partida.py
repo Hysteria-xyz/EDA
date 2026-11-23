@@ -441,19 +441,18 @@ def en_la_stage(s, conexion):
 
 @maneja(0x1063)
 def le_pegaron(cmd, cuerpo, conexion, c, p):
-    """★ le pegaron (0x1063 C→S / 0x1062 S→C `0x547440`, aporte de Hysteria-xyz):
-    Difunde la vida y maná actualizados al HUD de los compañeros de equipo."""
+    """★ le pegaron (0x1063 C→S, `0x500790` → `0x546350`, 3 B: u8 jugador · u16 golpes):
+    Cada 10 golpes recibidos (`inc word [eax+0xF]; idiv 10`), el cliente avisa al server para el contador
+    `golpes` del resultado final (`0x106E`).
+    ⚠ (22-nov, medido en `EDA_limpio.exe` tras caída en P-20261122-235248-s1 a las 23:55:24): NO responder con
+    `0x1062` (`0x547440`). En el exe, `0x547440` NO es vida/maná: lee `buf+0` como ID de actor NPC muerto y `buf+4`
+    como slot del jugador que lo mató; si `buf+4 != [cuenta+0x705]`, busca ese slot en `cuenta+0x240` (`0x61C110`)
+    y en `0x5475A5` (`cmp byte [eax+0x73], cl`) desreferencia `eax+0x73` sin comprobar `NULL` (además de buscar los
+    dos actores en `0x9348C8` con `0x5706D0` y desreferenciarlos en `0x6360F0` sin comprobar `NULL`). Mandar `0x1062`
+    con `buf+4 = 0` fijo hacía que, tras salir el anfitrión original (slot 0, borrado de `cuenta+0x240` por `0x61CA30`
+    en el `0x1058` tipo 3), el primer `0x1063` de un compañero tirara el juego del nuevo máster (`0xC0000005`)."""
     p["golpes"] = p.get("golpes", 0) + 1
-    s = SALAS.get(p.get("sala"))
-    r = []
-    if s and conexion in s["miembros"] and len(s["miembros"]) > 1:
-        yo = numero(s, conexion)
-        # 0x1062 (16 B, 0x547440): u32 jugador_id · u32 0 · u16 HP · u8 0 · u32 MP · u8 buffs
-        hp = struct.unpack_from("<H", cuerpo, 1)[0] if len(cuerpo) >= 3 else 1000
-        msg_62 = struct.pack("<IIHBI B", yo, 0, hp, 0, 100, 0)
-        for m in en_la_stage(s, conexion):
-            r.append((0x1062, msg_62, 0, m))
-    return r
+    return []
 
 
 @maneja(0x1062)

@@ -251,9 +251,11 @@ def main(ip="0.0.0.0"):
                     if viejo and viejo != quien:
                         de_dir.pop(viejo, None)
                     dir_de[n], de_dir[quien] = quien, n
-                    cuando_de[n] = time.time()
-                    if (punch_vio.get(n) or (None, None))[:2] != quien:
-                        punch_vio[n] = (quien[0], quien[1], time.time())   # ★ (21-nov) con su hora: la sesión
+                    ahora_p = time.time()
+                    cuando_de[n] = ahora_p
+                    prev_p = punch_vio.get(n)
+                    if not prev_p or prev_p[:2] != quien or ahora_p - prev_p[2] >= 5:
+                        punch_vio[n] = (quien[0], quien[1], ahora_p)   # ★ (21-nov / 22-nov) con su hora y renueva vigencia
                         escribir_punch()
                 continue
             destino = next(k for k, v in socks.items() if v is s)
