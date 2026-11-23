@@ -72,7 +72,13 @@ La DLL (`d3d9.dll`) busca cada archivo traducido en este orden cuando `[traducci
 
 ### Cómo apagarla o cambiar de idioma
 
-En `eda_d3d9.ini` (junto al juego):
+★ **El jugador lo elige en el launcher** (23-nov, decisión del dueño del launcher): «Opciones del juego» de EDA →
+**Idioma** (Español / English). El launcher escribe `[traduccion] idioma=` en `eda_d3d9.ini` antes de abrir el juego,
+con la misma rutina que ya usa para las demás opciones de EDA (sólo esa clave; el resto del `.ini` no se toca).
+Los idiomas que ofrece el selector salen del contenido dinámico del Coordinador: cuando se sume otro idioma
+(por ejemplo `pt`), se agrega ahí, sin sacar un launcher nuevo.
+
+A mano, en `eda_d3d9.ini` (junto al juego):
 - `idioma=es` → español (por defecto).
 - `idioma=en` (o `off`, `ninguno`) → desactiva la traducción y vuelve al inglés original sin enganchar SolFS.
 - `[general] mejoras=0` → también la desactiva.
