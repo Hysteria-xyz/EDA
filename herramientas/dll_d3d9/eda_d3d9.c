@@ -1108,6 +1108,7 @@ static int desviar_llamada(DWORD sitio, DWORD esperado, void *nuevo, const char 
 }
 
 #include "eda_apis.c"                          /* ★ (21-nov) las llamadas a Windows sin resolver del exe (la caída 0x7F4626) */
+#include "eda_traduccion.c"                    /* ★ (23-nov) traducción en memoria desde traducciones\<idioma>\ (apagada por defecto) */
 
 /* ── la selección múltiple ── */
 typedef struct { DWORD serial; BYTE *celda; } MARCA;
@@ -2470,6 +2471,7 @@ static void leer_ajustes(HMODULE self)
     DWORD n = GetEnvironmentVariableA("EDA_SERVER", env, sizeof(env));
     if (n && n < sizeof(env)) lstrcpyA(g_server, env);
     dg_leer_ini(ini);                                /* ★ (diag) [diag] url / EDA_DIAG_URL */
+    tr_leer_ini(self, ini);                          /* ★ (traducción) [traduccion] idioma= / EDA_IDIOMA */
 }
 
 /* ★ (15-nov) MEDIDO 22:46:01: en plena partida el juego dejó de pasar por nuestros Present/dibujos (0 por 10 s) y
@@ -2623,7 +2625,7 @@ static DWORD WINAPI vigia(LPVOID nada)
 BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
 {
     (void)reservado;
-    if (razon == DLL_PROCESS_DETACH) { dg_cerrar(); return TRUE; }   /* ★ (diag) «fin» y lo pendiente, al disco */
+    if (razon == DLL_PROCESS_DETACH) { tr_cerrar(); dg_cerrar(); return TRUE; }   /* ★ (diag/trad) resumen y cierre */
     if (razon != DLL_PROCESS_ATTACH) return TRUE;
     DisableThreadLibraryCalls(self);
     /* ⚠ el d3d9 DE VERDAD por ruta absoluta: con "d3d9.dll" a secas Windows encontraría ESTA misma.
@@ -2645,6 +2647,7 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD razon, LPVOID reservado)
             g_ping_verde, g_mazino);
     if (!g_mejoras) apuntar("  [general] mejoras=0: el video y la red del juego quedan como en 2009 (sólo server, login y caja negra)");
     reparar_apis();                                  /* ★ (21-nov) antes que nada del exe corra: ver eda_apis.c */
+    tr_instalar();                                   /* ★ (23-nov) traducción desde traducciones\<idioma>\ (apagada por defecto) */
     /* ★ la red inmediata: desde YA (el juego puede abrir su socket UDP antes de crear el D3D). Acá
      *   la tabla de importaciones del exe ya está resuelta (los DllMain corren después). */
     if (g_mejoras && g_red && g_tope > 0) {

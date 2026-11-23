@@ -98,6 +98,16 @@ probar_locale=0
 url=
 
 #####################################################################
+# TRADUCCIÓN EN MEMORIA (23-nov) — apagada por defecto
+#####################################################################
+[traduccion]
+; idioma de la carpeta traducciones\\<idioma>\\ junto al juego (p. ej. es). Vacío o en = el juego de siempre
+; (sin enganchar nada). Respeta [general] mejoras=0. EDA_IDIOMA manda sobre esto.
+idioma=
+; 1 = con idioma=es, también traduce en memoria 3 etiquetas cortas del exe (LV%3d → Nv%3d, %dGold → %d Oro)
+cadenas_exe=1
+
+#####################################################################
 # P2P: que los juegos se encuentren (sin pasar por el server)
 #####################################################################
 [p2p]
