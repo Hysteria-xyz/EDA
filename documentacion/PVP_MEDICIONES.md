@@ -30,7 +30,7 @@ lobby → sala → partida que ya hacía (mismo comportamiento), para que `dos_c
 | cuentas | las de siempre (`_trabajo\servidor\cuentas`) | cuentas aparte en `EDA_pvp\estado`: **rui** (juego A) y **kai** (juego B), nivel 25, GM las dos (`/fin`, `/oro`) |
 | puertos UDP de los juegos | los dos no pueden usar 57654 | el segundo toma otro solo (MEDICIONES §19) |
 | MAC (identidad P2P) | lanzado sin comillas, el exe pisa su MAC (PROTOCOLO §5.1) | `dos_clientes.py` lanza con la ruta entre comillas |
-| versión del cliente | — | exe, `d3d9.dll` (0.5.4) e ini **del repo**, sin Frida: el mismo cliente que reciben todos |
+| versión del cliente | ⛔ corregido el 24-nov: `exe\d3d9.dll` del repo es la del **Punto 4** (md5 `d7df418b`, PR #52), no la 0.5.4, y no carga archivos sueltos | exe del repo + la dll **0.5.4 de la release «cliente-develop»** (md5 `b3ecd9f9`, compilada de `f5c9ccb`), verificada con su lista: `dos_clientes.py preparar --dll` |
 
 ### 1.2 · Lo medido al validarlo (sesión `20261124-060133`)
 
@@ -138,18 +138,28 @@ Los dos son nivel 25 recién creados: tienen la misma vida y no se podría saber
 | los dos en la misma stage, viéndose | ✅ | `multi_partida.png` |
 | inicio y cierre reproducibles, registros por cliente | ✅ | §1.2 |
 | UDP entre los dos juegos (por el relay local) | ✅ | `UdpMsgCnt`, «por relay» |
-| encontrar la vida en memoria | ⏳ | §2 paso 2 |
-| colisión entre jugadores | ⏳ | §2 `choque` |
-| un ataque detecta a otro jugador | ⏳ | §2 `kai_pega` / `rui_pega` |
-| daño entre jugadores | ⏳ | §2 |
+| la vida en memoria | ✅ | entidad `+0x20C` (float): `entidades.py` la lee en `OnDamaged`, `SetHP` y la que llega por red (84.6 con nivel 25 y 0 puntos). El HUD no muestra números: `combate_auto.py` mide la barra (221 px llena) |
+| ID de entidad de cada jugador | ✅ | rui = 0, kai = 1 (`vida_red`, `GetPlayerID`) |
+| grupo de cada jugador | ✅ | `+0x40` (máscara): los dos nacen en `0x1`; con `SetEntityGroup` kai pasó a `0x4` en los DOS clientes |
+| colisión entre jugadores | 🟡 no hay | kai caminó 3 s contra rui y quedó superpuesto, en las dos pantallas (sesión `-062450`, fotos `03_choque`) |
+| **daño entre jugadores con grupos distintos** | ✅ | sesión `-064447`, manejado a mano: 9 golpes en los dos sentidos, 15–22 de daño, `OnDamaged` con atacante y víctima en los dos clientes, vida sincronizada por red (PVP_PROTOTIPO.md T05/T06) |
+| daño entre jugadores con el MISMO grupo (sin cambio) | ❌ no hay | T01 a mano (sesión `-070421`): más de 10 golpes de cada lado, sin reacción, barras llenas, cero `OnDamaged` |
+| muerte de un jugador a manos de otro | ✅ | `muerte` en los dos clientes; el server recibe `0x1065` con **quién lo mató** (`01 · 00000000` = kai, por rui) |
+| revivir después de una muerte PvP | ✅ | `0x106A` → `0x106B` (moneda), vida otra vez 84.6 en los dos |
+| fin controlado de la arena | ✅ | `GetAlivePlayerNum` 2 → 1 → `OnEnd` → `0x1064` de los dos, 5 s después de la muerte |
 | habilidades de área contra jugadores | 🚫 | las habilidades no se lanzan en la partida (MEDICIONES §34) |
-| distinción aliado / enemigo / monstruo, filtros de facción | ⏳ | sale de E1 (§2.1) |
-| vida, animación de golpe y muerte entre jugadores | ⏳ | §2 |
-| contenido del UDP de combate | ⏳ | `udp_combate.py` en §2 |
-| sala de duelo, cuenta regresiva, ganador, vuelta al lobby | ⏳ | después de E1 (plan en PVP_INVESTIGACION.md §11) |
+| contenido del UDP de combate | 🟡 | familias por largo+tipo (`48000340` 76 B, `0c000540`, `190051c3`/`52c3` con la MAC): falta separar el golpe |
+| el PvE sigue igual sin la arena | ✅ | T08, sesión `-070959` |
+| sala de duelo, ganador PvP, vuelta al lobby | ⏳ | el fin hoy paga el resultado PvE de 1011 |
 
 ## 4 · Registro de sesiones
 
 | sesión | qué | resultado |
 |---|---|---|
 | `20261124-060133` | validar el entorno: iniciar → lobby → `llevar partida` → cerrar | ✅ §1.2 |
+| `20261124-062450` | stage ORIGINAL, sin cambios: T03 choque, T01 automático (kai y rui pegan), UDP y diagnóstico de entidades | choque: superpuestos · T01: barras sin cambio, ningún `OnDamaged` (golpe no comprobado) · rui no se movió con `control_partida` |
+| `20261124-063812` | arena instalada con la dll del repo (Punto 4) | ⛔ corrió el guion original: esa dll no tiene carpeta suelta |
+| `20261124-064128` | arena + grupos, dll 0.5.4 | ✅ guion servido · `SetEntityGroup(1, 3)` en los dos · rui muere (entidad 1 lo mata) · fin y cartas · ⚠ los ataques fueron a mano (no registrado quién) |
+| `20261124-064447` | arena + grupos, dll 0.5.4, **combate a mano de los dos lados** | ✅ daño entre jugadores en los dos sentidos, sincronizado; kai muere; `0x1065` con el atacante; revive; fin |
+| `20261124-070421` | arena **sin** grupos, dll 0.5.4, combate a mano (T01) | ✅ cero daño: sin reacción, barras 221/221, cero `OnDamaged` / `0x1063` / `0x1065` |
+| `20261124-070959` | arena QUITADA, stage normal a mano (T08) | ✅ guion original; golpes jugador↔monstruo en los dos sentidos, 10 bajas, 2 muertes y 2 revividas; 0 golpes entre jugadores |
