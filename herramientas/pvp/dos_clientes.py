@@ -1,7 +1,11 @@
 r"""dos_clientes -- ★ PvP, etapa 0.1: DOS juegos independientes en esta PC contra un server local PROPIO.
 
-    py herramientas\pvp\dos_clientes.py preparar               # una vez (y cada vez que cambie exe\ o _trabajo\juego)
-    py herramientas\pvp\dos_clientes.py iniciar [--p2p auto|relay|directo]
+    py herramientas\pvp\dos_clientes.py preparar [--dll CARPETA]   # una vez (y cada vez que cambie exe\ o _trabajo\juego)
+        --dll: la d3d9.dll + ini de la release «cliente-develop» (gh release download cliente-develop), verificadas
+        con su cliente-develop.json. ⚠ exe\d3d9.dll del repo es la del Punto 4 (md5 d7df418b): NO carga traducciones\
+    py herramientas\pvp\dos_clientes.py recursos instalar [carpeta] [--grupos]   # la arena en A y B (--grupos: T04/T05)
+    py herramientas\pvp\dos_clientes.py recursos quitar                # A y B vuelven a leer sólo Data.dat
+    py herramientas\pvp\dos_clientes.py iniciar [--p2p auto|relay|directo] [--hex]   # --hex: cada mensaje en server.log
     py herramientas\pvp\dos_clientes.py llevar [sala|listo|partida]   # los dos, del lobby a la stage 1011 (A anfitrión)
     py herramientas\pvp\dos_clientes.py estado
     py herramientas\pvp\dos_clientes.py cerrar                  # cierra todo y junta los registros de la sesión
@@ -92,21 +96,108 @@ def espejar(origen, destino):
     return cuenta
 
 
-def preparar():
+def md5(ruta):
+    import hashlib
+    return hashlib.md5(open(ruta, "rb").read()).hexdigest()
+
+
+def dll_verificada(carpeta):
+    """La d3d9.dll y su ini de `carpeta` (p. ej. la release «cliente-develop»), SÓLO si coinciden con su lista
+    cliente-develop.json (md5). Devuelve {"d3d9.dll": ruta, "eda_d3d9.ini": ruta}."""
+    lista = os.path.join(carpeta, "cliente-develop.json")
+    if not os.path.exists(lista):
+        raise SystemExit("⛔ --dll: falta %s (sin la lista no se verifica)" % lista)
+    datos = json.load(open(lista, encoding="utf-8"))
+    out = {}
+    for f in ("d3d9.dll", "eda_d3d9.ini"):
+        esperado = next((x["md5"] for x in datos.get("files", []) if x.get("path") == f), None)
+        r = os.path.join(carpeta, f)
+        if not esperado or not os.path.exists(r) or md5(r) != esperado:
+            raise SystemExit("⛔ --dll: %s no coincide con la lista (esperado %s)" % (f, esperado))
+        out[f] = r
+    print("· dll %s (commit %s, rama %s) verificada: md5 %s" % (datos.get("version"), datos.get("commit"),
+                                                            str(datos.get("rama_commit"))[:7], md5(out["d3d9.dll"])))
+    return out
+
+
+def preparar(dll=None):
     if not os.path.exists(os.path.join(ORIGEN, "Data.dat")):
         raise SystemExit('⛔ falta el juego en _trabajo\\juego. Primero: py jugar.py --preparar "C:\\ruta\\al\\cliente"')
     for f in DEL_REPO:
         if not os.path.exists(os.path.join(EXE_REPO, f)):
             raise SystemExit("⛔ falta exe\\%s en el repo" % f)
+    fuentes = {f: os.path.join(EXE_REPO, f) for f in DEL_REPO}
+    if dll:
+        fuentes.update(dll_verificada(dll))
     os.makedirs(BASE, exist_ok=True)
     for i in INSTANCIAS:
         dst = os.path.join(BASE, i)
         c = espejar(ORIGEN, dst)
-        for f in DEL_REPO:
-            shutil.copy2(os.path.join(EXE_REPO, f), os.path.join(dst, f))
-        print("· %s: %s → %d copiados, %d enlazados, %d iguales, %d saltados; exe, d3d9.dll e ini del repo"
-              % (i, dst, c["copiados"], c["enlazados"], c["iguales"], c["saltados"]))
+        for f, src in fuentes.items():
+            shutil.copy2(src, os.path.join(dst, f))
+        print("· %s: %s → %d copiados, %d enlazados, %d iguales, %d saltados; d3d9.dll md5 %s (%s)"
+              % (i, dst, c["copiados"], c["enlazados"], c["iguales"], c["saltados"],
+                 md5(os.path.join(dst, "d3d9.dll")), "verificada de --dll" if dll else "la de exe\\ del repo"))
     print("✅ listo. Ahora: py herramientas\\pvp\\dos_clientes.py iniciar")
+
+
+ARENA = os.path.join(AQUI, "arena")
+SUELTOS = os.path.join("traducciones", "es")      # eda_traduccion.c: <carpeta_exe>\traducciones\<idioma>\<ruta>
+INSTALADOS = "pvp_recursos.json"
+
+
+GRUPOS_APAGADO = "PVP_GRUPOS     = false"
+GRUPOS_PRENDIDO = "PVP_GRUPOS     = true "
+
+
+def recursos_instalar(origen=ARENA, base=None, grupos=False):
+    """Copia los recursos experimentales (misma ruta relativa que en Data.dat) a cada instancia, donde la dll los
+    sirve en lugar de los de Data.dat (idioma «es», el de fábrica). Sólo en EDA_pvp\\A y \\B: nadie más los ve."""
+    base = base or BASE
+    archivos = []
+    for raiz, _, nombres in os.walk(origen):
+        for n in nombres:
+            if n.lower() in ("leeme.md",) or n.startswith("."):
+                continue
+            archivos.append(os.path.relpath(os.path.join(raiz, n), origen))
+    if not archivos:
+        raise SystemExit("⛔ no hay recursos en %s" % origen)
+    for i in INSTANCIAS:
+        inst = os.path.join(base, i)
+        if not os.path.isdir(inst):
+            raise SystemExit("⛔ falta preparar %s" % inst)
+        recursos_quitar(base, solo=i, callado=True)
+        puestos = []
+        for rel in archivos:
+            dst = os.path.join(inst, SUELTOS, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(os.path.join(origen, rel), dst)
+            if grupos and rel.lower().endswith(".lua"):
+                t = open(dst, encoding="latin-1").read()
+                if GRUPOS_APAGADO not in t:
+                    raise SystemExit("⛔ --grupos: %s no tiene «%s»" % (rel, GRUPOS_APAGADO))
+                open(dst, "w", encoding="latin-1", newline="").write(t.replace(GRUPOS_APAGADO, GRUPOS_PRENDIDO, 1))
+            puestos.append(os.path.join(SUELTOS, rel))
+        json.dump(puestos, open(os.path.join(inst, INSTALADOS), "w", encoding="utf-8"), indent=1)
+        print("· %s: %d recurso(s) experimental(es)%s: %s" % (i, len(puestos), " [PVP_GRUPOS = true]" if grupos else "",
+                                                             ", ".join(puestos)))
+    return archivos
+
+
+def recursos_quitar(base=None, solo=None, callado=False):
+    base = base or BASE
+    for i in ([solo] if solo else INSTANCIAS):
+        inst = os.path.join(base, i)
+        lista = os.path.join(inst, INSTALADOS)
+        if not os.path.exists(lista):
+            continue
+        for rel in json.load(open(lista, encoding="utf-8")):
+            r = os.path.join(inst, rel)
+            if os.path.exists(r):
+                os.remove(r)
+        os.remove(lista)
+        if not callado:
+            print("· %s: recursos experimentales quitados (vuelve a leer Data.dat)" % i)
 
 
 def puerto_libre(puerto, host="127.0.0.1"):
@@ -150,7 +241,7 @@ def acomodar(pid, x, y, espera=40):
     return False
 
 
-def iniciar(p2p):
+def iniciar(p2p, hexa=False):
     s = leer_sesion()
     if s and (vivo(s.get("server")) or any(vivo(p) for p in s.get("clientes", {}).values())):
         raise SystemExit("⛔ ya hay una sesión andando (%s). Primero: dos_clientes.py cerrar" % s["carpeta"])
@@ -169,7 +260,11 @@ def iniciar(p2p):
                 shutil.move(r, os.path.join(carpeta, "previo_%s_%s" % (i, f)))
     env = dict(os.environ, PYTHONIOENCODING="utf-8", EDA_ESTADO=os.path.join(BASE, "estado"),
                EDA_PUERTO=str(PUERTO), EDA_RELAY_IP="127.0.0.1", EDA_RELAY_BASE=str(RELAY_BASE),
-               EDA_P2P=p2p, EDA_GM_CUENTAS="rui,kai", EDA_LOGIN="abierto", EDA_ENTORNO="local")
+               EDA_P2P=p2p, EDA_GM_CUENTAS="rui,kai", EDA_LOGIN="abierto", EDA_ENTORNO="local",
+               EDA_LOG_HEX="1" if hexa else "")
+    for i in INSTANCIAS:
+        if os.path.exists(os.path.join(BASE, i, INSTALADOS)):
+            print("· %s con recursos EXPERIMENTALES (%s)" % (i, os.path.join(BASE, i, INSTALADOS)))
     log = open(os.path.join(carpeta, "server.log"), "w", encoding="utf-8")
     server = subprocess.Popen([sys.executable, "-m", "servidor.red"], cwd=RAIZ, env=env, stdout=log,
                               stderr=subprocess.STDOUT)
@@ -294,6 +389,23 @@ def control():
         os.utime(os.path.join(o, "chico.txt"), (time.time() + 5, time.time() + 5))
         espejar(o, d)
         chequear("si cambia el original, se actualiza", open(os.path.join(d, "chico.txt")).read() == "cambió")
+        base = os.path.join(tmp, "base")
+        for i in INSTANCIAS:
+            os.makedirs(os.path.join(base, i))
+        rec = os.path.join(tmp, "rec", "data", "scenario")
+        os.makedirs(rec)
+        open(os.path.join(rec, "x.lua"), "w").write("-- arena")
+        open(os.path.join(tmp, "rec", "LEEME.md"), "w").write("no va")
+        recursos_instalar(os.path.join(tmp, "rec"), base)
+        puesto = os.path.join(base, "A", SUELTOS, "data", "scenario", "x.lua")
+        chequear("recursos: el guion va a <instancia>\\traducciones\\es\\<misma ruta> en A y en B",
+                 os.path.exists(puesto) and os.path.exists(puesto.replace(os.sep + "A" + os.sep, os.sep + "B" + os.sep)))
+        chequear("★ el revés: el LEEME no se instala", not os.path.exists(os.path.join(base, "A", SUELTOS, "LEEME.md")))
+        open(os.path.join(base, "A", SUELTOS, "data", "scenario", "del_jugador.lua"), "w").write("ajeno")
+        recursos_quitar(base, callado=True)
+        chequear("recursos quitar: se va lo instalado", not os.path.exists(puesto))
+        chequear("★ el revés: lo que no instaló esta herramienta queda",
+                 os.path.exists(os.path.join(base, "A", SUELTOS, "data", "scenario", "del_jugador.lua")))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     s = socket.socket()
@@ -314,12 +426,18 @@ def main():
     a = sys.argv[1:]
     cmd = a[0] if a else ""
     if cmd == "preparar":
-        return preparar()
+        return preparar(a[a.index("--dll") + 1] if "--dll" in a and a.index("--dll") + 1 < len(a) else None)
     if cmd == "iniciar":
         p2p = a[a.index("--p2p") + 1] if "--p2p" in a and a.index("--p2p") + 1 < len(a) else "auto"
         if p2p not in ("auto", "relay", "directo"):
             raise SystemExit("⛔ --p2p auto | relay | directo")
-        return iniciar(p2p)
+        return iniciar(p2p, hexa="--hex" in a)
+    if cmd == "recursos":
+        if a[1:2] == ["quitar"]:
+            return recursos_quitar()
+        resto = [x for x in a[2:] if x != "--grupos"] if a[1:2] == ["instalar"] else []
+        recursos_instalar(resto[0] if resto else ARENA, grupos="--grupos" in a)
+        return 0
     if cmd == "llevar":
         hasta = a[1] if len(a) > 1 else "partida"
         if hasta not in ("sala", "listo", "partida"):

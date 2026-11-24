@@ -162,6 +162,9 @@ def tipo(ev):
 
 def resumen(ruta, salida=print):
     evs = [json.loads(l) for l in open(ruta, encoding="utf-8") if l.strip()]
+    extra = os.path.join(os.path.dirname(ruta), "marcas.jsonl")       # las de combate_auto.py (mismo reloj)
+    if os.path.exists(extra):
+        evs += [json.loads(l) for l in open(extra, encoding="utf-8") if l.strip()]
     datos = [e for e in evs if e.get("q") in ("S", "R")]
     marcas = sorted((e for e in evs if e.get("q") == "marca"), key=lambda e: e["t"])
     if not datos:
