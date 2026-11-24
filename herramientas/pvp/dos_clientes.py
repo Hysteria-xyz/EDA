@@ -8,6 +8,8 @@ r"""dos_clientes -- ★ PvP, etapa 0.1: DOS juegos independientes en esta PC con
     py herramientas\pvp\dos_clientes.py iniciar [--p2p auto|relay|directo] [--hex] [--pvp]
         --hex: cada mensaje en server.log · --pvp: el server árbitro del duelo (EDA_PVP=1, servidor/duelo.py)
         --auto: [mazino] entrada=0 en A y B, para que combate_auto.py / control_partida.py muevan a los personajes
+        --batalla: [pvp] batalla=1 en A y B (la pestaña Battle manda /batalla; hace falta preparar --dll-local)
+    py herramientas\pvp\dos_clientes.py preparar --dll-local     # la d3d9.dll compilada acá (_trabajo\dll) en A y B
     py herramientas\pvp\dos_clientes.py llevar [sala|listo|partida]   # los dos, del lobby a la stage 1011 (A anfitrión)
     py herramientas\pvp\dos_clientes.py estado
     py herramientas\pvp\dos_clientes.py cerrar                  # cierra todo y junta los registros de la sesión
@@ -120,6 +122,16 @@ def dll_verificada(carpeta):
     print("· dll %s (commit %s, rama %s) verificada: md5 %s" % (datos.get("version"), datos.get("commit"),
                                                             str(datos.get("rama_commit"))[:7], md5(out["d3d9.dll"])))
     return out
+
+
+def poner_dll_local():
+    """La d3d9.dll recién compilada (herramientas/dll_d3d9/compilar.py → _trabajo\\dll) en A y B; el ini queda."""
+    src = os.path.join(RAIZ, "_trabajo", "dll", "d3d9.dll")
+    if not os.path.exists(src):
+        raise SystemExit("⛔ falta %s (compilar.py)" % src)
+    for i in INSTANCIAS:
+        shutil.copy2(src, os.path.join(BASE, i, "d3d9.dll"))
+    print("· d3d9.dll COMPILADA EN ESTA PC en A y B: md5 %s (%s)" % (md5(src), src))
 
 
 def preparar(dll=None):
@@ -261,13 +273,14 @@ def poner_ini(inst, seccion, clave, valor):
     ctypes.windll.kernel32.WritePrivateProfileStringW(seccion, clave, str(valor), os.path.join(inst, "eda_d3d9.ini"))
 
 
-def iniciar(p2p, hexa=False, pvp=False, auto=False):
+def iniciar(p2p, hexa=False, pvp=False, auto=False, batalla=False):
     # ★ (24-nov) --auto: la dll 0.5.4 sólo deja pasar el teclado y el mouse «con EDA al frente» ([mazino] entrada) y
     #   tapa lo que mete control_partida.py (medido: kai quieto aun al frente). Para que las pruebas automáticas
     #   manejen a los personajes se apaga ESO, sólo en estas dos instalaciones; sin --auto vuelve a 1 (lo de fábrica)
     for i in INSTANCIAS:
         if os.path.isdir(os.path.join(BASE, i)):
             poner_ini(os.path.join(BASE, i), "mazino", "entrada", 0 if auto else 1)
+            poner_ini(os.path.join(BASE, i), "pvp", "batalla", 1 if batalla else 0)   # (la pestaña Battle, dll compilada)
     s = leer_sesion()
     if s and (vivo(s.get("server")) or any(vivo(p) for p in s.get("clientes", {}).values())):
         raise SystemExit("⛔ ya hay una sesión andando (%s). Primero: dos_clientes.py cerrar" % s["carpeta"])
@@ -465,12 +478,14 @@ def main():
     a = sys.argv[1:]
     cmd = a[0] if a else ""
     if cmd == "preparar":
+        if "--dll-local" in a:
+            return poner_dll_local()
         return preparar(a[a.index("--dll") + 1] if "--dll" in a and a.index("--dll") + 1 < len(a) else None)
     if cmd == "iniciar":
         p2p = a[a.index("--p2p") + 1] if "--p2p" in a and a.index("--p2p") + 1 < len(a) else "auto"
         if p2p not in ("auto", "relay", "directo"):
             raise SystemExit("⛔ --p2p auto | relay | directo")
-        return iniciar(p2p, hexa="--hex" in a, pvp="--pvp" in a, auto="--auto" in a)
+        return iniciar(p2p, hexa="--hex" in a, pvp="--pvp" in a, auto="--auto" in a, batalla="--batalla" in a)
     if cmd == "recursos":
         if a[1:2] == ["quitar"]:
             return recursos_quitar()

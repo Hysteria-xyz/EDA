@@ -170,8 +170,21 @@ una ruta nueva). Dos límites:
 4. **Que la pestaña haga algo**: gancho mínimo en la dll sobre el cambio de selección de la lista 101 (el aviso
    0xC de `0x7673C0`) que mande un comando de chat al server (como `[mazino] botones`); el server responde con
    la lista de salas de duelo. Verificación con dos clientes.
-   ⏳ Requiere código nuevo en la dll y compilarla (Zig 0.16.0, `herramientas/dll_d3d9/bajar_zig.py`: ~90 MB de
-   ziglang.org); en esta PC todavía no hay compilador.
+   ✅ **Hecho y medido el 24-nov** (sesión `20261124-082721`), EXPERIMENTAL y **apagado por defecto**:
+   - **dll** (`eda_d3d9.c`, `[pvp] batalla=1`, necesita `[mazino] botones=1`): en el mismo desvío del lobby que
+     une Clan / Messenger / Options (`0x4F6061` → `mi_unir_lobby`), ata el **103** en los eventos 3 y 5 a
+     `boton_batalla`, que manda `/batalla` por el chat (antirrebote 500 ms). `0x4DF900` sólo guarda
+     (control → manejador) en el mapa del evento (`0x4DF5B0`): no busca el control, así que atar el 103 es seguro.
+     Compilada con Zig 0.16.0 (sha256 del zip verificado contra ziglang.org/download/index.json).
+   - **server** (`servidor/duelo.py · comando_batalla`, desde `salas.chat`): con `EDA_PVP=1` contesta, SÓLO al que
+     la pidió, cuántos duelos hay en curso y cómo armar uno; sin `EDA_PVP`, «Servicio no disponible actualmente»
+     (el texto 41 del juego). Pruebas con su revés en `pruebas_duelo`.
+   - **medido**: cada clic en «Batalla PvP» → un `/batalla` (`0x100D`) → la respuesta en el chat del lobby
+     («[Duelo]: Batalla PvP (experimental): 0 duelo(s) en curso.»); el clic en «Escenario» no manda nada; abrir el
+     lobby tampoco (los envíos que no fueron del clic automático eran clics del tester, confirmado).
+   - ⚠ Para un PR: subir `herramientas/dll_d3d9/VERSION` y una entrada `"borrador"` en `NOVEDADES.json`
+     (CONTRIBUIR.md). `exe/d3d9.dll` no se tocó: la compilada vive en `_trabajo\dll` y sólo en `EDA_pvp\A`/`B`
+     (`dos_clientes.py preparar --dll-local`).
 5. **Equipos en la sala de misión**: medir primero si la fila = número de jugador; si sí, servir un
    `waitroom_mission.xml` con las mismas ids y tipos y las filas 301–304 / 305–308 con las barras roja / azul
    teñidas. Verificación: abrir la sala, entrar y salir, F9, volver de la partida, sin caídas.
