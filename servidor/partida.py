@@ -457,13 +457,25 @@ def le_pegaron(cmd, cuerpo, conexion, c, p):
     return []
 
 
-@maneja(0x1062)
-def sincronizar_hud_companero(cmd, cuerpo, conexion, c, p):
-    """★ 0x1062 (`0x547440`, aporte de Hysteria-xyz): retransmite estado de vida/maná a los compañeros."""
-    s = SALAS.get(p.get("sala"))
-    if not s or conexion not in s["miembros"]:
-        return None
-    return [(0x1062, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
+SOLO_DEL_SERVER = (0x105D, 0x1060, 0x1062, 0x1066, 0x106D)
+
+
+@maneja(*SOLO_DEL_SERVER)
+def solo_del_server(cmd, cuerpo, conexion, c, p):
+    """★ (24-nov) Mensajes que SÓLO manda el server: si llegan de un cliente se descartan, nunca se reenvían.
+    En `EDA_limpio.exe` cada uno aparece únicamente como `push` en el registro de manejadores de la partida
+    (`0x548FB1` 1060 · `0x548FCE` 1062 · `0x548FEB` 1066 · `0x549042` 106D · `0x549164` 105D): el cliente los
+    RECIBE y no tiene ningún sitio que los mande (los que sí manda, como 0x105C `0x547303` y 0x1067 `0x5462B5`,
+    aparecen con su envío). Reenviarlos dejaba que cualquier conexión le escribiera al manejador de los demás:
+    `0x547440` (0x1062) lee 16 B + N × 5 B y desreferencia el miembro de `0x61C110` sin comprobar NULL
+    (`0x5475A5`), y un 0x105D fuera de lugar ya cerró el juego (18-nov). Los 0x1066 / 0x105D legítimos los arma
+    el server (`interactuar_objeto`, `evento_guion_escenario`)."""
+    n = p.get("descartados", 0) + 1
+    p["descartados"] = n
+    if n == 1 or n % 100 == 0:
+        print("[seguridad] #%s mandó 0x%04X (%d B), que sólo manda el server: descartado (%d en esta partida)"
+              % (conexion, cmd, len(cuerpo), n), flush=True)
+    return []
 
 
 @maneja(0x1067)
@@ -497,15 +509,6 @@ def interactuar_objeto(cmd, cuerpo, conexion, c, p):
     return [(0x1066, msg, 0, m) for m in s["miembros"]]
 
 
-@maneja(0x1066)
-def sincronizar_objeto_1066(cmd, cuerpo, conexion, c, p):
-    """★ 0x1066 (`0x547940`, 6 B): retransmisión de objeto interactivo a compañeros."""
-    s = SALAS.get(p.get("sala"))
-    if not s or conexion not in s["miembros"]:
-        return None
-    return [(0x1066, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
-
-
 @maneja(0x105C)
 def evento_guion_escenario(cmd, cuerpo, conexion, c, p):
     """★ 0x105C C→S / 0x105D S→C (`0x546E60`, `0x643750`, aporte de Hysteria-xyz):
@@ -517,33 +520,6 @@ def evento_guion_escenario(cmd, cuerpo, conexion, c, p):
     # ★ (Punto 3) sólo a los que SIGUEN en la stage: el 0x105D fuera de la stage cierra el juego (medido
     #   dos veces el 18-nov: 10:19:37 en el lobby y 11:56:59 en la sala)
     return [(0x105D, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
-
-
-@maneja(0x105D)
-def sincronizar_evento_105d(cmd, cuerpo, conexion, c, p):
-    """★ 0x105D (`0x546E60`): retransmisión de evento de escenario."""
-    s = SALAS.get(p.get("sala"))
-    if not s or conexion not in s["miembros"]:
-        return None
-    return [(0x105D, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
-
-
-@maneja(0x1060)
-def sincronizar_tick_1060(cmd, cuerpo, conexion, c, p):
-    """★ 0x1060 (`0x546D60`, 4 B, aporte de Hysteria-xyz): sincronización de reloj de stage."""
-    s = SALAS.get(p.get("sala"))
-    if not s or conexion not in s["miembros"]:
-        return [(0x1060, cuerpo if len(cuerpo) >= 4 else struct.pack("<I", 0), 0)]
-    return [(0x1060, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
-
-
-@maneja(0x106D)
-def sincronizar_tiempo_106d(cmd, cuerpo, conexion, c, p):
-    """★ 0x106D (`0x546750`, 16 B, aporte de Hysteria-xyz): temporizador y cuenta regresiva de stage."""
-    s = SALAS.get(p.get("sala"))
-    if not s or conexion not in s["miembros"]:
-        return [(0x106D, cuerpo if len(cuerpo) >= 16 else bytes(16), 0)]
-    return [(0x106D, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
 
 
 @maneja(0x1001)
