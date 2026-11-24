@@ -46,6 +46,53 @@ def aviso(texto, destinos):
     return [linea(texto, m, nombre="[Duelo]") for m in destinos]
 
 
+def _vivo():
+    from servidor.estado import VIVO                      # (sobrevive a la recarga del código)
+    if not hasattr(VIVO, "PVP_DLL"):
+        VIVO.PVP_DLL = set()                             # conexiones cuya dll entiende «[PVP]» (mandó «/pvp hola»)
+    if not hasattr(VIVO, "PVP_PESTANA"):
+        VIVO.PVP_PESTANA = {}                            # conexión → "batalla" | "escenario" (la pestaña del lobby)
+    return VIVO
+
+
+def comando(texto, conexion):
+    """Lo que mandan las pestañas del lobby (la d3d9.dll con [pvp] batalla=1): «/batalla», «/escenario» y, al unir
+    el lobby, «/pvp hola». Sólo «/batalla» contesta (al que la pidió)."""
+    v = _vivo()
+    cmd = texto.split()[0].lower()
+    if cmd == "/pvp":
+        if texto.lower().split()[1:2] == ["hola"]:
+            v.PVP_DLL.add(conexion)
+        return []
+    if cmd == "/escenario":
+        v.PVP_PESTANA[conexion] = "escenario"
+        return []
+    v.PVP_PESTANA[conexion] = "batalla"
+    return comando_batalla(conexion)
+
+
+def sala_nueva(s, conexion):
+    """★ Una sala creada con la pestaña «Batalla PvP» elegida es una SALA DE DUELO (sólo con EDA_PVP)."""
+    if config.PVP and _vivo().PVP_PESTANA.get(conexion) == "batalla":
+        s["sala_pvp"] = True
+        print("[duelo] sala de duelo creada por %s #%s" % (nombre(conexion), conexion), flush=True)
+
+
+def marcador(s, conexion):
+    """El aviso «[PVP] sala=duelo|normal» a la dll de quien crea o entra, ANTES del 0x101E / 0x1020: la dll sirve
+    la sala con equipos sólo en una sala de duelo (eda_traduccion.c, capa pvp\\). Sólo a una dll que se presentó."""
+    if not (config.PVP and conexion in _vivo().PVP_DLL):
+        return []
+    from servidor.messenger import aviso as linea
+    return [linea("sala=duelo" if s.get("sala_pvp") else "sala=normal", conexion, nombre="[PVP]")]
+
+
+def olvidar(conexion):
+    v = _vivo()
+    v.PVP_DLL.discard(conexion)
+    v.PVP_PESTANA.pop(conexion, None)
+
+
 def comando_batalla(conexion):
     """«/batalla» = lo que manda la pestaña «Batalla PvP» del lobby (la d3d9.dll con [pvp] batalla=1). Sin
     EDA_PVP contesta con el texto que el juego ya trae para eso (uistring 41: «Service Currently Not available»)."""

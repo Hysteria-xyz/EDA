@@ -1089,7 +1089,19 @@ static void __attribute__((thiscall)) boton_batalla(void *pantalla, void *ev)
     apuntar("  [pvp] pestaña Batalla PvP → «/batalla»");
     chat("/batalla");
 }
-static BYTE g_delegados[5][0x18];
+/* «Escenario» (102): el server tiene que saber que se volvió a la pestaña de siempre (la sala que se cree ahí es
+ *   normal). Manda «/escenario», que el server no contesta. */
+static DWORD g_escenario_ultimo;
+static void __attribute__((thiscall)) boton_escenario(void *pantalla, void *ev)
+{
+    (void)pantalla; (void)ev;
+    DWORD ahora = GetTickCount();
+    if (ahora - g_escenario_ultimo < 500) return;
+    g_escenario_ultimo = ahora;
+    apuntar("  [pvp] pestaña Escenario → «/escenario»");
+    chat("/escenario");
+}
+static BYTE g_delegados[7][0x18];
 static void msn_saludar(void);
 
 static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int control, void *delegado)
@@ -1109,8 +1121,12 @@ static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int
             memcpy(g_delegados[3 + i], delegado, 0x18);
             *(void **)(g_delegados[3 + i] + 8) = (void *)boton_batalla;
             JUEGO(J_UNIR, 0x4DF900)(lobby, eventos[i], 103, g_delegados[3 + i]);
+            memcpy(g_delegados[5 + i], delegado, 0x18);
+            *(void **)(g_delegados[5 + i] + 8) = (void *)boton_escenario;
+            JUEGO(J_UNIR, 0x4DF900)(lobby, eventos[i], 102, g_delegados[5 + i]);
         }
-        apuntar("  [pvp] lobby: la pestaña Battle (103) unida a «/batalla» (eventos 3 y 5)");
+        apuntar("  [pvp] lobby: Battle (103) → «/batalla» y Escenario (102) → «/escenario» (eventos 3 y 5)");
+        chat("/pvp hola");                               /* (el server sabe que esta dll entiende «[PVP]») */
     }
     msn_saludar();                                   /* (Punto 2: el server sabe que esta dll tiene el Messenger) */
 }
@@ -1914,6 +1930,15 @@ static int __cdecl msn_chat_llega(void *escena, void *msg)
     memcpy(g_msn_llegado, b + 41, n);
     g_msn_llegado[n / 2] = 0;
     int msn = !lstrcmpW(nombre, L"[MSN]");
+    /* ★ (24-nov, EXPERIMENTAL, [pvp] batalla=1) «[PVP]» = avisos del server para la dll, no para el jugador:
+     *   «sala=duelo» / «sala=normal» llegan ANTES del 0x101E / 0x1020 de esa sala (servidor/duelo.py · marcador) y
+     *   deciden qué waitroom_mission.xml sirve la capa pvp\ (eda_traduccion.c). El juego no los muestra. */
+    if (g_pvp_batalla && !lstrcmpW(nombre, L"[PVP]")) {
+        if (!lstrcmpW(g_msn_llegado, L"sala=duelo")) InterlockedExchange(&g_tr_pvp_sala, 1);
+        else if (!lstrcmpW(g_msn_llegado, L"sala=normal")) InterlockedExchange(&g_tr_pvp_sala, 0);
+        apuntar("  [pvp] del server: «%ls» → sala %s", g_msn_llegado, g_tr_pvp_sala ? "de duelo" : "normal");
+        return 1;
+    }
     if (g_diagnostico) {
         char nom8[64], tex8[200];
         WCHAR corto[90];

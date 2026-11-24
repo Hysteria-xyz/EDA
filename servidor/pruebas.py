@@ -1318,6 +1318,13 @@ def pruebas_duelo(chequear):
         r = responder(0x100D, chat("/batalla"), A)
         chequear("batalla: ★ SIN EDA_PVP la pestaña recibe «Servicio no disponible» (el texto 41 del juego)",
                  len(r) == 1 and r[0][3] == A and any("no disponible" in t for t in textos(r)), textos(r))
+        responder(0x100D, chat("/pvp hola"), A)
+        sc = bytearray(0x59)
+        struct.pack_into("<I", sc, 0x28, 1011)
+        r = responder(0x101D, b"\0\0\0\0" + bytes(sc), A)
+        chequear("batalla: ★ SIN EDA_PVP crear sala no manda ningún «[PVP]» ni marca la sala",
+                 not any(x[0] == 0x1005 for x in r) and not SALAS[partida(A)["sala"]].get("sala_pvp"), r)
+        SALAS.pop(partida(A).pop("sala"), None)
         s = en_stage(70)
         responder(0x105C, evento("PvP_Teleport"), A)
         r = responder(0x1065, b"\x01" + struct.pack("<I", 0), B)
@@ -1363,6 +1370,49 @@ def pruebas_duelo(chequear):
         chequear("duelo: AWARD vacío enseguida (vuelve a la sala sin cobrar cartas)",
                  len(award) == 2 and all(x[1] == struct.pack("<IB", 0, 0) for x in award), award)
         limpiar(71)
+
+        # ★ la SALA DE DUELO (pestaña «Batalla PvP» → crear) y el aviso «[PVP]» a la dll, antes del 0x101E / 0x1020
+        def nombres_1005(r):
+            return [x[1][11:37].decode("utf-16-le", "replace").rstrip("\0") for x in r if x[0] == 0x1005]
+
+        for m in (A, B):
+            partida(m).pop("sala", None)
+        sala_cuerpo = bytearray(0x59)
+        struct.pack_into("<I", sala_cuerpo, 0x28, 1011)
+        responder(0x100D, chat("/pvp hola"), A)
+        responder(0x100D, chat("/pvp hola"), B)
+        responder(0x100D, chat("/batalla"), A)
+        r = responder(0x101D, b"\0\0\0\0" + bytes(sala_cuerpo), A)
+        num = partida(A)["sala"]
+        orden = [x[0] for x in r]
+        chequear("sala de duelo: creada con la pestaña Batalla → marcada, y el aviso «[PVP] sala=duelo» va ANTES del 0x101E",
+                 SALAS[num].get("sala_pvp") and orden.index(0x1005) < orden.index(0x101E)
+                 and "[PVP]" in nombres_1005(r) and any("sala=duelo" in t for t in textos(r)), orden)
+        r = responder(0x101F, b"\0\0\0\0" + struct.pack("<H", num) + bytes(20), B)
+        orden = [x[0] for x in r]
+        chequear("sala de duelo: el que entra también recibe «sala=duelo» antes de su 0x1020",
+                 0x1020 in orden and 0x1005 in orden and orden.index(0x1005) < orden.index(0x1020)
+                 and any("sala=duelo" in t for t in textos([x for x in r if len(x) < 4 or x[3] == B])), orden)
+        SALAS.pop(num, None)
+        for m in (A, B):
+            partida(m).pop("sala", None)
+        responder(0x100D, chat("/escenario"), A)
+        r = responder(0x101D, b"\0\0\0\0" + bytes(sala_cuerpo), A)
+        num = partida(A)["sala"]
+        chequear("sala de duelo: ★ el revés: con la pestaña Escenario la sala es normal («sala=normal»)",
+                 not SALAS[num].get("sala_pvp") and any("sala=normal" in t for t in textos(r)), textos(r))
+        SALAS.pop(num, None)
+        partida(A).pop("sala", None)
+        duelo.olvidar(A)
+        responder(0x100D, chat("/batalla"), A)
+        r = responder(0x101D, b"\0\0\0\0" + bytes(sala_cuerpo), A)
+        num = partida(A)["sala"]
+        chequear("sala de duelo: ★ el revés: a una dll que no se presentó («/pvp hola») no le llega ningún «[PVP]»",
+                 SALAS[num].get("sala_pvp") and "[PVP]" not in nombres_1005(r), nombres_1005(r))
+        SALAS.pop(num, None)
+        partida(A).pop("sala", None)
+        duelo.olvidar(A)
+        duelo.olvidar(B)
 
         # el que mató no es el otro jugador (p. ej. una trampa o un NPC): gana igual el otro del duelo
         s = en_stage(72)

@@ -192,6 +192,7 @@ def _cerrada(conexion):
     if config.PVP:                                          # (24-nov, experimental: en un duelo gana el que queda;
         for k in list(SALAS.keys()):                        #  antes de soltar la cuenta, para anotar su nombre)
             VIVO.AVISOS_SALA = getattr(VIVO, "AVISOS_SALA", []) + duelo.desconexion(SALAS[k], conexion)
+        duelo.olvidar(conexion)
     nombre = ASIGNADAS.pop(conexion, None)
     if nombre:                                              # el aviso a sus amigos, con el tick
         messenger.al_salir(nombre)

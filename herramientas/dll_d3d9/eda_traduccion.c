@@ -395,9 +395,26 @@ static int g_tr_cursor;
 static volatile LONG g_tr_redirigidos;
 static volatile LONG g_tr_redirigidos_sueltos;
 static volatile LONG g_tr_redirigidos_emb;
+/* ★ (24-nov, EXPERIMENTAL, [pvp] batalla=1; APAGADO por defecto) la capa PvP: <carpeta_exe>\pvp\<ruta>, antes que la
+ *   traducción. La sala con equipos (menu\international\waitroom_mission.xml) se sirve SÓLO mientras el server dice
+ *   que la sala es de duelo (g_tr_pvp_sala, por el chat «[PVP]», eda_d3d9.c); medido: el juego relee ese XML en
+ *   cada entrada a una sala. Lo demás de pvp\ (las barras roja / azul) siempre: sólo se usa si el XML lo pide. */
+static int g_tr_pvp_capa;
+static volatile LONG g_tr_pvp_sala;
+
+static int tr_es_ruta(const unsigned short *rel, const char *ascii)
+{
+    int i = 0;
+    for (; rel[i] && ascii[i]; i++)
+        if (rel[i] != (unsigned char)ascii[i]) return 0;
+    return !rel[i] && !ascii[i];
+}
+
+static int tr_abrir_pvp(const unsigned short *rel, DWORD *out_handle);
 
 static void tr_leer_ini(HMODULE self, const char *ini)
 {
+    g_tr_pvp_capa = GetPrivateProfileIntA("pvp", "batalla", 0, ini);
     g_tr_idioma_cfg[0] = 0;
     g_tr_idioma[0] = 0;
     g_tr_base_w[0] = 0;
@@ -461,12 +478,40 @@ static void tr_anotar_redirigido(const unsigned short *rel, const char *fuente)
     }
 }
 
+static int tr_abrir_pvp(const unsigned short *rel, DWORD *out_handle)
+{
+    if (!g_tr_base_w[0]) return 0;
+    if (tr_es_ruta(rel, "menu\\international\\waitroom_mission.xml")) {
+        apuntar("  [pvp] sala: %s", g_tr_pvp_sala ? "de DUELO → la sala con equipos (pvp\\)" : "normal → la de siempre");
+        if (!g_tr_pvp_sala) return 0;
+    }
+    WCHAR completa[MAX_PATH];
+    int nb = lstrlenW(g_tr_base_w), nr = 0;
+    while (rel[nr]) nr++;
+    if (nb + 4 + nr >= MAX_PATH) return 0;
+    lstrcpyW(completa, g_tr_base_w);
+    lstrcatW(completa, L"pvp\\");
+    for (int i = 0; i <= nr; i++) completa[nb + 4 + i] = (WCHAR)rel[i];
+    DWORD attr = GetFileAttributesW(completa);
+    if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY)) return 0;
+    HANDLE fh = CreateFileW(completa, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (fh == INVALID_HANDLE_VALUE) return 0;
+    TR_SLOT *s = tr_slot_tomar(fh, NULL);
+    if (!s) { CloseHandle(fh); return 0; }
+    *out_handle = (DWORD)(ULONG_PTR)s;
+    InterlockedIncrement(&g_tr_redirigidos_sueltos);
+    tr_anotar_redirigido(rel, g_tr_pvp_sala ? "pvp, sala de duelo" : "pvp");
+    return 1;
+}
+
 static int WINAPI tr_mi_open(DWORD storage, const WCHAR *nombre, DWORD b_leer, DWORD b_escribir,
                              DWORD comp_leer, DWORD comp_escr, const void *clave, DWORD clave_len, DWORD *out_handle)
 {
     if (nombre && out_handle && b_leer && g_tr_idioma[0]) {
         unsigned short rel[260];
         if (tr_normalizar_ruta((const unsigned short *)nombre, rel, 260)) {
+            /* 0. ★ la capa PvP (experimental, apagada por defecto): ver g_tr_pvp_capa */
+            if (g_tr_pvp_capa && tr_abrir_pvp(rel, out_handle)) return 0;
             /* 1. Prioridad: archivo suelto en traducciones\<idioma>\<ruta> (para probar cambios sin recompilar) */
             if (g_tr_carpeta_suelta && g_tr_base_w[0]) {
                 unsigned short completa[MAX_PATH];

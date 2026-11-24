@@ -273,7 +273,11 @@ def entrar_sala(cmd, cuerpo, conexion, c, p):
         listo_para = 1 if para in s.get("listos", ()) else 0
         return (struct.pack("<BBIBB", 0, 0, 0x89A3B8, listo_para, 2)
                 + miembro(c, yo, completo=True, conexion=conexion, para=para))
-    return ([(0x1020, cuerpo20, 0)] + [(0x1057, aviso(n), 0, n) for n in otros]
+    pvp = []
+    if config.PVP:                                      # (24-nov, experimental: la dll sabe si es sala de duelo)
+        from servidor import duelo
+        pvp = duelo.marcador(s, conexion)
+    return (pvp + [(0x1020, cuerpo20, 0)] + [(0x1057, aviso(n), 0, n) for n in otros]
             + pares(s, 500) + avisar_lista(salvo=conexion))
 
 
@@ -492,9 +496,9 @@ def chat(cmd, cuerpo, conexion, c, p):
         texto_str = ""
 
     if texto_str.startswith("/"):
-        if texto_str.split()[0].lower() == "/batalla":          # (24-nov) la pestaña «Batalla PvP» del lobby
+        if texto_str.split()[0].lower() in ("/batalla", "/escenario", "/pvp"):   # (24-nov) las pestañas del lobby
             from servidor import duelo
-            return duelo.comando_batalla(conexion)
+            return duelo.comando(texto_str, conexion)
         from servidor import messenger
         r = messenger.comando(texto_str, conexion, c)
         if r is not None:
@@ -923,7 +927,12 @@ def crear_sala(cmd, cuerpo, conexion, c, p):
     SALAS[num] = {"sala": bytes(sala), "anfitrion": conexion, "miembros": [conexion],
                   "numeros": {conexion: 0}, "listos": set()}
     p["sala"] = num
-    return (avisos_salida + [(0x101E, struct.pack("<HBBB", 1, 0, 0, 0) + bytes(sala), 0)]
+    pvp = []
+    if config.PVP:                                      # (24-nov, experimental: la sala de duelo y su aviso a la dll)
+        from servidor import duelo
+        duelo.sala_nueva(SALAS[num], conexion)
+        pvp = duelo.marcador(SALAS[num], conexion)
+    return (avisos_salida + pvp + [(0x101E, struct.pack("<HBBB", 1, 0, 0, 0) + bytes(sala), 0)]
             + avisar_lista(salvo=conexion))
 
 
