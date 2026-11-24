@@ -132,6 +132,11 @@ def main():
     if os.environ.get("EDA_MULTI_PAUSA"):                     # para enganchar algo antes de la sala
         print("  (pausa de %s s)" % os.environ["EDA_MULTI_PAUSA"], flush=True)
         time.sleep(float(os.environ["EDA_MULTI_PAUSA"]))
+    return desde_el_lobby(pids, hasta)
+
+
+def desde_el_lobby(pids, hasta="partida", titulo="Sala multi"):
+    """Del lobby (todos ya ahí) a `hasta` = sala | listo | partida. El primero es el anfitrión."""
     anfitrion, invitados = pids[0], pids[1:]
     # ★ el anfitrión crea la sala, pantalla por pantalla: lobby → Create Stage → SELECTOR → doble
     #   clic en el marcador → CREATE STAGE → título + Enter → SALA. Cada paso espera su pantalla (y
@@ -153,7 +158,7 @@ def main():
             time.sleep(0.8)                                   #   primero no toma el foco)
             clic(anfitrion, 310, 342)
             time.sleep(0.8)
-            C.escribir(C.ventana(anfitrion), "Sala multi")    # + Enter = crear la sala
+            C.escribir(C.ventana(anfitrion), titulo)          # + Enter = crear la sala
         if P.esperar(anfitrion, "sala", 10) == "sala":
             break
         print("  (la sala no se creó: el anfitrión está en «%s», otra vez)" % P.cual(anfitrion), flush=True)
