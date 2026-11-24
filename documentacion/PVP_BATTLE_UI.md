@@ -149,15 +149,29 @@ una ruta nueva). Dos límites:
 1. **Medir la pestaña tal cual** (sin tocar nada): en el lobby, clic en la pestaña vacía con
    `udp_combate.py`/el registro del server mirando. Esperado (§2): se marca y no pasa nada más (ningún mensaje
    TCP nuevo en `server.log`). Si pasa algo, este documento se corrige.
+   ✅ **Medido el 24-nov** (sesión `20261124-081432`, clic automático en (408, 96)): la pestaña se marca y
+   «Escenario» se apaga; **ningún mensaje al server**; la lista de salas no cambia; volver a «Escenario» deja todo
+   igual. Coincide con §2.
 2. **Capa `[pvp]` en la dll** (apagada por defecto): la misma redirección de §4 desde una carpeta propia
    (`pvp\<ruta>`), sin depender del idioma. Verificación: con la clave apagada, `eda_d3d9.log` no redirige nada
    (el revés); prendida, redirige un `uistring.xml` de prueba.
 3. **El nombre de la pestaña**: `channellobby.xml` con `STRID` nuevo en el 103 + `uistring.xml` con ese texto,
    servidos por la capa `[pvp]`. Verificación: la pestaña muestra el nombre y Scenario sigue igual (las salas
    del PvE se listan como siempre). **Se publica sólo junto con el paso 4.**
+   ✅ **Hecho en las instalaciones de prueba** (24-nov, sesión `20261124-081801`), sin capa `[pvp]` todavía (la
+   carpeta suelta `traducciones\es\` de las dos instancias): `herramientas/pvp/battle_ui.py generar` lee
+   `channellobby.xml` de TU `Data.dat` (el de Softnyx no se copia al repo) y cambia **sólo** `STRID="0"` → `"40"`
+   en el 103. No hizo falta un texto nuevo: el **40** es el que el juego trae para esto («~PVP Battle~»; en la
+   traducción, «Batalla PvP»), y no se le cambia el valor. Resultado: la pestaña dice **«Batalla PvP»** con la
+   letra, el color y la textura originales, y entra en los 118 px; la dll la sirvió
+   (`[traduccion] #6 (suelto) → menu\international\channellobby.xml`); «Escenario» sigue igual: rui creó una sala,
+   kai la vio en la lista (`0x101C`) y entró (`0x101F` → `0x1020`). ⚠ Sigue sin hacer nada al clic: **no se
+   publica** hasta el paso 4.
 4. **Que la pestaña haga algo**: gancho mínimo en la dll sobre el cambio de selección de la lista 101 (el aviso
    0xC de `0x7673C0`) que mande un comando de chat al server (como `[mazino] botones`); el server responde con
    la lista de salas de duelo. Verificación con dos clientes.
+   ⏳ Requiere código nuevo en la dll y compilarla (Zig 0.16.0, `herramientas/dll_d3d9/bajar_zig.py`: ~90 MB de
+   ziglang.org); en esta PC todavía no hay compilador.
 5. **Equipos en la sala de misión**: medir primero si la fila = número de jugador; si sí, servir un
    `waitroom_mission.xml` con las mismas ids y tipos y las filas 301–304 / 305–308 con las barras roja / azul
    teñidas. Verificación: abrir la sala, entrar y salir, F9, volver de la partida, sin caídas.

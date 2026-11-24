@@ -3,7 +3,7 @@ r"""dos_clientes -- ★ PvP, etapa 0.1: DOS juegos independientes en esta PC con
     py herramientas\pvp\dos_clientes.py preparar [--dll CARPETA]   # una vez (y cada vez que cambie exe\ o _trabajo\juego)
         --dll: la d3d9.dll + ini de la release «cliente-develop» (gh release download cliente-develop), verificadas
         con su cliente-develop.json. ⚠ exe\d3d9.dll del repo es la del Punto 4 (md5 d7df418b): NO carga traducciones\
-    py herramientas\pvp\dos_clientes.py recursos instalar [carpeta] [--grupos] [--sin-teleport]   # la arena en A y B
+    py herramientas\pvp\dos_clientes.py recursos instalar [carpeta …] [--grupos] [--sin-teleport]   # la arena (u otras) en A y B
     py herramientas\pvp\dos_clientes.py recursos quitar                # A y B vuelven a leer sólo Data.dat
     py herramientas\pvp\dos_clientes.py iniciar [--p2p auto|relay|directo] [--hex] [--pvp]
         --hex: cada mensaje en server.log · --pvp: el server árbitro del duelo (EDA_PVP=1, servidor/duelo.py)
@@ -156,16 +156,23 @@ TELEPORT_APAGADO = "PVP_TELEPORT   = false"
 
 def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False):
     """Copia los recursos experimentales (misma ruta relativa que en Data.dat) a cada instancia, donde la dll los
-    sirve en lugar de los de Data.dat (idioma «es», el de fábrica). Sólo en EDA_pvp\\A y \\B: nadie más los ve."""
+    sirve en lugar de los de Data.dat (idioma «es», el de fábrica). Sólo en EDA_pvp\\A y \\B: nadie más los ve.
+    `origen` = una carpeta o una lista de carpetas (p. ej. la arena y la interfaz de Battle)."""
     base = base or BASE
+    origenes = [origen] if isinstance(origen, str) else list(origen)
     archivos = []
-    for raiz, _, nombres in os.walk(origen):
-        for n in nombres:
-            if n.lower() in ("leeme.md",) or n.startswith("."):
-                continue
-            archivos.append(os.path.relpath(os.path.join(raiz, n), origen))
+    de = {}
+    for o in origenes:
+        for raiz, _, nombres in os.walk(o):
+            for n in nombres:
+                if n.lower() in ("leeme.md",) or n.startswith("."):
+                    continue
+                rel = os.path.relpath(os.path.join(raiz, n), o)
+                if rel not in de:
+                    archivos.append(rel)
+                de[rel] = os.path.join(o, rel)
     if not archivos:
-        raise SystemExit("⛔ no hay recursos en %s" % origen)
+        raise SystemExit("⛔ no hay recursos en %s" % ", ".join(origenes))
     for i in INSTANCIAS:
         inst = os.path.join(base, i)
         if not os.path.isdir(inst):
@@ -175,7 +182,7 @@ def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False)
         for rel in archivos:
             dst = os.path.join(inst, SUELTOS, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(os.path.join(origen, rel), dst)
+            shutil.copy2(de[rel], dst)
             cambios = ([(GRUPOS_APAGADO, GRUPOS_PRENDIDO)] if grupos else []) + \
                       ([(TELEPORT_PRENDIDO, TELEPORT_APAGADO)] if sin_teleport else [])
             if cambios and rel.lower().endswith(".lua"):
@@ -343,6 +350,8 @@ def llevar(hasta):
         if p != "lobby":
             raise SystemExit("⛔ el juego %s no llegó al lobby (está en «%s»)" % (i, p))
         print("· juego %s en el lobby" % i, flush=True)
+    if hasta == "lobby":
+        return 0
     multi.desde_el_lobby(pids, hasta, titulo="Duelo de prueba")
     for i, pid in zip(INSTANCIAS, pids):
         print("· juego %s: «%s»" % (i, pantallas.cual(pid)))
@@ -466,12 +475,12 @@ def main():
         if a[1:2] == ["quitar"]:
             return recursos_quitar()
         resto = [x for x in a[2:] if not x.startswith("--")] if a[1:2] == ["instalar"] else []
-        recursos_instalar(resto[0] if resto else ARENA, grupos="--grupos" in a, sin_teleport="--sin-teleport" in a)
+        recursos_instalar(resto or ARENA, grupos="--grupos" in a, sin_teleport="--sin-teleport" in a)
         return 0
     if cmd == "llevar":
         hasta = a[1] if len(a) > 1 else "partida"
-        if hasta not in ("sala", "listo", "partida"):
-            raise SystemExit("⛔ llevar sala | listo | partida")
+        if hasta not in ("lobby", "sala", "listo", "partida"):
+            raise SystemExit("⛔ llevar lobby | sala | listo | partida")
         return llevar(hasta)
     if cmd == "estado":
         return estado()
