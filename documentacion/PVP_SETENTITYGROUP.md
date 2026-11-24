@@ -171,5 +171,8 @@ Campos de `CEntity` usados: `+4` tipo · `+8` id · `+0x40` máscara de grupo ·
   los dos; el server recibe `0x1065` con el atacante. Detalle en PVP_PROTOTIPO.md §0.
 - ⚠ Ninguno de los filtros enganchados (`0x554B70`, `0x5596CA`, `0x55758A`) se llamó con los golpes cuerpo a cuerpo,
   ni con grupos iguales ni distintos: el test que decide el golpe cuerpo a cuerpo es otro (sin ubicar).
+- ⛔→✅ Los DOS clientes corren el guion y cada uno ordena los IDs distinto: si cada uno cambia «el segundo», los dos
+  jugadores terminan en el mismo grupo (sesión `-074413`). La arena ahora ordena los IDs y asigna los dos grupos
+  explícitamente (sesión `-074909`: rui `0x1`, kai `0x4` en los dos).
 - ✅ El control negativo (24-nov, sesión `20261124-070421`): la misma arena **sin** `SetEntityGroup`, golpes a mano
   de los dos lados → cero `OnDamaged`, vida llena. ⇒ **la máscara `+0x40` es lo que decide si un jugador daña a otro.**
