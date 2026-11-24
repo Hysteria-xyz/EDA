@@ -1,0 +1,13 @@
+    <!-- ARENA PvP experimental (herramientas/pvp/arena): 1180-1190, libres en el bloque Chapter 1-1 (usa 1101-1109).
+         dos_clientes.py recursos instalar los agrega a traduccion/es/.../chapter1_string.xml; no van a Data.dat. -->
+    <STRING INDEX="1180" VALUE="Arena PvP: rojo contra azul. Prepárate." />
+    <STRING INDEX="1181" VALUE="El duelo empieza en 5" />
+    <STRING INDEX="1182" VALUE="El duelo empieza en 4" />
+    <STRING INDEX="1183" VALUE="El duelo empieza en 3" />
+    <STRING INDEX="1184" VALUE="El duelo empieza en 2" />
+    <STRING INDEX="1185" VALUE="El duelo empieza en 1" />
+    <STRING INDEX="1186" VALUE="¡A pelear!" />
+    <STRING INDEX="1187" VALUE="Fin del duelo." />
+    <STRING INDEX="1188" VALUE="Fin del duelo: se acabó el tiempo." />
+    <STRING INDEX="1189" VALUE="Fin del duelo: un jugador se desconectó." />
+    <STRING INDEX="1190" VALUE="Fin del duelo: queda un solo equipo en pie." />

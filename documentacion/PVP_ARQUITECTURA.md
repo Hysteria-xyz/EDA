@@ -157,7 +157,13 @@ mensaje de red (`0x533310`). 🟡 El guion corre en todos los clientes; los efec
   `BossNP` (§2.2), es la stage que ya usa `dos_clientes.py llevar`, y sus puertas sólo abren por guion (§2.1): sin
   `DoorSwitch_*` la zona de inicio queda cerrada. 🟡 Si eso alcanza como «ring» hay que verlo en el juego.
 
-## 4 · La arena experimental (diseño, nada implementado)
+## 4 · La arena experimental
+
+> ★ (25-nov) Implementada y medida: el estado al día de cada fila está en `herramientas/pvp/arena/LEEME.md`.
+> Resuelto desde esta tabla: las dos apariciones (04/08, y por equipo), `ShowMsg` con índices nuevos (1180–1190),
+> el bloqueo durante la cuenta (los grupos se cambian al terminarla: con el mismo grupo no hay daño, T01),
+> `GetHP` con jugadores y el fin por tiempo (empate en el server). Siguen a mano: los límites, la vida al volver y
+> el 2 vs 2.
 
 Guion de arena = un `chapter1_1_e.lua` propio servido por la dll **sólo en las instalaciones de prueba**, y el
 server en «modo duelo» para esa sala.

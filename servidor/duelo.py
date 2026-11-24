@@ -133,18 +133,36 @@ def equipo(s, conexion):
     return "rojo" if numero(s, conexion) % 2 == 0 else "azul"
 
 
-def decidir(s, ganador, perdedor, por):
-    d = s["duelo"]
-    if d.get("ganador") is not None:
-        return []
-    d.update(ganador=ganador, perdedor=perdedor, por=por, fin=time.time())
-    reg = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "partida": d.get("partida_id"), "ganador": nombre(ganador),
-           "perdedor": nombre(perdedor), "por": por, "segundos": round(d["fin"] - d["inicio"], 1)}
+def anotar(reg):
     try:
         with open(config.DUELOS, "a", encoding="utf-8") as f:
             f.write(json.dumps(reg, ensure_ascii=False) + "\n")
     except OSError as e:
         print("[duelo] no se pudo anotar en %s: %s" % (config.DUELOS, e), flush=True)
+
+
+def empate(s, por="tiempo"):
+    """★ (25-nov) la stage terminó sin ganador (la arena cierra a los 5 min: PvP_Limite, medido en la sesión
+    20261124-171402): se anota UNA vez, con ganador null. Antes no quedaba ningún registro de ese duelo."""
+    d = s["duelo"]
+    if d.get("ganador") is not None or d.get("empate"):
+        return False
+    d.update(empate=por, fin=time.time())
+    anotar({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "partida": d.get("partida_id"), "ganador": None,
+            "perdedor": None, "jugadores": [nombre(m) for m in d["jugadores"]], "por": por,
+            "segundos": round(d["fin"] - d["inicio"], 1)})
+    print("[duelo] partida %s: empate (%s)" % (d.get("partida_id"), por), flush=True)
+    return True
+
+
+def decidir(s, ganador, perdedor, por):
+    d = s["duelo"]
+    if d.get("ganador") is not None or d.get("empate"):
+        return []
+    d.update(ganador=ganador, perdedor=perdedor, por=por, fin=time.time())
+    reg = {"t": time.strftime("%Y-%m-%d %H:%M:%S"), "partida": d.get("partida_id"), "ganador": nombre(ganador),
+           "perdedor": nombre(perdedor), "por": por, "segundos": round(d["fin"] - d["inicio"], 1)}
+    anotar(reg)
     print("[duelo] partida %s: gana %s #%s a %s #%s (%s)" % (d.get("partida_id"), nombre(ganador), ganador,
                                                          nombre(perdedor), perdedor, por), flush=True)
     texto = "Gana %s (%s)" % (nombre(ganador), "por KO" if por == "muerte" else "el otro se desconecto")
@@ -189,6 +207,7 @@ def fin_de_uno(c, p, conexion, s):
     p["puntos"] = 0
     p["premio"] = []
     p["cartas_hasta"] = None
+    empate(s, "tiempo")                                    # (sólo si nadie ganó antes: KO o desconexión)
     fin = (struct.pack("<HHIIHB", 1, c["monedas"], c["plata"], c["exp"], 0, nivel(c["exp"]))
            + struct.pack("<IIBB", 0, p.get("escenario") or 1011, 1, 1) + bytes([0, 0, 0]) + bytes([0]))
     gano = s["duelo"].get("ganador") == conexion

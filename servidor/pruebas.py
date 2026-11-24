@@ -1473,6 +1473,31 @@ def pruebas_duelo(chequear):
         chequear("duelo: si lo mató una entidad que no es jugador, gana el otro", s["duelo"]["ganador"] == B)
         limpiar(72)
 
+        # ★ (25-nov) fin por tiempo: la stage termina sin muerte → empate anotado una vez, sin ganador
+        s = en_stage(74)
+        responder(0x105C, evento("PvP_Pelea"), A)
+        n_antes = len(open(config.DUELOS, encoding="utf-8").readlines())
+        r = responder(0x1064, b"\x00", A)
+        lineas = open(config.DUELOS, encoding="utf-8").readlines()
+        reg = json.loads(lineas[-1])
+        chequear("duelo: fin sin muerte (por tiempo) → empate anotado, sin ganador, con los dos nombres",
+                 len(lineas) == n_antes + 1 and reg["ganador"] is None and reg["por"] == "tiempo"
+                 and len(reg["jugadores"]) == 2 and s["duelo"]["ganador"] is None, reg)
+        chequear("duelo: el empate también cierra la stage de los dos sin premio",
+                 len([x for x in r if x[0] == 0x1073]) == 2, [x[0] for x in r])
+        responder(0x1064, b"\x00", B)
+        chequear("duelo: ★ el revés: el fin del otro no anota un 2.º empate",
+                 len(open(config.DUELOS, encoding="utf-8").readlines()) == n_antes + 1)
+        limpiar(74)
+        s = en_stage(75)
+        responder(0x105C, evento("PvP_Pelea"), A)
+        responder(0x1065, b"\x01" + struct.pack("<I", 0), B)
+        n_antes = len(open(config.DUELOS, encoding="utf-8").readlines())
+        responder(0x1064, b"\x00", A)
+        chequear("duelo: ★ el revés: con un KO antes, el fin de la stage NO anota empate",
+                 len(open(config.DUELOS, encoding="utf-8").readlines()) == n_antes and not s["duelo"].get("empate"))
+        limpiar(75)
+
         # desconexión durante el duelo: gana el que queda
         s = en_stage(73)
         responder(0x105C, evento("PvP_Pelea"), A)

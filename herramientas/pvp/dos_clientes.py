@@ -160,6 +160,26 @@ def preparar(dll=None):
 
 
 ARENA = os.path.join(AQUI, "arena")
+# ★ (25-nov) los textos de la arena (ShowMsg 1180-1190): se agregan a la traducción española de los textos del
+#   capítulo 1 y ese archivo completo se instala junto al guion (la dll sirve el suelto en lugar del embebido)
+TEXTOS_ARENA = "textos_arena.xml"
+TEXTOS_CAP1 = os.path.join("data", "scenario", "string", "international", "chapter1_string.xml")
+TEXTOS_CAP1_ES = os.path.join(os.path.dirname(os.path.dirname(AQUI)), "traduccion", "es", TEXTOS_CAP1)
+
+
+def textos_con_arena(extra, base_xml=TEXTOS_CAP1_ES):
+    """La traducción de chapter1_string.xml con las líneas de `extra` antes de </STRINGINFO>. Falla si algún INDEX
+    nuevo ya existe (no se pisa un texto del juego)."""
+    import re
+    t = open(base_xml, encoding="utf-8-sig", newline="").read()       # (los fines de línea como están)
+    nuevo = open(extra, encoding="utf-8").read()
+    usados = set(re.findall(r'INDEX="(\d+)"', t))
+    choque = sorted(set(re.findall(r'INDEX="(\d+)"', nuevo)) & usados)
+    if choque:
+        raise SystemExit("⛔ %s: los INDEX %s ya existen en %s" % (extra, ", ".join(choque), base_xml))
+    if t.count("</STRINGINFO>") != 1:
+        raise SystemExit("⛔ %s: no tiene un único </STRINGINFO>" % base_xml)
+    return "﻿" + t.replace("</STRINGINFO>", nuevo.rstrip() + "\n </STRINGINFO>")
 SUELTOS = os.path.join("traducciones", "es")      # eda_traduccion.c: <carpeta_exe>\traducciones\<idioma>\<ruta>
 CAPA_PVP = "pvp"                                   # eda_traduccion.c (24-nov): <carpeta_exe>\pvp\<ruta>, con [pvp] batalla=1
 INSTALADOS = "pvp_recursos.json"
@@ -190,6 +210,14 @@ def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False,
             for n in nombres:
                 if n.lower() in ("leeme.md",) or n.startswith("."):
                     continue
+                if n.lower() == TEXTOS_ARENA:
+                    # se instala como el chapter1_string.xml traducido + estas líneas (textos_con_arena)
+                    rel = TEXTOS_CAP1
+                    if rel not in de:
+                        archivos.append(rel)
+                    de[rel] = ("textos", os.path.join(raiz, n))
+                    capa_de[rel] = capa
+                    continue
                 rel = os.path.relpath(os.path.join(raiz, n), o)
                 if rel not in de:
                     archivos.append(rel)
@@ -206,6 +234,10 @@ def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False,
         for rel in archivos:
             dst = os.path.join(inst, capa_de[rel], rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
+            if isinstance(de[rel], tuple):
+                open(dst, "w", encoding="utf-8", newline="").write(textos_con_arena(de[rel][1]))
+                puestos.append(os.path.join(capa_de[rel], rel))
+                continue
             shutil.copy2(de[rel], dst)
             cambios = ([(GRUPOS_APAGADO, GRUPOS_PRENDIDO)] if grupos else []) + \
                       ([(TELEPORT_PRENDIDO, TELEPORT_APAGADO)] if sin_teleport else [])
@@ -499,6 +531,30 @@ def control():
         chequear("varias carpetas + --grupos: todo llega a A y a B (el guion con PVP_GRUPOS = true)",
                  all(os.path.exists(os.path.join(base, i, SUELTOS, "menu", "y.xml")) for i in INSTANCIAS)
                  and "PVP_GRUPOS     = true" in open(os.path.join(en_b, "data", "scenario", "x.lua")).read())
+        # ★ (25-nov) los textos de la arena: chapter1_string.xml traducido + las líneas nuevas
+        base_xml = os.path.join(tmp, "cap1.xml")
+        open(base_xml, "w", encoding="utf-8-sig", newline="").write(
+            '<STRINGS>\r\n <STRINGINFO>\r\n    <STRING INDEX="1101" VALUE="ñ" />\r\n </STRINGINFO>\r\n</STRINGS>\r\n')
+        extra = os.path.join(tmp, "arena", TEXTOS_ARENA)
+        open(extra, "w", encoding="utf-8").write('    <STRING INDEX="1180" VALUE="¡A pelear!" />\n')
+        t = textos_con_arena(extra, base_xml)
+        chequear("textos: el 1180 entra antes de </STRINGINFO>, el 1101 sigue y el archivo empieza con BOM",
+                 t.startswith("﻿") and t.index('"1180"') < t.index("</STRINGINFO>") and '"1101" VALUE="ñ"' in t)
+        open(extra, "w", encoding="utf-8").write('    <STRING INDEX="1101" VALUE="pisado" />\n')
+        try:
+            textos_con_arena(extra, base_xml)
+            pisa = False
+        except SystemExit:
+            pisa = True
+        chequear("★ el revés: un INDEX que ya existe no se agrega (no se pisa un texto del juego)", pisa)
+        chequear("los textos reales de la arena no chocan con la traducción de chapter1_string.xml",
+                 '"1186"' in textos_con_arena(os.path.join(ARENA, TEXTOS_ARENA)))
+        open(extra, "w", encoding="utf-8").write('    <STRING INDEX="1180" VALUE="x" />\n')
+        recursos_instalar([os.path.join(tmp, "arena")], base, en_duelo=True)
+        puesto_xml = os.path.join(base, "A", CAPA_PVP, TEXTOS_CAP1)
+        chequear("recursos instalar: textos_arena.xml se instala como el chapter1_string.xml de la arena",
+                 os.path.exists(puesto_xml) and '"1180"' in open(puesto_xml, encoding="utf-8-sig").read()
+                 and not os.path.exists(os.path.join(base, "A", CAPA_PVP, TEXTOS_ARENA)))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     s = socket.socket()
