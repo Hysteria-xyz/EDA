@@ -291,7 +291,14 @@ Los manejadores S→C de la pantalla de la partida (`0x548F80`, cada `push cmd` 
 - `0x1060` S→C (`0x546D60`, 4 B: `u32 tick`): sincronización de reloj y tick de partida.
 - `0x106D` S→C (`0x546750`, 16 B: `u16 res · u32 timer…`): temporizador y cuenta regresiva de stage (`+0xEC`).
 - `0x1063` C→S `u8 0 · u16 n` (n = 0x0A, 0x1E…): sale justo antes de morir y en la pelea 🟡.
-- `0x1062` S→C (`0x547440`, 16 B) / C→S: `u32 id_miembro · u32 0 · u16 hp · u8 0 · u32 mp · u8 buffs`. Sincroniza barras de vida y maná en el HUD cooperativo (`0x612A90` en `ebp + 0xF8`). El servidor lo difunde a los compañeros de equipo al recibir `0x1063` (`le_pegaron`) o al registrar daño/gasto de maná.
+- `0x1062` S→C (`0x547440`) — ⛔ corregido el 24-nov: **no** es vida/maná, y **el cliente nunca lo manda**
+  (en el exe sólo aparece como `push 0x1062` en el registro de manejadores, `0x548FCE`). Lee 16 B + **N × 5 B**
+  (`u8 jugador · u32`; N = el byte 15 de la cabecera): con el jugador propio suma a la EXP del personaje (`+0x20`)
+  y puede subirle el nivel (`+0x1F`, `0x50F490`); con otro lo busca en `cuenta+0x240` (`0x61C110`) y **usa
+  `[eax+0x73]` sin comprobar NULL** (`0x5475A5`); después busca actores (`0x5706D0`). 🟡 Es el reparto de una
+  baja (EXP/nivel por jugador). Un `0x1062` mal armado tira el juego (`servidor/partida.py`, `le_pegaron`). El
+  server no lo manda, y si llega de un cliente lo descarta (`solo_del_server`, igual que 0x105D, 0x1060, 0x1066
+  y 0x106D, que tampoco tienen sitio de envío en el exe).
 - `0x102F` C→S (`0x54C2CA`, 16 B: `u32 id · 6 × u16 stats`) / `0x1030` S→C (`0x54C690`, 2 B: `u16 resultado`): asignación y guardado de puntos de estadísticas (STR, CON, DEX, INT, WIS) ganados al subir de nivel desde la ficha de personaje.
 - `0x1031` C→S (`0x54ABA7`, 12 B) / `0x1032` S→C (`0x54B2D0`, 94 B): confirmación de actualización de casilleros de habilidades aprendidas.
 - `0x060C` C→S / `0x060B` S→C (`0x545920`, 6 B: `u32 ip · u16 puerto`): reconfirmación de Broker/Relay tras NAT bloqueado.
