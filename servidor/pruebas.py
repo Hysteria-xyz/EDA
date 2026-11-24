@@ -1336,6 +1336,8 @@ def pruebas_duelo(chequear):
         avisos = [x for x in r if x[0] == 0x1005]
         chequear("duelo: el 1er «PvP_*» de la partida la marca como duelo y avisa a los dos por el chat",
                  duelo.en_duelo(s) and sorted(x[3] for x in avisos) == [A, B], r)
+        chequear("duelo: equipos por número de sala % 2 (A número 0 = rojo, B número 1 = azul: la fila que se pinta)",
+                 s["duelo"]["equipos"] == {A: "rojo", B: "azul"}, s["duelo"].get("equipos"))
         chequear("duelo: el evento se sigue reenviando al otro (0x105D) como siempre",
                  any(x[0] == 0x105D and x[3] == B for x in r))
         oro_a, exp_a = leer(A)["plata"], leer(A)["exp"]

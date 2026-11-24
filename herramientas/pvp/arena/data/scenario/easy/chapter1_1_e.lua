@@ -119,10 +119,16 @@ function	PvP_Grupos()
 		PvP_Msg("PVP_GRUPOS: hacen falta 2 jugadores (hay " .. #ids .. ")", 3000)
 		return 1
 	end
-	table.sort(ids)
-	scenario:SetEntityGroup(ids[1], 1)
-	scenario:SetEntityGroup(ids[2], PVP_GRUPO_J2)
-	PvP_Msg("PVP_GRUPOS: id " .. tostring(ids[1]) .. " -> grupo 1, id " .. tostring(ids[2]) .. " -> grupo " .. PVP_GRUPO_J2, 4000)
+	-- (24-nov) EQUIPOS: el ID de entidad de un jugador es su numero de sala (medido) y la sala pinta la fila del
+	-- numero par de ROJO y la del impar de AZUL (herramientas/pvp/battle_ui.py): par -> grupo 1, impar -> grupo
+	-- PVP_GRUPO_J2. Los del mismo color comparten grupo (no se danan); con dos jugadores es el 1 vs 1 de siempre.
+	local t = ""
+	for i = 1, #ids do
+		local g = ((ids[i] % 2) == 0) and 1 or PVP_GRUPO_J2
+		scenario:SetEntityGroup(ids[i], g)
+		t = t .. " id " .. tostring(ids[i]) .. "->" .. g
+	end
+	PvP_Msg("PVP_GRUPOS:" .. t, 4000)
 	scenario:InsertFunction("PvP_GruposHecho", 0)    -- aviso al server: el cambio se pidio
 	return 1
 end

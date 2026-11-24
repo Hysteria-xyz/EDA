@@ -199,10 +199,10 @@ def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False)
                       ([(TELEPORT_PRENDIDO, TELEPORT_APAGADO)] if sin_teleport else [])
             if cambios and rel.lower().endswith(".lua"):
                 t = open(dst, encoding="latin-1").read()
-                for de, a in cambios:
-                    if de not in t:
-                        raise SystemExit("⛔ %s no tiene «%s»" % (rel, de))
-                    t = t.replace(de, a, 1)
+                for viejo, nuevo in cambios:
+                    if viejo not in t:
+                        raise SystemExit("⛔ %s no tiene «%s»" % (rel, viejo))
+                    t = t.replace(viejo, nuevo, 1)
                 open(dst, "w", encoding="latin-1", newline="").write(t)
             puestos.append(os.path.join(SUELTOS, rel))
         json.dump(puestos, open(os.path.join(inst, INSTALADOS), "w", encoding="utf-8"), indent=1)
@@ -458,6 +458,15 @@ def control():
         chequear("recursos quitar: se va lo instalado", not os.path.exists(puesto))
         chequear("★ el revés: lo que no instaló esta herramienta queda",
                  os.path.exists(os.path.join(base, "A", SUELTOS, "data", "scenario", "del_jugador.lua")))
+        open(os.path.join(rec, "x.lua"), "w").write("PVP_GRUPOS     = false\n")
+        otra = os.path.join(tmp, "otra", "menu")
+        os.makedirs(otra)
+        open(os.path.join(otra, "y.xml"), "w").write("<y/>")
+        recursos_instalar([os.path.join(tmp, "rec"), os.path.join(tmp, "otra")], base, grupos=True)
+        en_b = os.path.join(base, "B", SUELTOS)
+        chequear("varias carpetas + --grupos: todo llega a A y a B (el guion con PVP_GRUPOS = true)",
+                 all(os.path.exists(os.path.join(base, i, SUELTOS, "menu", "y.xml")) for i in INSTANCIAS)
+                 and "PVP_GRUPOS     = true" in open(os.path.join(en_b, "data", "scenario", "x.lua")).read())
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     s = socket.socket()

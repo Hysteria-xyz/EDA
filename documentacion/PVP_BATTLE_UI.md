@@ -188,4 +188,26 @@ una ruta nueva). Dos límites:
 5. **Equipos en la sala de misión**: medir primero si la fila = número de jugador; si sí, servir un
    `waitroom_mission.xml` con las mismas ids y tipos y las filas 301–304 / 305–308 con las barras roja / azul
    teñidas. Verificación: abrir la sala, entrar y salir, F9, volver de la partida, sin caídas.
+   ✅ **Hecho y medido el 24-nov** (sólo en las instalaciones de prueba):
+   - **La fila ES el número de jugador** (sesión `20261124-083333`): rui (número 0) salió de la sala y volvió a
+     entrar DESPUÉS de kai (que quedó anfitrión) y siguió en la fila de arriba, en los dos juegos. La sala muestra
+     tantas filas como el máximo de la stage (3 en la 1011).
+   - **Equipo = número % 2** (no 301–304 / 305–308 como se pensaba: así un 1 vs 1 queda rojo contra azul y alcanza
+     hasta 4 vs 4 sin cambiar el máximo de la sala). Filas impares (301, 303…) rojas, pares azules. La arena usa la
+     MISMA regla para los grupos (el ID de entidad = el número: par → grupo 1, impar → grupo 3) y el server
+     anuncia los equipos (`duelo.equipo`).
+   - `battle_ui.py generar` arma desde TU `Data.dat` el `waitroom_mission.xml` con dos texturas nuevas y las
+     barras `pvp_bar_rojo.tga` / `pvp_bar_azul.tga`: la `waitroom_bar_userlist.tga` del juego teñida (mismo
+     relieve, alfa y 3 estados; nada de Softnyx en el repo).
+   - ⛔→✅ **Las texturas se toman por ORDEN en la lista, no por su ID** (sesión `-083639`): insertadas después de
+     la 11 corrieron las 12–31 (un botón de arriba quedó gris y las filas mostraron otra textura). Van al final
+     (32 y 33, después de la 31): el control lo verifica.
+   - ✅ La dll sirve también rutas que NO existen en `Data.dat` (las dos barras nuevas): resuelve el 🟡 de §4.
+   - **Medido** (sesión `20261124-083857`): sala con rui en rojo y kai en azul en los dos juegos; el server
+     «duelo rui (rojo) vs kai (azul)»; la arena aplicó rui → grupo 1 (`0x1`) y kai → grupo 3 (`0x4`) en A y en B;
+     la stage cerró (atajo `fin_rapido` a los 40 s), resultado, AWARD vacío y **los dos de vuelta en la sala** a
+     los ~82 s, la sala otra vez con sus colores. Sin caídas.
+   - ⚠ **No se publica así**: el layout es uno para TODAS las salas, así que en las instalaciones de prueba también
+     las salas PvE se ven rojo/azul. Publicarlo pide que la dll sirva la sala con equipos sólo en una sala de
+     duelo (p. ej. después de `/batalla`) o que el server marque la sala; eso es el siguiente paso.
 6. La pantalla 4 propia queda fuera de alcance mientras los pasos 1–5 no estén probados.

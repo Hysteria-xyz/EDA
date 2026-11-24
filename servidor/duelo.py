@@ -71,10 +71,19 @@ def ver_evento(s, conexion, cuerpo):
     if not (n and n.startswith(PREFIJO)):
         return []
     jugadores = sorted(s.get("en_stage", set(s["miembros"])) & set(s["miembros"]))
-    s["duelo"] = {"partida_id": s.get("partida_id"), "jugadores": jugadores, "inicio": time.time(), "ganador": None}
+    s["duelo"] = {"partida_id": s.get("partida_id"), "jugadores": jugadores, "inicio": time.time(), "ganador": None,
+                  "equipos": {m: equipo(s, m) for m in jugadores}}
     print("[duelo] partida %s: duelo %s (por «%s» de #%s)" % (s.get("partida_id"), " vs ".join(
-        "%s #%s" % (nombre(m), m) for m in jugadores), n.decode("ascii", "replace"), conexion), flush=True)
-    return aviso("Duelo: %s" % " vs ".join(nombre(m) for m in jugadores), jugadores)
+        "%s #%s (%s)" % (nombre(m), m, equipo(s, m)) for m in jugadores), n.decode("ascii", "replace"), conexion),
+        flush=True)
+    return aviso("Duelo: %s" % " vs ".join("%s (%s)" % (nombre(m), equipo(s, m)) for m in jugadores), jugadores)
+
+
+def equipo(s, conexion):
+    """★ El equipo = el número de sala % 2: la fila de la sala es el número (medido 24-nov) y la sala con equipos
+    pinta las filas pares de rojo y las impares de azul; la arena pone el mismo grupo a los del mismo color."""
+    from servidor.estado import numero
+    return "rojo" if numero(s, conexion) % 2 == 0 else "azul"
 
 
 def decidir(s, ganador, perdedor, por):
