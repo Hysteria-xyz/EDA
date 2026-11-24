@@ -357,6 +357,23 @@ static int tr_mem_read(const unsigned char *datos, unsigned long tam, unsigned l
     return 0;
 }
 
+/* ★ (24-nov, EXPERIMENTAL) EL LOBBY PANORÁMICO (documentacion/LOBBY_PANORAMICO.md). En una pantalla más ancha que 4:3,
+ *   el lobby usa un lienzo de interfaz más ancho que 800 (alto siempre 600) con su propio channellobby.xml y fondo,
+ *   generados desde el Data.dat de cada uno (herramientas/lobby_ancho.py) en <carpeta_exe>\ancho\<ancho>\. Medido
+ *   24-nov (1600×900): el juego dibuja y hace clic en controles con x > 800, pero NO con x < 0 (el cursor desaparece):
+ *   por eso el lienzo ancho empieza en el borde izquierdo y todo queda en x ≥ 0.
+ *   Variantes: 1066 (16:9: 1280×720 … 3840×2160, también 1366×768) y 960 (16:10). El ancho elegido nunca pasa
+ *   W·600/H (así la escala sigue siendo la del alto y no queda franja). 0 = el lobby original (4:3, 5:4…). */
+static const int TR_ANCHOS[] = {1066, 960};
+static int tr_ancho_elegir(int w, int h)
+{
+    if (w <= 0 || h <= 0) return 0;
+    long long cabe = (long long)w * 600 / h;              /* el ancho de lienzo que entra con la escala del alto */
+    for (unsigned i = 0; i < sizeof(TR_ANCHOS) / sizeof(TR_ANCHOS[0]); i++)
+        if (cabe >= TR_ANCHOS[i]) return TR_ANCHOS[i];
+    return 0;
+}
+
 #if !EDA_TRADUCCION_SOLO_LOGICA
 
 /* ── parte Windows (integrada en d3d9.dll) ────────────────────────────────────────────────────────────── */
@@ -401,6 +418,13 @@ static volatile LONG g_tr_redirigidos_emb;
  *   cada entrada a una sala. Lo demás de pvp\ (las barras roja / azul) siempre: sólo se usa si el XML lo pide. */
 static int g_tr_pvp_capa;
 static volatile LONG g_tr_pvp_sala;
+/* el lobby panorámico: [pantalla] lobby_panoramico (1 por defecto: sin la carpeta ancho\ no cambia nada). El ancho del
+ *   channellobby.xml que se sirvió queda en g_e2d_lobby_ancho (0 = el original) y eda_escala2d.c lo usa como lienzo
+ *   mientras la escena sea el lobby. (Definiciones tentativas: las mismas variables están en eda_escala2d.c.) */
+static int g_tr_lobby_pan = 1;
+static volatile LONG g_e2d_lobby_ancho, g_e2d_sel_ancho;
+static int g_e2d_activa;
+static int g_e2d_w, g_e2d_h;
 
 static int tr_es_ruta(const unsigned short *rel, const char *ascii)
 {
@@ -415,6 +439,7 @@ static int tr_abrir_pvp(const unsigned short *rel, DWORD *out_handle);
 static void tr_leer_ini(HMODULE self, const char *ini)
 {
     g_tr_pvp_capa = GetPrivateProfileIntA("pvp", "batalla", 0, ini);
+    g_tr_lobby_pan = GetPrivateProfileIntA("pantalla", "lobby_panoramico", 1, ini);
     g_tr_idioma_cfg[0] = 0;
     g_tr_idioma[0] = 0;
     g_tr_base_w[0] = 0;
@@ -511,12 +536,74 @@ static int tr_abrir_pvp(const unsigned short *rel, DWORD *out_handle)
     return 1;
 }
 
+/* <carpeta_exe>\ancho\<ancho>\<rel>, si existe (abierto como un archivo suelto) */
+static int tr_abrir_suelto_en(const WCHAR *capa, const unsigned short *rel, DWORD *out_handle, const char *fuente)
+{
+    WCHAR completa[MAX_PATH];
+    int nb = lstrlenW(g_tr_base_w), nc = lstrlenW(capa), nr = 0;
+    while (rel[nr]) nr++;
+    if (!g_tr_base_w[0] || nb + nc + nr >= MAX_PATH) return 0;
+    lstrcpyW(completa, g_tr_base_w);
+    lstrcatW(completa, capa);
+    for (int i = 0; i <= nr; i++) completa[nb + nc + i] = (WCHAR)rel[i];
+    DWORD attr = GetFileAttributesW(completa);
+    if (attr == INVALID_FILE_ATTRIBUTES || (attr & FILE_ATTRIBUTE_DIRECTORY)) return 0;
+    HANDLE fh = CreateFileW(completa, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (fh == INVALID_HANDLE_VALUE) return 0;
+    TR_SLOT *s = tr_slot_tomar(fh, NULL);
+    if (!s) { CloseHandle(fh); return 0; }
+    *out_handle = (DWORD)(ULONG_PTR)s;
+    InterlockedIncrement(&g_tr_redirigidos_sueltos);
+    tr_anotar_redirigido(rel, fuente);
+    return 1;
+}
+/* ★ las pantallas panorámicas: el XML se elige al abrirlo (con el tamaño de pantalla de ese momento) y sus texturas
+ *   (<carpeta de la pantalla>\ancho_*) salen de la MISMA variante. Cualquier otro archivo: nada.
+ *   · el LOBBY (channellobby.xml, escena 0x899670) · ★ SELECT CHARACTER (characterselect.xml, escena 0x899740) */
+static const struct { const char *xml, *img, *nombre; volatile LONG *ancho; } TR_PANTALLAS[] = {
+    {"menu\\international\\channellobby.xml", "image\\ui_image\\international\\channellobby\\ancho_", "el lobby", &g_e2d_lobby_ancho},
+    {"menu\\international\\characterselect.xml", "image\\ui_image\\international\\characterselect\\ancho_", "Select Character",
+     &g_e2d_sel_ancho},
+};
+static int tr_abrir_ancho(const unsigned short *rel, DWORD *out_handle)
+{
+    WCHAR capa[24];
+    for (unsigned i = 0; i < sizeof(TR_PANTALLAS) / sizeof(TR_PANTALLAS[0]); i++) {
+        volatile LONG *va = TR_PANTALLAS[i].ancho;
+        if (tr_es_ruta(rel, TR_PANTALLAS[i].xml)) {
+            int ancho = g_e2d_activa ? tr_ancho_elegir(g_e2d_w, g_e2d_h) : 0;
+            wsprintfW(capa, L"ancho\\%d\\", ancho);
+            if (ancho && tr_abrir_suelto_en(capa, rel, out_handle, "panorámico")) {
+                if (*va != ancho)
+                    apuntar("  (panorámico) %d×%d → %s de %d×600 (ancho\\%d\\)", g_e2d_w, g_e2d_h, TR_PANTALLAS[i].nombre, ancho, ancho);
+                InterlockedExchange(va, ancho);
+                return 1;
+            }
+            if (*va)
+                apuntar("  (panorámico) %d×%d → %s original de 800×600%s", g_e2d_w, g_e2d_h, TR_PANTALLAS[i].nombre,
+                        ancho ? " (falta la carpeta ancho\\: herramientas/lobby_ancho.py)" : "");
+            InterlockedExchange(va, 0);
+            return 0;
+        }
+        const char *img = TR_PANTALLAS[i].img;
+        int k = 0;
+        while (img[k] && rel[k] == (unsigned char)img[k]) k++;
+        if (img[k]) continue;
+        if (!*va) return 0;
+        wsprintfW(capa, L"ancho\\%ld\\", (long)*va);
+        return tr_abrir_suelto_en(capa, rel, out_handle, "panorámico");
+    }
+    return 0;
+}
+
 static int WINAPI tr_mi_open(DWORD storage, const WCHAR *nombre, DWORD b_leer, DWORD b_escribir,
                              DWORD comp_leer, DWORD comp_escr, const void *clave, DWORD clave_len, DWORD *out_handle)
 {
     if (nombre && out_handle && b_leer && g_tr_idioma[0]) {
         unsigned short rel[260];
         if (tr_normalizar_ruta((const unsigned short *)nombre, rel, 260)) {
+            /* 00. ★ el lobby panorámico (si su carpeta ancho\ está): antes que la capa PvP y la traducción */
+            if (g_tr_lobby_pan && tr_abrir_ancho(rel, out_handle)) return 0;
             /* 0. ★ la capa PvP (experimental, apagada por defecto): ver g_tr_pvp_capa */
             if (g_tr_pvp_capa && tr_abrir_pvp(rel, out_handle)) return 0;
             /* 1. Prioridad: archivo suelto en traducciones\<idioma>\<ruta> (para probar cambios sin recompilar) */

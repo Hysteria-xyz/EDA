@@ -44,6 +44,7 @@ typedef long (WINAPI *M_CSB)(void *, DWORD, void **); typedef long (WINAPI *M_SB
 static int g_e2d_w = 1920, g_e2d_h = 1080, g_e2d_activa = 1, g_e2d_es_orto = 1;
 static int g_e2d_ambiente = 1, g_e2d_stage_ahora, g_e2d_res_fase;     /* (las franjas con ambiente) */
 static float g_e2d_s = 1.8f, g_e2d_rx = 240, g_e2d_ry;
+static int g_e2d_lienzo = 800;                                       /* (el lienzo: 800 salvo el lobby panorámico) */
 #define FALSE 0
 static volatile long g_e2d_propio, g_e2d_rt_fuera;
 static long c_e2d_rt_fuera;

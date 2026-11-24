@@ -31,7 +31,37 @@ static int g_e2d_stage = 1;              /* [pantalla] escala2d_stage: el HUD de
 static int g_e2d_activa;                 /* escala2d y un backbuffer distinto de 800×600 */
 static int g_e2d_w = 800, g_e2d_h = 600; /* el backbuffer */
 static float g_e2d_s = 1, g_e2d_rx, g_e2d_ry;
-static volatile LONG g_e2d_propio;       /* (lo que dibuja la dll, el contador: no se toca) */
+/* ★ (24-nov) EL LIENZO de la interfaz: 800 (×600), salvo en el LOBBY con el channellobby.xml panorámico (eda_traduccion.c
+ *   · tr_abrir_ancho, g_e2d_lobby_ancho): ahí 1066 o 960 de ancho, desde el borde izquierdo. Todo lo de abajo (proyección,
+ *   viewports de una parte, scissor, dibujos XYZRHW, mouse, cursor) ya usa s / rx / ry: cambia sólo cómo se calculan. */
+static int g_e2d_lienzo = 800;
+static volatile LONG g_e2d_lobby_ancho, g_e2d_sel_ancho;   /* el ancho del XML servido (0 = el original) */
+static long c_e2d_lienzo;                /* veces que cambió el lienzo (entrar / salir del lobby panorámico) */
+static volatile LONG g_e2d_rt_fuera;     /* (diag) 1 = el render target 0 no es la pantalla (otro tamaño) */
+static void e2d_geometria(void)
+{
+    float L = (float)g_e2d_lienzo;
+    float s = (float)g_e2d_w / L < (float)g_e2d_h / 600 ? (float)g_e2d_w / L : (float)g_e2d_h / 600;
+    g_e2d_s = s;
+    g_e2d_rx = (g_e2d_w - L * s) / 2;
+    g_e2d_ry = (g_e2d_h - 600 * s) / 2;
+}
+/* el lienzo de esta escena: el lobby (0x899670) o Select Character (0x899740) con su XML panorámico servido → su ancho;
+ * cualquier otra → 800 */
+static int e2d_lienzo_de(DWORD vt, long lobby_ancho, long sel_ancho)
+{
+    long a = vt == 0x00899670u ? lobby_ancho : vt == 0x00899740u ? sel_ancho : 0;
+    return a > 800 ? (int)a : 800;
+}
+/* la COLUMNA de botones del lobby panorámico (la misma regla que herramientas/lobby_ancho.py · columna): el control n
+ *   (1 Shop · 2 Inventory · 3 Clan · 4 Messenger · 5 Options · 6 Select Character · 7 Exit) en x L−91, y 12+(n−1)·80,
+ *   82×64. → 1 si (x, y) de la interfaz cae en él. */
+static int e2d_pan_en_boton(int L, int n, int x, int y)
+{
+    int x0 = L - 91, y0 = 12 + (n - 1) * 80;
+    return L > 800 && x >= x0 && x < x0 + 82 && y >= y0 + 6 && y < y0 + 64;
+}
+static volatile LONG g_e2d_propio;      /* (lo que dibuja la dll, el contador: no se toca) */
 /* ★ (Punto 6b, 20-nov 01:20) EL DESTINO DEL DIBUJO — sólo se MIRA, no cambia la escala. Probado y revertido: dejar sin
  *   escala lo que se dibuja en una textura (render target) rompió la pantalla de Capítulos/Misiones (Create Stage): el
  *   juego arma esa pantalla en un render target de 1024×1024 (0x0128E217, dibuja desde 0x0077D462) con la proyección de
@@ -39,7 +69,6 @@ static volatile LONG g_e2d_propio;       /* (lo que dibuja la dll, el contador: 
  *   800×600 dentro de la textura → la interfaz a la izquierda y el resto negro. Con la escala igual que en la pantalla
  *   (como d617fb02) se ve completa y el mouse coincide. La distorsión de la espada NO se reprodujo: el diag de
  *   SetRenderTarget queda para medirla en TEST. */
-static volatile LONG g_e2d_rt_fuera;      /* (diag) 1 = el render target 0 no es la pantalla (otro tamaño) */
 #define E2D_PASA (g_e2d_propio)
 static int g_e2d_stage_ahora;            /* la escena del cuadro: ¿el Stage? (se mira en el Present) */
 static float g_e2d_proj[16];             /* la proyección que puso EL JUEGO */
@@ -168,18 +197,16 @@ static int e2d_activa(void) { return g_e2d_activa; }
 static void e2d_tamano(int w, int h, const char *por)
 {
     if (w < 320 || h < 200 || w > 8192 || h > 8192) return;
-    float s = (float)w / 800 < (float)h / 600 ? (float)w / 800 : (float)h / 600;
     int activa = g_e2d && (w != 800 || h != 600);
     if (w == g_e2d_w && h == g_e2d_h && activa == g_e2d_activa) return;
     g_e2d_w = w;
     g_e2d_h = h;
-    g_e2d_s = s;
-    g_e2d_rx = (w - 800 * s) / 2;
-    g_e2d_ry = (h - 600 * s) / 2;
+    e2d_geometria();
+    float s = g_e2d_s;
     g_e2d_activa = activa;
     if (g_e2d)
-        apuntar("  (escala2d) %s: backbuffer %d×%d → interfaz 800×600 ×%.3f en x %.0f · y %.0f (%.0f×%.0f) · %s", por, w, h,
-                s, g_e2d_rx, g_e2d_ry, 800 * s, 600 * s, activa ? "ACTIVA" : "nada que hacer (800×600)");
+        apuntar("  (escala2d) %s: backbuffer %d×%d → interfaz %d×600 ×%.3f en x %.0f · y %.0f (%.0f×%.0f) · %s", por, w, h,
+                g_e2d_lienzo, s, g_e2d_rx, g_e2d_ry, g_e2d_lienzo * s, 600 * s, activa ? "ACTIVA" : "nada que hacer (800×600)");
 }
 
 /* una parte de la interfaz (en sus coordenadas de 800×600) → la misma parte dentro de R, en píxeles */
@@ -416,7 +443,7 @@ static const void *e2d_rhw(const void *v, UINT n, UINT paso)
     const BYTE *b = (const BYTE *)v;
     for (UINT i = 0; i < n; i++) {
         const float *q = (const float *)(b + i * paso);
-        if (q[0] < -2 || q[1] < -2 || q[0] > 802 || q[1] > 602) { InterlockedIncrement(&c_e2d_rhw_pant); return v; }
+        if (q[0] < -2 || q[1] < -2 || q[0] > g_e2d_lienzo + 2 || q[1] > 602) { InterlockedIncrement(&c_e2d_rhw_pant); return v; }
     }
     UINT tam = n * paso;
     if (tam > g_e2d_copia_tam) {
@@ -716,6 +743,16 @@ static void e2d_cuadro(void *dev)
     BYTE *esc = leer_ptr((void *)0x934554);
     DWORD vt = esc ? (DWORD)(ULONG_PTR)leer_ptr(esc) : 0;
     g_e2d_stage_ahora = vt == 0x00899C20;
+    {                                                        /* ★ (24-nov) el lienzo del lobby panorámico */
+        int L = e2d_lienzo_de(vt, g_e2d_lobby_ancho, g_e2d_sel_ancho);
+        if (L != g_e2d_lienzo) {
+            g_e2d_lienzo = L;
+            e2d_geometria();
+            c_e2d_lienzo++;
+            apuntar("  (panorámico) escena 0x%08lX → lienzo %d×600 ×%.3f en x %.0f · y %.0f", (unsigned long)vt, L,
+                    g_e2d_s, g_e2d_rx, g_e2d_ry);
+        }
+    }
     if (e2d_trazando() && g_e2d_stage_ahora) {               /* (diagnóstico) el cursor del juego, cuando cambia */
         BYTE *o = leer_ptr((void *)0x94952C);
         static char antes[96];

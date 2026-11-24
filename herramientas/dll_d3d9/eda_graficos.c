@@ -461,7 +461,7 @@ static void gr_ambiente(void *dev)
 {
     if (!g_e2d_ambiente || g_amb_mal || !dev || !g_e2d_activa) return;
     if (g_e2d_stage_ahora && !g_e2d_res_fase) return;            /* (jugando: el 3D llena la pantalla) */
-    int rw = (int)(800 * g_e2d_s + 0.5f), rh = (int)(600 * g_e2d_s + 0.5f);
+    int rw = (int)(g_e2d_lienzo * g_e2d_s + 0.5f), rh = (int)(600 * g_e2d_s + 0.5f);
     LONG x0 = (LONG)(g_e2d_rx + 0.5f), y0 = (LONG)(g_e2d_ry + 0.5f), x1 = x0 + rw, y1 = y0 + rh;
     if (x0 < 2 && y0 < 2) return;                                /* (4:3: no hay franjas) */
     void **vt = VT(dev);

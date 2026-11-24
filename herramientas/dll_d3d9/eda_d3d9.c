@@ -1381,7 +1381,9 @@ static void barra_xy(HWND h, int x, int y, const char *por, int ya800)
         int lobby = vt == 0x00899670 || vt == 0x00899740, costado = pc >= 4 && pc <= 7;   /* (la sala NO: ver abajo) */
         int o0 = lobby ? 547 : 544, m0 = lobby ? 468 : 629, m1 = lobby ? 546 : 703;
         int boton = 0;                                   /* 1 = Options · 2 = Messenger */
-        if ((lobby || costado) && y >= 8 && y <= 64) boton = x >= o0 && x <= 621 ? 1 : x >= m0 && x <= m1 ? 2 : 0;
+        if (lobby && g_e2d_lienzo > 800)                 /* ★ (24-nov) el lobby panorámico: la columna de la derecha */
+            boton = e2d_pan_en_boton(g_e2d_lienzo, 5, x, y) ? 1 : e2d_pan_en_boton(g_e2d_lienzo, 4, x, y) ? 2 : 0;
+        else if ((lobby || costado) && y >= 8 && y <= 64) boton = x >= o0 && x <= 621 ? 1 : x >= m0 && x <= m1 ? 2 : 0;
         if (g_diagnostico)
             apuntar("  (diag) clic con un panel abierto (%s): x %d · y %d → %s", lobby ? "lobby" : costado ? "barra del costado" : "otra escena", x, y,
                     boton == 1 ? "botón Options → interruptor de Options" : boton == 2 ? "botón Messenger → interruptor del Messenger"

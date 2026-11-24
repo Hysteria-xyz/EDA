@@ -60,6 +60,11 @@ mejoras=1
 escala2d=0
 resolucion=
 escala2d_stage=1
+; 1 = las franjas de los costados con la imagen del juego desenfocada y oscura; 0 = negras (como antes)
+ambiente=1
+; 1 = Lobby y Select Character panorámicos en pantallas anchas, si está la carpeta ancho\ junto al exe
+;     (herramientas/lobby_ancho.py; documentacion/LOBBY_PANORAMICO.md). 0 = los de 800×600 centrados
+lobby_panoramico=1
 
 [version]
 ; 1 = al arrancar, unos segundos arriba a la derecha: versión, compilación (commit) y entorno (TEST / PROD /

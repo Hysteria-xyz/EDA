@@ -499,6 +499,41 @@ int main(void)
         chequear("(2) con la protección elegida a mano sigue la protección", e2d_tras_stage_al_arrancar(0, 0) == 0);
         g_e2d_fase_v = fv; g_e2d_stages = st;
     }
+    printf("== (24-nov) LAS PANTALLAS PANORÁMICAS: el lienzo por escena y cada resolución ==\n");
+    {
+        chequear("el lobby (0x899670) con su XML de 1066 → lienzo 1066", e2d_lienzo_de(0x00899670, 1066, 0) == 1066);
+        chequear("Select Character (0x899740) con el suyo de 960 → 960", e2d_lienzo_de(0x00899740, 0, 960) == 960);
+        chequear("★ revés: el lobby sin XML panorámico (0) → 800", e2d_lienzo_de(0x00899670, 0, 1066) == 800);
+        chequear("★ revés: otra escena (sala, Stage, inventario) → 800 aunque haya XML ancho",
+                 e2d_lienzo_de(0x0089A268, 1066, 1066) == 800 && e2d_lienzo_de(0x00899C20, 1066, 1066) == 800
+                 && e2d_lienzo_de(0x00899F10, 1066, 1066) == 800);
+        /* el ancho que elige la dll (eda_traduccion.c · tr_ancho_elegir) para cada resolución, a mano: */
+        static const int res[][3] = {{1024, 768, 800}, {1280, 720, 1066}, {1366, 768, 1066}, {1600, 900, 1066},
+                                     {1920, 1080, 1066}, {2560, 1440, 1066}, {3840, 2160, 1066}, {1440, 900, 960},
+                                     {1680, 1050, 960}, {2560, 1080, 1066}, {1280, 1024, 800}};
+        for (unsigned i = 0; i < sizeof(res) / sizeof(res[0]); i++) {
+            int w = res[i][0], h = res[i][1], L = res[i][2];
+            g_e2d_lienzo = L;
+            e2d_tamano(w, h, "prueba");
+            e2d_geometria();
+            float s_alto = (float)h / 600;
+            int cabe = L * g_e2d_s <= w + 0.5f && 600 * g_e2d_s <= h + 0.5f && g_e2d_rx >= -0.01f && g_e2d_ry >= -0.01f;
+            int escala_alto = L == 800 ? 1 : cerca(g_e2d_s, s_alto, 1e-4f);   /* panorámico: sin franjas arriba/abajo */
+            /* el mouse: el borde izquierdo de la pantalla es x 0 del lienzo (nunca negativo) y el derecho ≤ L */
+            int x0 = (int)(g_e2d_rx + 0.5f), y0 = h / 2, x1 = (int)(g_e2d_rx + L * g_e2d_s) - 1, y1 = h / 2;
+            e2d_ventana_a_ui(NULL, &x0, &y0);
+            e2d_ventana_a_ui(NULL, &x1, &y1);
+            char n[160];
+            snprintf(n, sizeof(n), "%d×%d → lienzo %d ×%.3f en x %.0f: entra, %s, mouse %d..%d", w, h, L, g_e2d_s, g_e2d_rx,
+                     L == 800 ? "4:3 o más angosto: el original" : "la escala del alto", x0, x1);
+            chequear(n, cabe && escala_alto && x0 >= 0 && x0 <= 1 && x1 <= L && x1 >= L - 2);
+        }
+        g_e2d_lienzo = 800;
+        e2d_tamano(1920, 1080, "prueba");
+        e2d_geometria();
+        chequear("la columna del lobby (1066): Options = control 5 en x 975, y 332", e2d_pan_en_boton(1066, 5, 1000, 360)
+                 && !e2d_pan_en_boton(1066, 4, 1000, 360) && !e2d_pan_en_boton(800, 5, 1000, 360));
+    }
     printf("prueba_escala2d: %d bien · %d mal\n", ok, mal);
     return mal ? 1 : 0;
 }

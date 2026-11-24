@@ -129,6 +129,18 @@ int main(int argc, char **argv)
 {
     const char *exe = argc > 1 ? argv[1] : "exe/EDA_limpio.exe";
 
+    /* 0. ★ (24-nov) las pantallas panorámicas: qué variante se elige para cada resolución */
+    chequear("panorámico: 16:9 (1280×720 … 3840×2160, también 1366×768) → 1066",
+             tr_ancho_elegir(1280, 720) == 1066 && tr_ancho_elegir(1366, 768) == 1066 && tr_ancho_elegir(1600, 900) == 1066
+             && tr_ancho_elegir(1920, 1080) == 1066 && tr_ancho_elegir(2560, 1440) == 1066 && tr_ancho_elegir(3840, 2160) == 1066);
+    chequear("panorámico: 16:10 (1440×900, 1680×1050, 1920×1200) → 960",
+             tr_ancho_elegir(1440, 900) == 960 && tr_ancho_elegir(1680, 1050) == 960 && tr_ancho_elegir(1920, 1200) == 960);
+    chequear("panorámico: 21:9 (2560×1080) → 1066 (centrado, con franjas)", tr_ancho_elegir(2560, 1080) == 1066);
+    chequear("★ revés: 4:3 y 5:4 (1024×768, 800×600, 1280×1024) → el original (0)",
+             !tr_ancho_elegir(1024, 768) && !tr_ancho_elegir(800, 600) && !tr_ancho_elegir(1280, 1024));
+    chequear("★ revés: tamaños sin sentido (0, negativos) → el original", !tr_ancho_elegir(0, 600) && !tr_ancho_elegir(1920, 0)
+             && !tr_ancho_elegir(-5, 600));
+
     /* 1. Interruptor y reglas de idioma */
     char idi[16];
     chequear("apagado por defecto: idioma vacío no activa nada", !tr_idioma_activo("", 1, idi));
