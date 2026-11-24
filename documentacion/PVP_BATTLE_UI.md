@@ -207,7 +207,24 @@ una ruta nueva). Dos límites:
      «duelo rui (rojo) vs kai (azul)»; la arena aplicó rui → grupo 1 (`0x1`) y kai → grupo 3 (`0x4`) en A y en B;
      la stage cerró (atajo `fin_rapido` a los 40 s), resultado, AWARD vacío y **los dos de vuelta en la sala** a
      los ~82 s, la sala otra vez con sus colores. Sin caídas.
-   - ⚠ **No se publica así**: el layout es uno para TODAS las salas, así que en las instalaciones de prueba también
-     las salas PvE se ven rojo/azul. Publicarlo pide que la dll sirva la sala con equipos sólo en una sala de
-     duelo (p. ej. después de `/batalla`) o que el server marque la sala; eso es el siguiente paso.
+   - ⚠→✅ **Sólo en salas de duelo** (24-nov, sesión `20261124-084949`): el juego **relee** `waitroom_mission.xml`
+     en cada entrada a una sala (medido: 1, 2, 3 aperturas en 3 entradas), así que alcanza con decidir en cada
+     una. La cadena:
+     1. la dll (`[pvp] batalla=1`) ata también «Escenario» (102) → `/escenario`, y al unir el lobby manda
+        `/pvp hola` (el server sabe que esa dll entiende los avisos);
+     2. el server (`duelo.sala_nueva`, con `EDA_PVP=1`) marca **sala de duelo** la que se crea con «Batalla PvP»
+        elegida;
+     3. antes del `0x101E` (crear) y del `0x1020` (entrar), `duelo.marcador` le manda a esa dll un chat
+        `[PVP] sala=duelo` o `sala=normal`; el puente del chat de la dll (`msn_chat_llega`) lo toma y **no se
+        muestra**;
+     4. la **capa `pvp\`** de la dll (`eda_traduccion.c · tr_abrir_pvp`, antes que la traducción) sirve
+        `<carpeta_exe>\pvp\<ruta>`: la sala con equipos SÓLO si la sala es de duelo; la pestaña con nombre y las
+        barras, siempre que la capa esté prendida.
+     **Medido con dos clientes**: sala creada con «Escenario» → gris en los dos («[pvp] sala: normal → la de
+     siempre»); sala creada con «Batalla PvP» → rui rojo / kai azul en los dos («de DUELO → la sala con equipos»).
+     Pruebas del server con su revés (`pruebas_duelo`: sin `EDA_PVP` no hay avisos ni salas marcadas; sin
+     `/pvp hola` no llega ningún «[PVP]»; con «Escenario» la sala es normal). `prueba_traduccion.c` compila con
+     `-Wall -Werror`.
+   - Lo que falta para publicarlo: subir `VERSION` y `NOVEDADES.json`, medir en dos PCs (la regla de la dll) y que
+     la arena también se sirva sólo en una sala de duelo (hoy reemplaza la 1011 Easy en las instalaciones de prueba).
 6. La pantalla 4 propia queda fuera de alcance mientras los pasos 1–5 no estén probados.

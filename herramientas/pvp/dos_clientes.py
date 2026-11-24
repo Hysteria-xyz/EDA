@@ -157,6 +157,7 @@ def preparar(dll=None):
 
 ARENA = os.path.join(AQUI, "arena")
 SUELTOS = os.path.join("traducciones", "es")      # eda_traduccion.c: <carpeta_exe>\traducciones\<idioma>\<ruta>
+CAPA_PVP = "pvp"                                   # eda_traduccion.c (24-nov): <carpeta_exe>\pvp\<ruta>, con [pvp] batalla=1
 INSTALADOS = "pvp_recursos.json"
 
 
@@ -174,7 +175,11 @@ def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False)
     origenes = [origen] if isinstance(origen, str) else list(origen)
     archivos = []
     de = {}
+    capa_de = {}
     for o in origenes:
+        # ★ (24-nov) la interfaz de Battle (battle_ui.py) va a la capa pvp\ de la dll ([pvp] batalla=1: la sala con
+        #   equipos sólo en salas de duelo); lo demás (la arena) a la carpeta suelta de la traducción
+        capa = CAPA_PVP if os.path.basename(os.path.normpath(o)).lower() == "battle_ui" else SUELTOS
         for raiz, _, nombres in os.walk(o):
             for n in nombres:
                 if n.lower() in ("leeme.md",) or n.startswith("."):
@@ -183,6 +188,7 @@ def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False)
                 if rel not in de:
                     archivos.append(rel)
                 de[rel] = os.path.join(o, rel)
+                capa_de[rel] = capa
     if not archivos:
         raise SystemExit("⛔ no hay recursos en %s" % ", ".join(origenes))
     for i in INSTANCIAS:
@@ -192,7 +198,7 @@ def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False)
         recursos_quitar(base, solo=i, callado=True)
         puestos = []
         for rel in archivos:
-            dst = os.path.join(inst, SUELTOS, rel)
+            dst = os.path.join(inst, capa_de[rel], rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(de[rel], dst)
             cambios = ([(GRUPOS_APAGADO, GRUPOS_PRENDIDO)] if grupos else []) + \
@@ -204,7 +210,7 @@ def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False)
                         raise SystemExit("⛔ %s no tiene «%s»" % (rel, viejo))
                     t = t.replace(viejo, nuevo, 1)
                 open(dst, "w", encoding="latin-1", newline="").write(t)
-            puestos.append(os.path.join(SUELTOS, rel))
+            puestos.append(os.path.join(capa_de[rel], rel))
         json.dump(puestos, open(os.path.join(inst, INSTALADOS), "w", encoding="utf-8"), indent=1)
         print("· %s: %d recurso(s) experimental(es)%s%s: %s" % (i, len(puestos), " [PVP_GRUPOS = true]" if grupos else "",
                                                                " [sin teleport]" if sin_teleport else "", ", ".join(puestos)))
@@ -464,6 +470,15 @@ def control():
         open(os.path.join(otra, "y.xml"), "w").write("<y/>")
         recursos_instalar([os.path.join(tmp, "rec"), os.path.join(tmp, "otra")], base, grupos=True)
         en_b = os.path.join(base, "B", SUELTOS)
+        bui = os.path.join(tmp, "battle_ui", "menu")
+        os.makedirs(bui)
+        open(os.path.join(bui, "z.xml"), "w").write("<z/>")
+        recursos_instalar([os.path.join(tmp, "rec"), os.path.join(tmp, "battle_ui")], base)
+        chequear("la carpeta battle_ui va a la capa pvp\\ y la arena a traducciones\\es\\",
+                 os.path.exists(os.path.join(base, "B", CAPA_PVP, "menu", "z.xml"))
+                 and not os.path.exists(os.path.join(base, "B", SUELTOS, "menu", "z.xml"))
+                 and os.path.exists(os.path.join(base, "B", SUELTOS, "data", "scenario", "x.lua")))
+        recursos_instalar([os.path.join(tmp, "rec"), os.path.join(tmp, "otra")], base, grupos=True)
         chequear("varias carpetas + --grupos: todo llega a A y a B (el guion con PVP_GRUPOS = true)",
                  all(os.path.exists(os.path.join(base, i, SUELTOS, "menu", "y.xml")) for i in INSTANCIAS)
                  and "PVP_GRUPOS     = true" in open(os.path.join(en_b, "data", "scenario", "x.lua")).read())
