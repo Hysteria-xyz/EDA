@@ -492,6 +492,9 @@ def chat(cmd, cuerpo, conexion, c, p):
         texto_str = ""
 
     if texto_str.startswith("/"):
+        if texto_str.split()[0].lower() == "/batalla":          # (24-nov) la pestaña «Batalla PvP» del lobby
+            from servidor import duelo
+            return duelo.comando_batalla(conexion)
         from servidor import messenger
         r = messenger.comando(texto_str, conexion, c)
         if r is not None:

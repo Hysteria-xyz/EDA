@@ -1306,8 +1306,18 @@ def pruebas_duelo(chequear):
     pvp_antes, duelos_antes = config.PVP, config.DUELOS
     config.DUELOS = os.path.join(tempfile.mkdtemp(), "duelos.jsonl")
     try:
+        def chat(texto):
+            b = texto.encode("utf-16-le")
+            return struct.pack("<BIII", 1, 0xFFFFFFFF, 0, len(b)) + b
+
+        def textos(r):                      # 0x1005: HBII (11 B) · nombre (26 B) · u32 largo · el texto UTF-16
+            return [x[1][41:].decode("utf-16-le", "replace") for x in r if x[0] == 0x1005]
+
         # 0 · el revés de todo: sin EDA_PVP la arena no cambia nada
         config.PVP = False
+        r = responder(0x100D, chat("/batalla"), A)
+        chequear("batalla: ★ SIN EDA_PVP la pestaña recibe «Servicio no disponible» (el texto 41 del juego)",
+                 len(r) == 1 and r[0][3] == A and any("no disponible" in t for t in textos(r)), textos(r))
         s = en_stage(70)
         responder(0x105C, evento("PvP_Teleport"), A)
         r = responder(0x1065, b"\x01" + struct.pack("<I", 0), B)
@@ -1316,6 +1326,9 @@ def pruebas_duelo(chequear):
         limpiar(70)
 
         config.PVP = True
+        r = responder(0x100D, chat("/batalla"), A)
+        chequear("batalla: con EDA_PVP, /batalla contesta SÓLO al que la pidió (0 duelos en curso)",
+                 r and all(x[3] == A for x in r) and any("0 duelo" in t for t in textos(r)), textos(r))
         s = en_stage(71)
         r = responder(0x105C, evento("OnTrigger_01"), A)
         chequear("duelo: ★ el revés: un evento del guion que no es «PvP_*» no lo vuelve duelo", not duelo.en_duelo(s))

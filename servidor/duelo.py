@@ -46,6 +46,23 @@ def aviso(texto, destinos):
     return [linea(texto, m, nombre="[Duelo]") for m in destinos]
 
 
+def comando_batalla(conexion):
+    """«/batalla» = lo que manda la pestaña «Batalla PvP» del lobby (la d3d9.dll con [pvp] batalla=1). Sin
+    EDA_PVP contesta con el texto que el juego ya trae para eso (uistring 41: «Service Currently Not available»)."""
+    if not config.PVP:
+        return aviso("Servicio no disponible actualmente", [conexion])
+    from servidor.estado import SALAS
+    en_curso = [s for s in SALAS.values() if en_duelo(s) and s["duelo"].get("ganador") is None]
+    lineas = ["Batalla PvP (experimental): %d duelo(s) en curso." % len(en_curso)]
+    lineas += ["%s vs %s" % (nombre(d["duelo"]["jugadores"][0]), nombre(d["duelo"]["jugadores"][-1]))
+               for d in en_curso[:3]]
+    lineas.append("Para un duelo: Escenario, stage 1011 Easy, dos jugadores, con la arena instalada.")
+    r = []
+    for t in lineas:
+        r += aviso(t, [conexion])
+    return r
+
+
 def ver_evento(s, conexion, cuerpo):
     """0x105C: el primer «PvP_*» de la partida la marca como duelo. Devuelve los avisos (o [])."""
     if not (config.PVP and s and s.get("jugando")) or en_duelo(s):

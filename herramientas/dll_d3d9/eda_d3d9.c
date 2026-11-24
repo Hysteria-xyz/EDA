@@ -1072,7 +1072,24 @@ static void __attribute__((thiscall)) boton_opc(void *pantalla, void *ev)
     g_opc_por = "botón del lobby";
     opciones_o_chat();
 }
-static BYTE g_delegados[3][0x18];
+/* ★ (24-nov, EXPERIMENTAL, [pvp] batalla=1; APAGADO por defecto) la pestaña Battle del lobby (control 103 de la
+ *   lista 101, channellobby.xml:126; documentacion/PVP_BATTLE_UI.md): el lobby no la ata a nada. Se ata con el
+ *   mismo delegado que Clan / Messenger / Options a una función que manda «/batalla» por el chat. 0x4DF900 sólo
+ *   guarda (control → manejador) en el mapa del evento de la pantalla (0x4DF5B0, sin buscar el control), así que
+ *   atar un id que nunca avise no rompe nada. Va en los eventos 3 (botón) y 5 (fila de lista: así se atan las
+ *   filas de la sala): no se midió cuál manda un botón DENTRO de una lista. */
+static int g_pvp_batalla;
+static DWORD g_batalla_ultimo;
+static void __attribute__((thiscall)) boton_batalla(void *pantalla, void *ev)
+{
+    (void)pantalla; (void)ev;
+    DWORD ahora = GetTickCount();
+    if (ahora - g_batalla_ultimo < 500) return;              /* (los dos eventos de un mismo clic: uno solo) */
+    g_batalla_ultimo = ahora;
+    apuntar("  [pvp] pestaña Batalla PvP → «/batalla»");
+    chat("/batalla");
+}
+static BYTE g_delegados[5][0x18];
 static void msn_saludar(void);
 
 static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int control, void *delegado)
@@ -1086,6 +1103,15 @@ static void __attribute__((thiscall)) mi_unir_lobby(void *lobby, int evento, int
         JUEGO(J_UNIR, 0x4DF900)(lobby, 3, 3 + i, g_delegados[i]);
     }
     apuntar("  [mazino] lobby: Clan, Messenger y Options unidos");
+    if (g_pvp_batalla) {
+        int eventos[2] = {3, 5};
+        for (int i = 0; i < 2; i++) {
+            memcpy(g_delegados[3 + i], delegado, 0x18);
+            *(void **)(g_delegados[3 + i] + 8) = (void *)boton_batalla;
+            JUEGO(J_UNIR, 0x4DF900)(lobby, eventos[i], 103, g_delegados[3 + i]);
+        }
+        apuntar("  [pvp] lobby: la pestaña Battle (103) unida a «/batalla» (eventos 3 y 5)");
+    }
     msn_saludar();                                   /* (Punto 2: el server sabe que esta dll tiene el Messenger) */
 }
 
@@ -2430,6 +2456,10 @@ static void leer_ajustes(HMODULE self)
     g_mz_atajos = g_mazino ? GetPrivateProfileIntA("mazino", "atajos", 1, ini) : 0;
     g_mz_messenger = g_mazino ? GetPrivateProfileIntA("mazino", "messenger", 1, ini) : 0;
     g_mz_entrada = g_mazino ? GetPrivateProfileIntA("mazino", "entrada", 1, ini) : 0;
+    /* ★ (24-nov) EXPERIMENTAL y APAGADO por defecto: la pestaña Battle del lobby (necesita [mazino] botones=1) */
+    g_pvp_batalla = GetPrivateProfileIntA("pvp", "batalla", 0, ini);
+    if (g_pvp_batalla) apuntar("  [pvp] batalla=1 (experimental): la pestaña Battle del lobby manda «/batalla»%s",
+                               g_mz_botones ? "" : " · ⚠ sin efecto: hace falta [mazino] botones=1");
     /* ★ P2P: que los juegos se encuentren (MEDICIONES §52). Prendido por defecto: sólo arregla lo que
      *   el juego manda roto, y un .ini viejo (el launcher no lo pisa) sin este bloque lo tiene igual */
     g_p2p = GetPrivateProfileIntA("p2p", "activo", 1, ini);
