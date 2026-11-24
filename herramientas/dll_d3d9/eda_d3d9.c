@@ -1381,7 +1381,7 @@ static void barra_xy(HWND h, int x, int y, const char *por, int ya800)
         int lobby = vt == 0x00899670 || vt == 0x00899740, costado = pc >= 4 && pc <= 7;   /* (la sala NO: ver abajo) */
         int o0 = lobby ? 547 : 544, m0 = lobby ? 468 : 629, m1 = lobby ? 546 : 703;
         int boton = 0;                                   /* 1 = Options · 2 = Messenger */
-        if (lobby && g_e2d_lienzo > 800)                 /* ★ (24-nov) el lobby panorámico: la columna de la derecha */
+        if ((lobby || costado) && g_e2d_lienzo > 800)    /* ★ (24-nov) panorámico: la columna (los mismos lugares) */
             boton = e2d_pan_en_boton(g_e2d_lienzo, 5, x, y) ? 1 : e2d_pan_en_boton(g_e2d_lienzo, 4, x, y) ? 2 : 0;
         else if ((lobby || costado) && y >= 8 && y <= 64) boton = x >= o0 && x <= 621 ? 1 : x >= m0 && x <= m1 ? 2 : 0;
         if (g_diagnostico)
@@ -1402,6 +1402,12 @@ static void barra_xy(HWND h, int x, int y, const char *por, int ya800)
         if (y >= 8 && y <= 58 && x >= 465 && x <= 703)
             apuntar("  [mazino] (medir) clic en la barra: x %d · pantalla %d · escena 0x%08lX vtable 0x%08lX", x, pc,
                     (unsigned long)(ULONG_PTR)esc, (unsigned long)(ULONG_PTR)(esc ? leer_ptr(esc) : NULL));
+        return;
+    }
+    if (g_e2d_lienzo > 800) {                        /* ★ (24-nov) panorámico: Clan 3 · Messenger 4 · Options 5 en la columna */
+        if (e2d_pan_en_boton(g_e2d_lienzo, 3, x, y)) chat("/clan");
+        else if (e2d_pan_en_boton(g_e2d_lienzo, 5, x, y)) { g_opc_por = "columna del costado"; opciones_o_chat(); }
+        else if (e2d_pan_en_boton(g_e2d_lienzo, 4, x, y)) msn_pedido("columna del costado");
         return;
     }
     if (y < 8 || y > 64) return;                     /* (la placa llega a y 61: medido en la captura de 23:42) */

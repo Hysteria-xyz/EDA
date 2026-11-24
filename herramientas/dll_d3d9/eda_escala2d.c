@@ -35,7 +35,7 @@ static float g_e2d_s = 1, g_e2d_rx, g_e2d_ry;
  *   · tr_abrir_ancho, g_e2d_lobby_ancho): ahí 1066 o 960 de ancho, desde el borde izquierdo. Todo lo de abajo (proyección,
  *   viewports de una parte, scissor, dibujos XYZRHW, mouse, cursor) ya usa s / rx / ry: cambia sólo cómo se calculan. */
 static int g_e2d_lienzo = 800;
-static volatile LONG g_e2d_lobby_ancho, g_e2d_sel_ancho;   /* el ancho del XML servido (0 = el original) */
+static volatile LONG g_e2d_lobby_ancho, g_e2d_sel_ancho, g_e2d_tie_ancho;   /* el ancho del XML servido (0 = el original) */
 static long c_e2d_lienzo;                /* veces que cambió el lienzo (entrar / salir del lobby panorámico) */
 static volatile LONG g_e2d_rt_fuera;     /* (diag) 1 = el render target 0 no es la pantalla (otro tamaño) */
 static void e2d_geometria(void)
@@ -46,11 +46,11 @@ static void e2d_geometria(void)
     g_e2d_rx = (g_e2d_w - L * s) / 2;
     g_e2d_ry = (g_e2d_h - 600 * s) / 2;
 }
-/* el lienzo de esta escena: el lobby (0x899670) o Select Character (0x899740) con su XML panorámico servido → su ancho;
+/* el lienzo de esta escena: el lobby (0x899670), Select Character (0x899740) o Shop/Inventory/Refinery/Skill (0x899F10) con su XML panorámico servido → su ancho;
  * cualquier otra → 800 */
-static int e2d_lienzo_de(DWORD vt, long lobby_ancho, long sel_ancho)
+static int e2d_lienzo_de(DWORD vt, long lobby_ancho, long sel_ancho, long tie_ancho)
 {
-    long a = vt == 0x00899670u ? lobby_ancho : vt == 0x00899740u ? sel_ancho : 0;
+    long a = vt == 0x00899670u ? lobby_ancho : vt == 0x00899740u ? sel_ancho : vt == 0x00899F10u ? tie_ancho : 0;
     return a > 800 ? (int)a : 800;
 }
 /* la COLUMNA de botones del lobby panorámico (la misma regla que herramientas/lobby_ancho.py · columna): el control n
@@ -744,7 +744,7 @@ static void e2d_cuadro(void *dev)
     DWORD vt = esc ? (DWORD)(ULONG_PTR)leer_ptr(esc) : 0;
     g_e2d_stage_ahora = vt == 0x00899C20;
     {                                                        /* ★ (24-nov) el lienzo del lobby panorámico */
-        int L = e2d_lienzo_de(vt, g_e2d_lobby_ancho, g_e2d_sel_ancho);
+        int L = e2d_lienzo_de(vt, g_e2d_lobby_ancho, g_e2d_sel_ancho, g_e2d_tie_ancho);
         if (L != g_e2d_lienzo) {
             g_e2d_lienzo = L;
             e2d_geometria();

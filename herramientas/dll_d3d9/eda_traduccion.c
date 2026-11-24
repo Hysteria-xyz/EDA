@@ -422,7 +422,7 @@ static volatile LONG g_tr_pvp_sala;
  *   channellobby.xml que se sirvió queda en g_e2d_lobby_ancho (0 = el original) y eda_escala2d.c lo usa como lienzo
  *   mientras la escena sea el lobby. (Definiciones tentativas: las mismas variables están en eda_escala2d.c.) */
 static int g_tr_lobby_pan = 1;
-static volatile LONG g_e2d_lobby_ancho, g_e2d_sel_ancho;
+static volatile LONG g_e2d_lobby_ancho, g_e2d_sel_ancho, g_e2d_tie_ancho;
 static int g_e2d_activa;
 static int g_e2d_w, g_e2d_h;
 
@@ -559,11 +559,14 @@ static int tr_abrir_suelto_en(const WCHAR *capa, const unsigned short *rel, DWOR
 }
 /* ★ las pantallas panorámicas: el XML se elige al abrirlo (con el tamaño de pantalla de ese momento) y sus texturas
  *   (<carpeta de la pantalla>\ancho_*) salen de la MISMA variante. Cualquier otro archivo: nada.
- *   · el LOBBY (channellobby.xml, escena 0x899670) · ★ SELECT CHARACTER (characterselect.xml, escena 0x899740) */
+ *   · el LOBBY (channellobby.xml, escena 0x899670) · ★ SELECT CHARACTER (characterselect.xml, escena 0x899740)
+ *   · ★ SHOP / INVENTORY / REFINERY / SKILL (shopninventory.xml, escena 0x899F10: las cuatro son una sola) */
 static const struct { const char *xml, *img, *nombre; volatile LONG *ancho; } TR_PANTALLAS[] = {
     {"menu\\international\\channellobby.xml", "image\\ui_image\\international\\channellobby\\ancho_", "el lobby", &g_e2d_lobby_ancho},
     {"menu\\international\\characterselect.xml", "image\\ui_image\\international\\characterselect\\ancho_", "Select Character",
      &g_e2d_sel_ancho},
+    {"menu\\international\\shopninventory.xml", "image\\ui_image\\international\\shopninventory\\ancho_",
+     "Shop / Inventory / Refinery / Skill", &g_e2d_tie_ancho},
 };
 static int tr_abrir_ancho(const unsigned short *rel, DWORD *out_handle)
 {

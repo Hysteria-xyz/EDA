@@ -413,6 +413,184 @@ def sel_fondo(png_original, L):
     return tex, out
 
 
+# ── ★ SHOP / INVENTORY / REFINERY / SKILL (shopninventory.xml, escena 0x899F10, «pantalla del costado» 4–7) ──
+# UNA escena y UN layout para las cuatro: lo compartido (fondo, marco EDA_shop_b de 782×537 en (11, 62), la barra de
+# arriba, el selector Tienda/Inventario/Refinería/Habilidades, las estadísticas y nombre/oro/cash) está en los grupos
+# 0–3; cada pantalla sólo muestra otras ventanas: a la IZQUIERDA (x < 335) el equipo con el personaje 3D (400), la
+# refinería (700–780) o las habilidades (800–860); a la DERECHA el catálogo de la tienda (500–580) o el inventario y
+# sus 5 pestañas (600–650). Reacomodando lo compartido una sola vez, cambiar de pantalla no mueve nada.
+TIE_XML = "menu/international/shopninventory.xml"
+TIE_MARCO = "image/ui_image/international/shopninventory/eda_shop_b.tga"
+TIE_FONDO = "image/ui_image/international/shared/eda_worlds_bg.bmp"
+TIE_MARCO_NUEVO = "ancho_shop_b.tga"
+TIE_FONDO_NUEVO = "ancho_worlds_bg.tga"
+TIE_X0 = 11                                    # el marco en x 11 (global = local + 11)
+TIE_IZQ = (20, 335)                            # el panel de arriba a la izquierda (sus ventanas)
+TIE_ABAJO_MEDIO = (214, 584)                   # el panel de las estadísticas
+# la barra de arriba → la columna, en los MISMOS lugares que en el lobby (Clan 3, Messenger 4, Options 5, Exit 7)
+TIE_COLUMNA = {4: 1, 5: 3, 6: 5, 7: 4, 8: 7}   # control → lugar (4 Lobby · 5 Clan · 6 Options · 7 Messenger · 8 Exit)
+TIE_POP_IZQ = (400, 700, 720, 740, 760, 780, 800, 820, 840, 860)
+TIE_POP_DER = (500, 520, 540, 560, 580, 600, 610, 620, 630, 640, 650)
+TIE_POP_CENTRO = (900, 1300, 1400, 1500, 1600)
+TIE_TEX_PESTANA = (63, "ancho_tab_refineria.tga")            # Inchant_SelBtn (75×69, 3 estados) más ancha
+TIE_TEX_BOTON = (64, "ancho_btn_eliminar.tga", 115)          # Shop_buyAllBtn (75×99, 3 estados) a 115
+
+
+def tie_texturas(tab_png, boton_png, L):
+    """las dos piezas ampliadas por segmentos: (pestaña, botón) en lienzos de 128×128 (como las originales)"""
+    from PIL import Image
+    d, dl, dr = tie_d(L)
+    at = (300 + dl) // 4
+    tab = _rebanar_a(tab_png.convert("RGBA").crop((0, 0, 75, 69)), [(0, 12, 0, 12), (12, 63, 12, at - 12), (63, 75, at - 12, at)], at)
+    nb = TIE_TEX_BOTON[2]
+    e = (nb - 75) // 2
+    bot = _rebanar_a(boton_png.convert("RGBA").crop((0, 0, 75, 99)),
+                     [(0, 14, 0, 14), (14, 28, 14, 28 + e), (28, 47, 28 + e, 47 + e), (47, 61, 47 + e, nb - 14), (61, 75, nb - 14, nb)], nb)
+    a = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    a.paste(tab, (0, 0))
+    b = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    b.paste(bot, (0, 0))
+    return a, b
+
+
+def tie_d(L):
+    """lo que crece el marco (hasta la columna) y cómo se reparte: (total, panel izquierdo, panel derecho)"""
+    d = L - 800 - COL
+    dl = r(d * 0.36)
+    return d, dl, d - dl
+
+
+def tie_ancho(original, L):
+    try:
+        return _tie_ancho(original.decode("utf-8"), L).encode("utf-8")
+    except (NoConocido, UnicodeDecodeError) as e:
+        print("  ⛔ %s" % e)
+        return None
+
+
+def _tie_ancho(t, L):
+    d, dl, dr = tie_d(L)
+    for viejo, nuevo in ((r'TEXTURE ID="0" PATH="Shared\\EDA_worlds_bg.bmp" TEXW="800" TEXH="600"',
+                          r'TEXTURE ID="0" PATH="ShopNInventory\\%s" TEXW="%d" TEXH="600"' % (TIE_FONDO_NUEVO, L)),
+                         (r'TEXTURE ID="2" PATH="ShopNInventory\\EDA_shop_b.tga" TEXW="782" TEXH="537"',
+                          r'TEXTURE ID="2" PATH="ShopNInventory\\%s" TEXW="%d" TEXH="537"' % (TIE_MARCO_NUEVO, 782 + d))):
+        if t.count(viejo) != 1:
+            raise NoConocido("textura no conocida: %s" % viejo[:40])
+        t = t.replace(viejo, nuevo)
+    t = _cambiar(t, "BOARD", 0, lambda s: _poner(s, W=L))
+    t = _cambiar(t, "BOARD", 3, lambda s: _poner(s, W=782 + d))
+    for n, lugar in TIE_COLUMNA.items():
+        x, y = columna(L, lugar)
+        t = _cambiar(t, "BUTTON", n, lambda s, x=x, y=y: _poner(s, X=x, Y=y))
+    # las estadísticas: la columna de la izquierda (x < 400) se corre d/3 y la de la derecha 2d/3 (más aire entre las dos)
+    def stat(s):
+        x = _num(s, "X")
+        return _poner(s, X=r(x + (d / 3 if x < 400 else 2 * d / 3)))
+    for n in range(200, 241):
+        if re.search(r'<BOARD\s+INDEX="%d"\s' % n, t):
+            t = _cambiar(t, "BOARD", n, stat)
+    for n in range(241, 246):
+        t = _cambiar(t, "BUTTON", n, stat)
+    # nombre, nivel, clase, oro, cash y el botón CASH: con el panel de la derecha
+    for n in range(300, 309):
+        if re.search(r'<BOARD\s+INDEX="%d"\s' % n, t):
+            t = _cambiar(t, "BOARD", n, lambda s: _poner(s, X=r(_num(s, "X") + d)))
+    t = _cambiar(t, "BUTTON", 307, lambda s: _poner(s, X=r(_num(s, "X") + d)))
+    # las ventanas: centradas en su panel (los controles de adentro son relativos a la ventana: no se tocan)
+    for n in TIE_POP_IZQ:
+        if n == 700:
+            continue                                         # (las pestañas de la refinería usan el ancho: abajo)
+        t = _cambiar(t, "POPUP", n, lambda s: _poner(s, X=r(_num(s, "X") + dl / 2)))
+    # ⚠ el PERSONAJE 3D del equipo NO se mueve con su ventana (medido 24-nov: las casillas sí, el personaje no; como en
+    #   Select Character, AVATAR X es de la cámara): se corre lo mismo que la ventana, con la medida de Select Character
+    #   (1 unidad de X = 1,5 de interfaz a Z −400) llevada a su Z (la perspectiva: proporcional a 1/|Z|)
+    k = SEL_AVATAR_K * 400 / 500
+    t = _cambiar(t, "AVATAR", 10012, lambda s: _poner(s, X=r(_num(s, "X") - (dl / 2) / k)))
+    # REFINERY: las 4 pestañas (Encantar, Refinar piedra, Crear ranura, Reparar) se pisaban a 75 px; usan el ancho que
+    #   ganó el panel izquierdo, con la textura de la pestaña ampliada por segmentos (TIE_TEX_PESTANA)
+    ancho_tab = (300 + dl) // 4
+    t = _cambiar(t, "POPUP", 700, lambda s: _poner(s, W=r(_num(s, "W") + dl)))
+    m = _etiqueta(t, "BTNEXLIST", 13000)
+    fin = t.index("</BTNEXLIST>", m.end())
+    bloque = t[m.start():fin]
+    bloque = bloque.replace(m.group(0), _poner(m.group(0), W=ancho_tab * 4, AREAW=ancho_tab * 4), 1)
+    if bloque.count('TEXID="31"') != 4:
+        raise NoConocido("las pestañas de la refinería no son las conocidas")
+    bloque = bloque.replace('TEXID="31"', 'TEXID="%d"' % TIE_TEX_PESTANA[0])
+    bloque = bloque.replace('TXTOFFX="37"', 'TXTOFFX="%d"' % (ancho_tab // 2)).replace('X="37"', 'X="%d"' % (ancho_tab // 2))
+    # (la pestaña elegida tenía el texto rojo sobre la pestaña roja: blanco, como las de Skill)
+    bloque = bloque.replace('SIZE="9" COLOR="0xffff0000"', 'SIZE="10" COLOR="0xffffffff"')
+    t = t[:m.start()] + bloque + t[fin:]
+    # SKILL: «Eliminar habilidad» no entraba en 75 px: 115, con la textura ampliada por segmentos (TIE_TEX_BOTON)
+    def eliminar(s):
+        x, w = _num(s, "X"), _num(s, "W")
+        nw = TIE_TEX_BOTON[2]
+        return _poner(s, X=r(x + w / 2 - nw / 2), W=nw, TEXID=TIE_TEX_BOTON[0], TXTOFFX=nw // 2)
+    t = _cambiar(t, "BUTTON", 14013, eliminar)
+    m = _etiqueta(t, "BUTTON", 14013)
+    fin = t.index("</BUTTON>", m.end())
+    t = t[:m.end()] + t[m.end():fin].replace('X="38"', 'X="%d"' % (TIE_TEX_BOTON[2] // 2)) + t[fin:]
+    # las dos texturas nuevas, AL FINAL de la lista (el juego las toma por orden: después de la 62)
+    ultima = '<TEXTURE ID="62" PATH="GameScene\\\\coin.tga" TEXW="7" TEXH="7"'
+    if t.count(ultima) != 1:
+        raise NoConocido("la última textura no es la 62 (coin.tga)")
+    i = t.index("\n", t.index(ultima)) + 1
+    nuevas = "".join('\t\t<TEXTURE ID="%d" PATH="ShopNInventory\\\\%s" TEXW="%d" TEXH="%d" EXPLAIN="panorámico"/>\r\n'
+                     % (tid, nombre, w_, h_) for tid, nombre, w_, h_ in
+                     ((TIE_TEX_PESTANA[0], TIE_TEX_PESTANA[1], ancho_tab, 69), (TIE_TEX_BOTON[0], TIE_TEX_BOTON[1],
+                                                                                 TIE_TEX_BOTON[2], 99)))
+    t = t[:i] + nuevas + t[i:]
+    for n in TIE_POP_DER:
+        t = _cambiar(t, "POPUP", n, lambda s: _poner(s, X=r(_num(s, "X") + dl + dr / 2)))
+    for n in TIE_POP_CENTRO:
+        t = _cambiar(t, "POPUP", n, lambda s: _poner(s, X=r(_num(s, "X") + d / 2)))
+    return t
+
+
+def _rebanar_a(img, piezas, ancho):
+    """[(a, b, A, B)]: el tramo [a, b) del original va a [A, B) (igual si mide lo mismo, estirado si no)"""
+    from PIL import Image
+    out = Image.new("RGBA", (ancho, img.height))
+    for a, b, A, B in piezas:
+        p = img.crop((a, 0, b, img.height))
+        if B - A != b - a:
+            p = p.resize((B - A, img.height), Image.LANCZOS)
+        out.paste(p, (A, 0))
+    return out
+
+
+def tie_marco(png, L):
+    """el marco EDA_shop_b más ancho: los adornos de las uniones y las esquinas quedan iguales; se estiran tramos lisos"""
+    from PIL import Image
+    d, dl, dr = tie_d(L)
+    src = png.convert("RGBA").crop((0, 0, 782, 537))
+    W = 782 + d
+    out = Image.new("RGBA", (W, 537), (0, 0, 0, 0))
+    arriba = [(0, 30, 0, 30), (30, 300, 30, 300 + dl), (300, 350, 300 + dl, 350 + dl), (350, 750, 350 + dl, 750 + d),
+              (750, 782, 750 + d, 782 + d)]
+    linea = [(0, 216, 0, 216), (216, 310, 216, 310 + dl), (310, 338, 310 + dl, 338 + dl), (338, 560, 338 + dl, 560 + d),
+             (560, 782, 560 + d, 782 + d)]
+    abajo = [(0, 216, 0, 216), (216, 560, 216, 560 + d), (560, 782, 560 + d, 782 + d)]
+    for y0, y1, piezas in ((0, 380, arriba), (380, 404, linea), (404, 537, abajo)):
+        out.paste(_rebanar_a(src.crop((0, y0, 782, y1)), piezas, W), (0, y0))
+    tex = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    tex.paste(out, (0, 0))
+    return tex, out
+
+
+def tie_fondo(png, L):
+    """el fondo de la escena (EDA_worlds_bg) agrandado PAREJO hasta cubrir L×600 (sin deformar), recortado arriba/abajo"""
+    from PIL import Image
+    src = png.convert("RGBA").crop((0, 0, 800, 600))
+    nh = r(600 * L / 800)
+    g2 = src.resize((L, nh), Image.LANCZOS)
+    c = (nh - 600) // 2
+    out = g2.crop((0, c, L, c + 600))
+    tex = Image.new("RGBA", (2048, 1024), (0, 0, 0, 255))
+    tex.paste(out, (0, 0))
+    return tex, out
+
+
 # ── generar / instalar ──
 def leer(ruta, cliente=None):
     import battle_ui as B
@@ -427,6 +605,11 @@ def generar(salida=None, batalla=False, cliente=None):
     fondo = Image.open(io.BytesIO(leer(FONDO, cliente)))
     sel_xml = leer(SEL_XML, cliente)
     sel_png = Image.open(io.BytesIO(leer(SEL_FONDO, cliente)))
+    tie_xml = leer(TIE_XML, cliente)
+    tie_marco_png = Image.open(io.BytesIO(leer(TIE_MARCO, cliente)))
+    tie_fondo_png = Image.open(io.BytesIO(leer(TIE_FONDO, cliente)))
+    tie_tab_png = Image.open(io.BytesIO(leer("image/ui_image/international/shopninventory/inchant_selbtn.tga", cliente)))
+    tie_boton_png = Image.open(io.BytesIO(leer("image/ui_image/international/shopninventory/shop_buyallbtn.tga", cliente)))
     for L in ANCHOS:
         nuevo = lobby_ancho(xml, L, batalla)
         if nuevo is None:
@@ -451,7 +634,25 @@ def generar(salida=None, batalla=False, cliente=None):
         os.makedirs(os.path.dirname(dt), exist_ok=True)
         tex.save(dt)
         vista.save(os.path.join(salida, "vista_sel_%d.png" % L))
-        print("· %d×600 → %s (lobby y Select Character)" % (L, d))
+        # Shop / Inventory / Refinery / Skill
+        nuevo = tie_ancho(tie_xml, L)
+        if nuevo is None:
+            raise SystemExit("⛔ %s no es el conocido: no se genera nada" % TIE_XML)
+        dx = os.path.join(d, *TIE_XML.split("/"))
+        open(dx, "wb").write(nuevo)
+        carpeta = os.path.join(d, "image", "ui_image", "international", "shopninventory")
+        os.makedirs(carpeta, exist_ok=True)
+        tex, vm = tie_marco(tie_marco_png, L)
+        tex.save(os.path.join(carpeta, TIE_MARCO_NUEVO))
+        tex, vf = tie_fondo(tie_fondo_png, L)
+        tex.save(os.path.join(carpeta, TIE_FONDO_NUEVO))
+        a, b = tie_texturas(tie_tab_png, tie_boton_png, L)
+        a.save(os.path.join(carpeta, TIE_TEX_PESTANA[1]))
+        b.save(os.path.join(carpeta, TIE_TEX_BOTON[1]))
+        vf = vf.copy()
+        vf.paste(vm, (TIE_X0, 62), vm)
+        vf.save(os.path.join(salida, "vista_tie_%d.png" % L))
+        print("· %d×600 → %s (lobby, Select Character y Shop/Inventory/Refinery/Skill)" % (L, d))
     return salida
 
 
@@ -564,6 +765,33 @@ def control(cliente=None):
             chequear("Select Character %d: las ventanas dentro del lienzo" % L,
                      all(0 <= float(p.get("X")) and float(p.get("X")) + float(p.get("W")) <= L for p in pops))
         chequear("Select Character: el revés (un XML cualquiera → nada)", sel_ancho(b"<MENUCONTROLS/>", 1066) is None)
+        tx = leer(TIE_XML, cliente)
+        for L in ANCHOS:
+            n = tie_ancho(tx, L)
+            chequear("Shop/Inventory %d: se genera" % L, n is not None)
+            if n is None:
+                continue
+            raiz = ET.fromstring(n)
+            d, dl, dr = tie_d(L)
+            pops = {p.get("INDEX"): p for p in raiz.iter("POPUP")}
+            dentro = all(0 <= float(p.get("X")) and float(p.get("X")) + float(p.get("W")) <= TIE_X0 + 782 + d
+                         for p in pops.values() if p.get("INDEX") not in ("1000", "1100", "1200"))
+            chequear("Shop/Inventory %d: todas las ventanas dentro del marco" % L, dentro)
+            izq = [pops[str(i)] for i in TIE_POP_IZQ if i != 700]
+            chequear("Shop/Inventory %d: las ventanas de la izquierda no pasan la unión (x %d)" % (L, 335 + dl),
+                     all(float(p.get("X")) + float(p.get("W")) <= 335 + dl + 1 for p in izq))
+            der = [pops[str(i)] for i in TIE_POP_DER]
+            chequear("Shop/Inventory %d: las de la derecha empiezan después de la unión" % L,
+                     all(float(p.get("X")) >= 335 + dl - 1 for p in der))
+            bots = {b.get("INDEX"): b for b in raiz.iter("BUTTON")}
+            col = [(float(bots[str(i)].get("X")), float(bots[str(i)].get("Y"))) for i in range(4, 9)]
+            chequear("Shop/Inventory %d: la barra en la columna, en los lugares del lobby" % L,
+                     col == [columna(L, TIE_COLUMNA[i]) for i in range(4, 9)])
+            texs = [int(t_.get("ID")) for t_ in raiz.iter("TEXTURE")]
+            chequear("Shop/Inventory %d: las texturas nuevas al final (63, 64)" % L, texs[-2:] == [63, 64])
+            av = next(raiz.iter("AVATAR"))
+            chequear("Shop/Inventory %d: el personaje 3D se corre con su ventana" % L, float(av.get("X")) < 170)
+        chequear("Shop/Inventory: el revés (un XML cualquiera → nada)", tie_ancho(b"<MENUCONTROLS/>", 1066) is None)
     print("\n→ %s (%d bien · %d mal)" % ("TODO BIEN" if not mal else "HAY ERRORES", bien, mal))
     return mal == 0
 

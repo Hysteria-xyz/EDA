@@ -68,6 +68,38 @@ pantalla y todo queda en coordenadas positivas.
   con las rayas de unión redibujadas de botón a botón. ✅
 - **Crear personaje** (popup 200, 800×600) y los avisos: centrados. ✅ (un personaje creado desde ahí, 0x1013)
 
+## 4b · Shop / Inventory / Refinery / Skill (rama `feature/widescreen-character-management`)
+
+**Arquitectura compartida (verificado):** las cuatro son UNA escena (`0x899F10`) y UN layout,
+`menu/international/shopninventory.xml`; la DLL distingue la pantalla por `[escena+0xDC]` = 4 / 5 / 6 / 7 (Shop,
+Inventory, Refinery, Skill). Lo compartido está en los grupos 0–3: el fondo (`Shared/EDA_worlds_bg.bmp`), UN marco de
+una pieza (`EDA_shop_b.tga`, 782×537 en (11, 62)) con las uniones pintadas, la barra de arriba (Lobby, Clan, Options,
+Messenger, Exit), el selector Tienda/Inventario/Refinería/Habilidades, las estadísticas con sus «+», y
+nombre/nivel/clase/oro/cash/CASH. Cada pantalla sólo cambia qué ventanas (POPUP) muestra: a la izquierda el equipo con
+el personaje 3D (400), la refinería (700–780) o las habilidades (800–860); a la derecha el catálogo (500–580) o el
+inventario con sus 5 pestañas (600–650). Los controles de adentro de una ventana son RELATIVOS a la ventana. Por eso
+todo se reacomoda en un solo lugar (`lobby_ancho.py · _tie_ancho`, regla `tie_d(L)`): cambiar de pantalla no mueve
+nada compartido.
+
+| qué | cambio |
+|---|---|
+| marco | ensanchado por segmentos (tramos lisos; esquinas y adornos de las uniones iguales); el panel izquierdo gana 36 % y el derecho 64 % |
+| fondo | agrandado parejo (sin deformar) a L×600 |
+| barra de arriba | en la columna derecha, en los MISMOS lugares que en el lobby (Lobby 1, Clan 3, Messenger 4, Options 5, Exit 7); la DLL reconoce Clan/Messenger/Options ahí |
+| ventanas | centradas en su panel; las grillas, slots e iconos no cambian de tamaño (celdas cuadradas, índices iguales) |
+| personaje 3D del equipo | `AVATAR X` corregido (la cámara no sigue a la ventana: medido) |
+| estadísticas / nombre y oro | la columna izquierda +⅓, la derecha +⅔ del ancho ganado; nombre/oro/CASH con el panel derecho |
+| Refinery | las 4 pestañas (Encantar, Refinar piedra, Crear ranura, Reparar) a 90 px con la pestaña original ampliada por segmentos (`ancho_tab_refineria.tga`); el texto de la elegida, blanco (era rojo sobre rojo) |
+| Skill | «Eliminar habilidad» a 115 px con el botón original ampliado por segmentos (`ancho_btn_eliminar.tga`) |
+
+**Probado en vivo a 1600×900:** comprar (Espada larga Básica 1200: oro 5678 → 4478, 0x103F/0x1040), vender (480:
+→ 4958, 0x1041/0x1042), tooltips junto al objeto, equipar / desequipar con clic derecho (cabeza: estadísticas bajan y
+vuelven), «No puedes equipar este objeto» con uno de Cazadora, el «+» de Fuerza (0 → 1, puntos 72 → 71), cambiar
+entre las 4 pantallas, las pestañas y el submenú Reparar, la columna (Lobby, Inventory, Select Character), las
+ventanas de confirmación centradas.
+**⏳ Sin verificar:** poner objetos en las casillas de la Refinería y arrastrar habilidades: con la automatización no
+anduvo NI en la pantalla original (no es una diferencia del panorámico) → probar a mano.
+
 ## 5 · Resoluciones
 
 | resolución | variante | cómo se verificó |

@@ -501,12 +501,13 @@ int main(void)
     }
     printf("== (24-nov) LAS PANTALLAS PANORÁMICAS: el lienzo por escena y cada resolución ==\n");
     {
-        chequear("el lobby (0x899670) con su XML de 1066 → lienzo 1066", e2d_lienzo_de(0x00899670, 1066, 0) == 1066);
-        chequear("Select Character (0x899740) con el suyo de 960 → 960", e2d_lienzo_de(0x00899740, 0, 960) == 960);
-        chequear("★ revés: el lobby sin XML panorámico (0) → 800", e2d_lienzo_de(0x00899670, 0, 1066) == 800);
-        chequear("★ revés: otra escena (sala, Stage, inventario) → 800 aunque haya XML ancho",
-                 e2d_lienzo_de(0x0089A268, 1066, 1066) == 800 && e2d_lienzo_de(0x00899C20, 1066, 1066) == 800
-                 && e2d_lienzo_de(0x00899F10, 1066, 1066) == 800);
+        chequear("el lobby (0x899670) con su XML de 1066 → lienzo 1066", e2d_lienzo_de(0x00899670, 1066, 0, 0) == 1066);
+        chequear("Select Character (0x899740) con el suyo de 960 → 960", e2d_lienzo_de(0x00899740, 0, 960, 0) == 960);
+        chequear("★ revés: el lobby sin XML panorámico (0) → 800", e2d_lienzo_de(0x00899670, 0, 1066, 1066) == 800);
+        chequear("Shop/Inventory/Refinery/Skill (0x899F10) con su XML de 1066 → 1066", e2d_lienzo_de(0x00899F10, 0, 0, 1066) == 1066);
+        chequear("★ revés: Shop/Inventory sin su XML (aunque el lobby lo tenga) → 800", e2d_lienzo_de(0x00899F10, 1066, 1066, 0) == 800);
+        chequear("★ revés: otra escena (sala, Stage) → 800 aunque haya XML ancho",
+                 e2d_lienzo_de(0x0089A268, 1066, 1066, 1066) == 800 && e2d_lienzo_de(0x00899C20, 1066, 1066, 1066) == 800);
         /* el ancho que elige la dll (eda_traduccion.c · tr_ancho_elegir) para cada resolución, a mano: */
         static const int res[][3] = {{1024, 768, 800}, {1280, 720, 1066}, {1366, 768, 1066}, {1600, 900, 1066},
                                      {1920, 1080, 1066}, {2560, 1440, 1066}, {3840, 2160, 1066}, {1440, 900, 960},
