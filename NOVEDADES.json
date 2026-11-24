@@ -2,6 +2,19 @@
  "_leeme": "Las novedades de cada RELEASE del cliente que reparte el launcher (una entrada por versión, la más nueva primero). Texto para el JUGADOR: corto, sin HTML, sin direcciones de memoria. Regla y flujo: documentacion/VERSIONES.md. Se revisa con: py herramientas\\version_cliente.py revisar.",
  "versiones": [
   {
+   "version": "2026.11.24",
+   "borrador": true,
+   "fecha": "2026-11-24",
+   "dll": "0.5.5",
+   "resumen": "Preparamos el modo Batalla PvP. Todavía está apagado: llegará cuando lo probemos entre varios.",
+   "mejoras": [
+    "Nada cambia para los jugadores: el PvP viene apagado y el juego sigue igual que antes."
+   ],
+   "avisos": [
+    "Si ves la pestaña «Batalla PvP» en el lobby, es una prueba del equipo: todavía no está abierta para todos."
+   ]
+  },
+  {
    "version": "2026.11.23",
    "fecha": "2026-11-23",
    "dll": "0.5.4",
