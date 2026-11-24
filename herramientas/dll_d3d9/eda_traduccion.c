@@ -485,6 +485,12 @@ static int tr_abrir_pvp(const unsigned short *rel, DWORD *out_handle)
         apuntar("  [pvp] sala: %s", g_tr_pvp_sala ? "de DUELO → la sala con equipos (pvp\\)" : "normal → la de siempre");
         if (!g_tr_pvp_sala) return 0;
     }
+    /* ★ (24-nov) los guiones de escenario de pvp\ (la ARENA: data\scenario\…) también sólo en una sala de duelo: en
+     *   cualquier otra sala la stage es la original. (El guion se lee al cargar la stage, después del aviso de la sala.) */
+    const char *esc = "data\\scenario\\";
+    int k = 0;
+    while (esc[k] && rel[k] == (unsigned char)esc[k]) k++;
+    if (!esc[k] && !g_tr_pvp_sala) return 0;
     WCHAR completa[MAX_PATH];
     int nb = lstrlenW(g_tr_base_w), nr = 0;
     while (rel[nr]) nr++;
@@ -501,6 +507,7 @@ static int tr_abrir_pvp(const unsigned short *rel, DWORD *out_handle)
     *out_handle = (DWORD)(ULONG_PTR)s;
     InterlockedIncrement(&g_tr_redirigidos_sueltos);
     tr_anotar_redirigido(rel, g_tr_pvp_sala ? "pvp, sala de duelo" : "pvp");
+    if (!esc[k]) apuntar("  [pvp] stage de la sala de DUELO: el guion de la arena (pvp\\)");
     return 1;
 }
 

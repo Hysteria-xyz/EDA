@@ -3,7 +3,8 @@ r"""dos_clientes -- ★ PvP, etapa 0.1: DOS juegos independientes en esta PC con
     py herramientas\pvp\dos_clientes.py preparar [--dll CARPETA]   # una vez (y cada vez que cambie exe\ o _trabajo\juego)
         --dll: la d3d9.dll + ini de la release «cliente-develop» (gh release download cliente-develop), verificadas
         con su cliente-develop.json. ⚠ exe\d3d9.dll del repo es la del Punto 4 (md5 d7df418b): NO carga traducciones\
-    py herramientas\pvp\dos_clientes.py recursos instalar [carpeta …] [--grupos] [--sin-teleport]   # la arena (u otras) en A y B
+    py herramientas\pvp\dos_clientes.py recursos instalar [carpeta …] [--grupos] [--sin-teleport] [--en-duelo]
+        la arena (u otras) en A y B; --en-duelo: la arena a la capa pvp\ (con iniciar --batalla: sólo en salas de duelo)
     py herramientas\pvp\dos_clientes.py recursos quitar                # A y B vuelven a leer sólo Data.dat
     py herramientas\pvp\dos_clientes.py iniciar [--p2p auto|relay|directo] [--hex] [--pvp]
         --hex: cada mensaje en server.log · --pvp: el server árbitro del duelo (EDA_PVP=1, servidor/duelo.py)
@@ -167,7 +168,7 @@ TELEPORT_PRENDIDO = "PVP_TELEPORT   = true "
 TELEPORT_APAGADO = "PVP_TELEPORT   = false"
 
 
-def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False):
+def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False, en_duelo=False):
     """Copia los recursos experimentales (misma ruta relativa que en Data.dat) a cada instancia, donde la dll los
     sirve en lugar de los de Data.dat (idioma «es», el de fábrica). Sólo en EDA_pvp\\A y \\B: nadie más los ve.
     `origen` = una carpeta o una lista de carpetas (p. ej. la arena y la interfaz de Battle)."""
@@ -179,7 +180,9 @@ def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False)
     for o in origenes:
         # ★ (24-nov) la interfaz de Battle (battle_ui.py) va a la capa pvp\ de la dll ([pvp] batalla=1: la sala con
         #   equipos sólo en salas de duelo); lo demás (la arena) a la carpeta suelta de la traducción
-        capa = CAPA_PVP if os.path.basename(os.path.normpath(o)).lower() == "battle_ui" else SUELTOS
+        #   (--en-duelo: la arena también a pvp\, donde la dll la sirve SÓLO en una sala de duelo)
+        nom = os.path.basename(os.path.normpath(o)).lower()
+        capa = CAPA_PVP if nom == "battle_ui" or (en_duelo and nom == "arena") else SUELTOS
         for raiz, _, nombres in os.walk(o):
             for n in nombres:
                 if n.lower() in ("leeme.md",) or n.startswith("."):
@@ -468,7 +471,6 @@ def control():
         otra = os.path.join(tmp, "otra", "menu")
         os.makedirs(otra)
         open(os.path.join(otra, "y.xml"), "w").write("<y/>")
-        recursos_instalar([os.path.join(tmp, "rec"), os.path.join(tmp, "otra")], base, grupos=True)
         en_b = os.path.join(base, "B", SUELTOS)
         bui = os.path.join(tmp, "battle_ui", "menu")
         os.makedirs(bui)
@@ -478,6 +480,17 @@ def control():
                  os.path.exists(os.path.join(base, "B", CAPA_PVP, "menu", "z.xml"))
                  and not os.path.exists(os.path.join(base, "B", SUELTOS, "menu", "z.xml"))
                  and os.path.exists(os.path.join(base, "B", SUELTOS, "data", "scenario", "x.lua")))
+        arena = os.path.join(tmp, "arena", "data", "scenario")
+        os.makedirs(arena)
+        open(os.path.join(arena, "a.lua"), "w").write("PVP_GRUPOS     = false\n")
+        recursos_instalar([os.path.join(tmp, "arena")], base, en_duelo=True)
+        chequear("--en-duelo: la arena va a la capa pvp\\ (no a traducciones\\es\\)",
+                 os.path.exists(os.path.join(base, "A", CAPA_PVP, "data", "scenario", "a.lua"))
+                 and not os.path.exists(os.path.join(base, "A", SUELTOS, "data", "scenario", "a.lua")))
+        recursos_instalar([os.path.join(tmp, "arena")], base)
+        chequear("★ el revés: sin --en-duelo la arena va a traducciones\\es\\ como siempre",
+                 os.path.exists(os.path.join(base, "A", SUELTOS, "data", "scenario", "a.lua"))
+                 and not os.path.exists(os.path.join(base, "A", CAPA_PVP, "data", "scenario", "a.lua")))
         recursos_instalar([os.path.join(tmp, "rec"), os.path.join(tmp, "otra")], base, grupos=True)
         chequear("varias carpetas + --grupos: todo llega a A y a B (el guion con PVP_GRUPOS = true)",
                  all(os.path.exists(os.path.join(base, i, SUELTOS, "menu", "y.xml")) for i in INSTANCIAS)
@@ -514,7 +527,8 @@ def main():
         if a[1:2] == ["quitar"]:
             return recursos_quitar()
         resto = [x for x in a[2:] if not x.startswith("--")] if a[1:2] == ["instalar"] else []
-        recursos_instalar(resto or ARENA, grupos="--grupos" in a, sin_teleport="--sin-teleport" in a)
+        recursos_instalar(resto or ARENA, grupos="--grupos" in a, sin_teleport="--sin-teleport" in a,
+                          en_duelo="--en-duelo" in a)
         return 0
     if cmd == "llevar":
         hasta = a[1] if len(a) > 1 else "partida"

@@ -225,6 +225,12 @@ una ruta nueva). Dos límites:
      Pruebas del server con su revés (`pruebas_duelo`: sin `EDA_PVP` no hay avisos ni salas marcadas; sin
      `/pvp hola` no llega ningún «[PVP]»; con «Escenario» la sala es normal). `prueba_traduccion.c` compila con
      `-Wall -Werror`.
-   - Lo que falta para publicarlo: subir `VERSION` y `NOVEDADES.json`, medir en dos PCs (la regla de la dll) y que
-     la arena también se sirva sólo en una sala de duelo (hoy reemplaza la 1011 Easy en las instalaciones de prueba).
+   - ✅ **La arena también, sólo en salas de duelo** (24-nov, sesión `20261124-091817`): los guiones de escenario
+     de la capa `pvp\` (`data\scenario\…`) se sirven sólo con la sala de duelo avisada; el guion se lee al cargar la
+     stage, después del aviso de la sala. `dos_clientes.py recursos instalar … --en-duelo` pone la arena en `pvp\`.
+     **Medido**, dos salas seguidas en la misma sesión: la creada con «Escenario» corrió el guion ORIGINAL de la
+     1011 (`Briefing_01`, `OnTrigger_01`, las puertas; sin duelo) y la creada con «Batalla PvP» corrió la ARENA
+     (`PvP_Teleport`…; el server: «duelo kai (azul) vs rui (rojo)»); la dll: «stage de la sala de DUELO: el guion
+     de la arena» sólo en la segunda. Las dos volvieron a la sala.
+   - Lo que falta para publicarlo: subir `VERSION` y `NOVEDADES.json`, y medir en dos PCs (la regla de la dll).
 6. La pantalla 4 propia queda fuera de alcance mientras los pasos 1–5 no estén probados.
