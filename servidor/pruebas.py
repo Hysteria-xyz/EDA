@@ -929,11 +929,24 @@ def control():
         premio_ok = False
     chequear("dar_premio con bolsa llena (150 casilleros) no crashea con StopIteration", premio_ok)
 
-    # ★ 0x1060 / 0x106D: sincronización de temporizador de stage
-    r = responder(0x1060, struct.pack("<I", 12345), 203)
-    chequear("0x1060 responde con tick de 4 bytes", len(r) == 1 and r[0][0] == 0x1060 and len(r[0][1]) == 4)
-    r = responder(0x106D, bytes(16), 203)
-    chequear("0x106D responde con temporizador de 16 bytes", len(r) == 1 and r[0][0] == 0x106D and len(r[0][1]) == 16)
+    # ★ (24-nov) lo que SÓLO manda el server (0x105D/1060/1062/1066/106D): de un cliente se descarta, sin
+    #   contestar ni reenviar (el exe no tiene sitio que los mande; 0x547440 se cae con un 0x1062 armado)
+    SALAS[56] = {"sala": bytes(sala_raw), "anfitrion": 301, "miembros": [301, 302]}
+    partida(301)["sala"] = 56
+    partida(302)["sala"] = 56
+    malos = {0x105D: b"\1" * 8, 0x1060: struct.pack("<I", 12345), 0x1062: b"\xff" * 16 + b"\xff" * 5,
+             0x1066: bytes(6), 0x106D: bytes(16)}
+    salen = {hex(k): responder(k, v, 301) for k, v in malos.items()}
+    chequear("lo que sólo manda el server (105D/1060/1062/1066/106D) llegado de un cliente: no sale NADA",
+             all(r == [] for r in salen.values()), salen)
+    chequear("★ el revés: lo legítimo del mismo jugador sigue saliendo (0x1067 → 0x1066, 0x105C → 0x105D)",
+             any(x[0] == 0x1066 for x in responder(0x1067, struct.pack("<I", 778), 301))
+             and any(x[0] == 0x105D and x[3] == 302 for x in responder(0x105C, b"\1\2\3\4", 301)))
+    chequear("tampoco contesta fuera de una sala (antes el 0x1060/0x106D volvía al que lo mandó)",
+             responder(0x1060, struct.pack("<I", 1), 203) == [] and responder(0x106D, bytes(16), 203) == [])
+    partida(301).pop("sala", None)
+    partida(302).pop("sala", None)
+    del SALAS[56]
 
     # ★ 0x102F / 0x1030: asignación de puntos de atributos (stats)
     d = leer(203)
@@ -1534,14 +1547,17 @@ def pruebas_multijugador(chequear):
     # 7 · lo de la stage sólo a los que SIGUEN en ella (Punto 3 lo midió con el 0x105D: fuera de la stage cierra
     #     el juego); antes 0x105D / 0x1060 / 0x1062 / 0x1066 / 0x106D iban a todos los de la sala
     sala_cargando(66, [A, B])
-    cuerpos = {0x105D: b"\1" * 8, 0x1060: b"\0" * 4, 0x1062: bytes(16), 0x1066: bytes(6), 0x106D: bytes(16),
-               0x105C: b"\1" * 8}
+    #   (24-nov: 0x105D/1060/1062/1066/106D mandados por un cliente ya no se reenvían nunca; queda el 0x105C)
+    cuerpos = {0x105C: b"\1" * 8}
     ambos = all(any(len(x) > 3 and x[3] == B for x in responder(k, v, A)) for k, v in cuerpos.items())
-    chequear("multi: con los dos en la stage, lo de A le llega a B (0x105C/D, 1060, 1062, 1066, 106D)", ambos)
+    chequear("multi: con los dos en la stage, el evento del guion de A (0x105C → 0x105D) le llega a B", ambos)
+    solo_server = {0x105D: b"\1" * 8, 0x1060: b"\0" * 4, 0x1062: bytes(16), 0x1066: bytes(6), 0x106D: bytes(16)}
+    colados = [hex(k) for k, v in solo_server.items() if responder(k, v, A)]
+    chequear("★ multi: lo que sólo manda el server, si lo manda A, no le llega a B ni vuelve a A", not colados,
+             colados)
     SALAS[66]["en_stage"].discard(B)                     # (B terminó: está en las cartas / volvió a la sala)
     fuera = [hex(k) for k, v in cuerpos.items() if any(len(x) > 3 and x[3] == B for x in responder(k, v, A))]
-    chequear("★ multi: B ya salió de la stage → no le llega NADA de la stage de A (antes: 0x105D/1060/1062/1066/106D)",
-             not fuera, fuera)
+    chequear("★ multi: B ya salió de la stage → no le llega NADA de la stage de A", not fuera, fuera)
     limpiar(66, [A, B])
     pruebas_estres(chequear)
     pruebas_red_cola(chequear)
