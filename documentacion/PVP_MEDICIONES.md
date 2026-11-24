@@ -150,7 +150,8 @@ Los dos son nivel 25 recién creados: tienen la misma vida y no se podría saber
 | habilidades de área contra jugadores | 🚫 | las habilidades no se lanzan en la partida (MEDICIONES §34) |
 | contenido del UDP de combate | 🟡 | familias por largo+tipo (`48000340` 76 B, `0c000540`, `190051c3`/`52c3` con la MAC): falta separar el golpe |
 | el PvE sigue igual sin la arena | ✅ | T08, sesión `-070959` |
-| sala de duelo, ganador PvP, vuelta al lobby | ⏳ | el fin hoy paga el resultado PvE de 1011 |
+| ganador PvP declarado por el server, fin sin premio, vuelta a la sala | ✅ | sesión `-080932` (`servidor/duelo.py`, `EDA_PVP=1`) |
+| sala de duelo propia / pestaña Battle | ⏳ | hoy el duelo es la stage 1011 con la arena, sólo en las instalaciones de prueba |
 
 ## 4 · Registro de sesiones
 
@@ -163,4 +164,5 @@ Los dos son nivel 25 recién creados: tienen la misma vida y no se podría saber
 | `20261124-064447` | arena + grupos, dll 0.5.4, **combate a mano de los dos lados** | ✅ daño entre jugadores en los dos sentidos, sincronizado; kai muere; `0x1065` con el atacante; revive; fin |
 | `20261124-070421` | arena **sin** grupos, dll 0.5.4, combate a mano (T01) | ✅ cero daño: sin reacción, barras 221/221, cero `OnDamaged` / `0x1063` / `0x1065` |
 | `20261124-072844` … `-074909` | server con `--pvp` + arena con grupos, sin teletransporte, ataques AUTOMÁTICOS de kai | ✅ el server reconoce el duelo · ⛔ encontrado: los dos clientes eligen jugadores distintos para `SetEntityGroup` y los dos quedan en `0x4` (corregido; en `-074909` rui `0x1` y kai `0x4` en los dos) · ⏳ ningún golpe automático llegó (la entrada automática con la dll 0.5.4 es poco confiable: PVP_PROTOTIPO.md §5) |
+| `20261124-080932` | **el duelo completo**: arena + grupos + server `--pvp`, peleado a mano | ✅ rui gana por KO (5 golpes); sin cuadro de revivir; «gana rui a kai (muerte)» en el server y en `duelos.jsonl`; fin sin premio; los dos de vuelta en la sala |
 | `20261124-070959` | arena QUITADA, stage normal a mano (T08) | ✅ guion original; golpes jugador↔monstruo en los dos sentidos, 10 bajas, 2 muertes y 2 revividas; 0 golpes entre jugadores |

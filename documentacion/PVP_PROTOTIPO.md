@@ -110,10 +110,10 @@ de esto: lo prueba el primer caso de `pruebas_duelo` (un «PvP_*» no marca nada
 | qué | cómo | prueba (`servidor/pruebas.py · pruebas_duelo`, con su revés) | en vivo |
 |---|---|---|---|
 | reconocer el duelo | el 1er `0x105C` tipo 0 de la partida cuyo nombre empieza con `PvP_` (los manda la arena) marca la sala; aviso por el chat «[Duelo] Duelo: rui vs kai» | ✅ (revés: `OnTrigger_01` no la marca) | ✅ sesiones `-072844`, `-074413`, `-074909`: «duelo rui #1 vs kai #3 (por «PvP_Teleport»)» |
-| muerte → ganador | `0x1065` (`u8 jugador · u32 entidad que mató`): **sin** `0x1068` (no hay cuadro de revivir); el ganador es la conexión cuyo número de sala = esa entidad (medido: rui 0, kai 1, los NPC desde 256); si no calza, el otro del duelo. Aviso «Gana X (por KO)» y una línea en `duelos.jsonl` | ✅ (revés: una 2.ª muerte no cambia nada) | ⏳ falta un KO en vivo (ver abajo) |
-| red de seguridad | el muerto queda con `game_over_en` a 25 s: si el guion no cierra la stage, sale el game over de siempre → lobby | ✅ | ⏳ |
-| fin sin premio | `0x1064` en duelo: PlayEnd sin ítems, EXP y oro como estaban, cartas con 0 puntos y AWARD vacío (`[0, 0]`) a los 9,5 s → vuelve a la sala por el camino medido | ✅ | ⏳ |
-| desconexión | gana el que queda (se anota con los dos nombres) | ✅ | ⏳ |
+| muerte → ganador | `0x1065` (`u8 jugador · u32 entidad que mató`): **sin** `0x1068` (no hay cuadro de revivir); el ganador es la conexión cuyo número de sala = esa entidad (medido: rui 0, kai 1, los NPC desde 256); si no calza, el otro del duelo. Aviso «Gana X (por KO)» y una línea en `duelos.jsonl` | ✅ (revés: una 2.ª muerte no cambia nada) | ✅ sesión `-080932`, a mano: rui le pega 5 veces a kai (16–24) → `muerte` en los dos → `0x1065` sin `0x1068` → «gana rui a kai (muerte)» y su línea en `duelos.jsonl` (21,7 s de duelo) |
+| red de seguridad | el muerto queda con `game_over_en` a 25 s: si el guion no cierra la stage, sale el game over de siempre → lobby | ✅ | ✅ no hizo falta: el fin llegó a los 5 s y la canceló (ningún `0x1069` / `0x1075`) |
+| fin sin premio | `0x1064` en duelo: PlayEnd sin ítems, EXP y oro como estaban, cartas con 0 puntos y AWARD vacío (`[0, 0]`) a los 9,5 s → vuelve a la sala por el camino medido | ✅ | ✅ sesión `-080932`: `0x1064` de los dos 5 s después de la muerte → `0x1073` (29 B, sin ítems) → `0x106E` → `0x106F` → `0x1072` (5 B) → **los dos en la sala** |
+| desconexión | gana el que queda (se anota con los dos nombres) | ✅ | ✅ (sin querer: cerrar los juegos a mitad de duelo en las sesiones `-074413` y `-074909` dejó «gana kai a rui (desconexion)») |
 
 Lo que **no** hace: ranking, premios, sala de duelo propia. La pestaña Battle sigue cerrada.
 
@@ -135,7 +135,11 @@ explícitamente al grupo 1 y el mayor al 3, en los dos clientes. Medido en la se
 - Con eso kai se mueve, pero la mayoría de las órdenes se pierden y acertarle al otro a ciegas no es confiable:
   en 30 rondas automáticas no hubo ningún golpe (ni un `OnDamaged`). La pelea la tiene que hacer una persona.
 
-**Para probarlo a mano:**
+✅ **El duelo 1 vs 1 completo anduvo con dos clientes reales** (24-nov, sesión `20261124-080932`, peleado a mano):
+arena → grupos distintos → combate → KO → ganador declarado por el server → fin sin premio → los dos de vuelta en la
+sala, sin tocar el exe ni `Data.dat`, y con el PvE intacto fuera de la arena (T08).
+
+**Para repetirlo a mano:**
 ```bat
 py herramientas\pvp\dos_clientes.py recursos instalar --grupos
 py herramientas\pvp\dos_clientes.py iniciar --pvp --hex
@@ -148,7 +152,7 @@ sala. `server.log` tiene la línea `[duelo] … gana …` y `EDA_pvp\estado\duel
 ## 6 · Lo siguiente
 
 1. Encontrar el test de grupos del golpe cuerpo a cuerpo (con `entidades.py` + un punto nuevo).
-2. ✅ (código y pruebas; ⏳ el KO en vivo) Server árbitro del duelo: §5.
+2. ✅ Server árbitro del duelo, probado en vivo: §5.
 3. Elegir el escenario de la arena sin pisar la 1011 de nadie: un canal propio de la dll (PVP_ARQUITECTURA.md §1)
    en lugar de `traducciones\es\`.
 4. La pestaña Battle sigue sin habilitarse (PVP_BATTLE_UI.md).
