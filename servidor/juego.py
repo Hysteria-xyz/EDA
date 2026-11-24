@@ -41,6 +41,7 @@ from servidor import entrada, inventario, tienda, habilidades, refineria, person
 from servidor import nat                                     # noqa: E402
 from servidor import messenger                               # noqa: E402
 from servidor import salida                                  # noqa: E402
+from servidor import duelo                                   # noqa: E402
 from servidor import CANDADO as _CANDADO                     # noqa: E402
 
 
@@ -188,6 +189,9 @@ def _cerrada(conexion):
     """El espía avisa que la conexión se cerró: olvidar su partida, su sala y soltar su cuenta.
     (Sin forma de devolver mensajes acá: la lista nueva sale con el próximo `tick`.)"""
     VIVO.__dict__.setdefault("DESCONECTADAS", set()).discard(conexion)
+    if config.PVP:                                          # (24-nov, experimental: en un duelo gana el que queda;
+        for k in list(SALAS.keys()):                        #  antes de soltar la cuenta, para anotar su nombre)
+            VIVO.AVISOS_SALA = getattr(VIVO, "AVISOS_SALA", []) + duelo.desconexion(SALAS[k], conexion)
     nombre = ASIGNADAS.pop(conexion, None)
     if nombre:                                              # el aviso a sus amigos, con el tick
         messenger.al_salir(nombre)

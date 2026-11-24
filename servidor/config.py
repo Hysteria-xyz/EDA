@@ -104,6 +104,11 @@ NIVEL_INICIAL = int(os.environ.get("EDA_NIVEL_INICIAL") or 25)
 GM_CUENTAS = os.environ.get("EDA_GM_CUENTAS", "")
 GM_EN_VIVO = os.environ.get("EDA_GM_EN_VIVO", "").strip() == "1"
 
+# ★ (24-nov) EXPERIMENTAL: el server árbitro del duelo PvP (servidor/duelo.py, documentacion/PVP_PROTOTIPO.md). Apagado
+#   por defecto: sin EDA_PVP=1 el server no mira los eventos PvP_* de la arena y el PvE queda exactamente igual.
+PVP = os.environ.get("EDA_PVP", "").strip() == "1"
+DUELOS = os.path.join(ESTADO, "duelos.jsonl")                 # cada duelo decidido: quién ganó, a quién, cómo
+
 # ★ (20-nov) LA PUERTA INTERNA DEL PANEL del Coordinador Eñeños (servidor/panel.py, el «contrato del panel v1»):
 #   R2_CUENTAS_FICHA_INTERNA es la ficha que tiene que traer cada pedido (la MISMA variable que el resto del conjunto
 #   Eñeños). Vacía = la puerta no existe (todo 404). EDA_ENTORNO dice qué server es (prod, prueba, ensayo…).

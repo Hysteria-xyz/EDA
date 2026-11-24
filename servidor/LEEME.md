@@ -23,6 +23,7 @@ lo pasa a la función registrada para ese comando con `@maneja(0x....)` (`regist
 | `habilidades.py` | verificar el libro, aprender, borrar | `103B` `103D` `1043` |
 | `refineria.py` | engarces, piedras, refinar, reparar | `1037` `1033` `1035` `1039` |
 | `partida.py` | la stage: cargar, morir, revivir, el final, cartas, premio | `105F` `1061` `1063` `1065` `106A` `1064` `1070` `1074` `1001` |
+| `duelo.py` | ★ EXPERIMENTAL, sólo con `EDA_PVP=1`: el server árbitro del duelo PvP (reconoce la arena, ganador por el `0x1065`, fin sin premio). Ver `documentacion/PVP_PROTOTIPO.md` | — (lo llaman `105C` · `1065` · `1064` y la desconexión) |
 | `pruebas.py` | ★ las pruebas (`py servidor\juego.py control`) | — |
 
 Lo que el server todavía no contesta lo cuenta `py herramientas\contar_piezas.py` (ver el README).

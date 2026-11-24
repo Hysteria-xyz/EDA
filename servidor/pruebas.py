@@ -1047,6 +1047,10 @@ def control():
     pruebas_multijugador(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
+    pruebas_duelo(chequear)
+    PARTIDAS.clear()
+    ASIGNADAS.clear()
+    SALAS.clear()
     pruebas_panel(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
@@ -1267,6 +1271,102 @@ def pruebas_150_variantes(chequear):
              26004 not in [it[0] for it in nuevos] and 26004 not in [it[0] for it in c["items"]])
     chequear("(Paso 6) el premio da sólo ORO (= Σ Type 0) y no toca el cash", not oro_mal, oro_mal[:10])
     chequear("la carta de cada stage es un ítem que existe (o nada)", not carta_mal, carta_mal[:10])
+
+
+def pruebas_duelo(chequear):
+    """★ (24-nov, EXPERIMENTAL) el server árbitro del duelo (servidor/duelo.py), con dos conexiones falsas.
+    Lo primero: SIN EDA_PVP nada cambia (el PvE de siempre)."""
+    import tempfile
+    from servidor import duelo
+
+    A, B = 511, 512
+
+    def evento(texto):
+        t = texto.encode()
+        return struct.pack("<II", 0, len(t)) + t + b"\0" * 4
+
+    def en_stage(num):
+        SALAS[num] = {"sala": bytes(0x59), "anfitrion": A, "miembros": [A, B], "numeros": {A: 0, B: 1},
+                      "listos": set()}
+        for m in (A, B):
+            partida(m)["sala"] = num
+            partida(m).pop("resultado_guardado", None)
+            partida(m)["game_over_en"] = None
+        responder(0x1047, bytes([1, 1]), B)
+        responder(0x104E, b"", A)
+        responder(0x105F, b"\0" * 4, A)
+        responder(0x105F, b"\0" * 4, B)
+        return SALAS[num]
+
+    def limpiar(num):
+        SALAS.pop(num, None)
+        for m in (A, B):
+            partida(m).pop("sala", None)
+
+    pvp_antes, duelos_antes = config.PVP, config.DUELOS
+    config.DUELOS = os.path.join(tempfile.mkdtemp(), "duelos.jsonl")
+    try:
+        # 0 · el revés de todo: sin EDA_PVP la arena no cambia nada
+        config.PVP = False
+        s = en_stage(70)
+        responder(0x105C, evento("PvP_Teleport"), A)
+        r = responder(0x1065, b"\x01" + struct.pack("<I", 0), B)
+        chequear("duelo: ★ SIN EDA_PVP un «PvP_*» no marca nada y el muerto recibe su cuadro de revivir (0x1068)",
+                 "duelo" not in s and any(x[0] == 0x1068 for x in r), r)
+        limpiar(70)
+
+        config.PVP = True
+        s = en_stage(71)
+        r = responder(0x105C, evento("OnTrigger_01"), A)
+        chequear("duelo: ★ el revés: un evento del guion que no es «PvP_*» no lo vuelve duelo", not duelo.en_duelo(s))
+        r = responder(0x105C, evento("PvP_Teleport"), A)
+        avisos = [x for x in r if x[0] == 0x1005]
+        chequear("duelo: el 1er «PvP_*» de la partida la marca como duelo y avisa a los dos por el chat",
+                 duelo.en_duelo(s) and sorted(x[3] for x in avisos) == [A, B], r)
+        chequear("duelo: el evento se sigue reenviando al otro (0x105D) como siempre",
+                 any(x[0] == 0x105D and x[3] == B for x in r))
+        oro_a, exp_a = leer(A)["plata"], leer(A)["exp"]
+        r = responder(0x1065, b"\x01" + struct.pack("<I", 0), B)       # murió B (1), lo mató la entidad 0 = A
+        chequear("duelo: la muerte NO abre el cuadro de revivir (sin 0x1068) y avisa el ganador",
+                 not any(x[0] == 0x1068 for x in r) and any(x[0] == 0x1005 for x in r), r)
+        chequear("duelo: gana A (entidad 0 = su número de sala) por muerte",
+                 s["duelo"]["ganador"] == A and s["duelo"]["por"] == "muerte")
+        reg = [json.loads(l) for l in open(config.DUELOS, encoding="utf-8")]
+        chequear("duelo: queda anotado en duelos.jsonl", len(reg) == 1 and reg[0]["por"] == "muerte", reg)
+        chequear("duelo: el muerto tiene su red (game over si el guion no cierra la stage)",
+                 bool(partida(B).get("game_over_en")))
+        r = responder(0x1065, b"\x00" + struct.pack("<I", 1), A)
+        chequear("duelo: ★ el revés: una 2.ª muerte no cambia el ganador ni se anota otra vez",
+                 s["duelo"]["ganador"] == A and len(open(config.DUELOS, encoding="utf-8").readlines()) == 1)
+        r = responder(0x1064, b"\x00", A)
+        fin = [x for x in r if x[0] == 0x1073]
+        award = [x for x in r if x[0] == 0x1072]
+        chequear("duelo: el fin del máster cierra la stage de los dos (0x1073 a cada uno)", len(fin) == 2, r)
+        chequear("duelo: sin premio: el PlayEnd sin ítems y la EXP y el oro de A como antes",
+                 all(x[1][25] == 0 for x in fin) and leer(A)["exp"] == exp_a and leer(A)["plata"] == oro_a,
+                 [x[1][:28].hex() for x in fin])
+        chequear("duelo: AWARD vacío enseguida (vuelve a la sala sin cobrar cartas)",
+                 len(award) == 2 and all(x[1] == struct.pack("<IB", 0, 0) for x in award), award)
+        limpiar(71)
+
+        # el que mató no es el otro jugador (p. ej. una trampa o un NPC): gana igual el otro del duelo
+        s = en_stage(72)
+        responder(0x105C, evento("PvP_Cuenta"), A)
+        responder(0x1065, b"\x00" + struct.pack("<I", 300), A)
+        chequear("duelo: si lo mató una entidad que no es jugador, gana el otro", s["duelo"]["ganador"] == B)
+        limpiar(72)
+
+        # desconexión durante el duelo: gana el que queda
+        s = en_stage(73)
+        responder(0x105C, evento("PvP_Pelea"), A)
+        ASIGNADAS[B] = "rui"
+        cerrada(B)
+        reg = json.loads(open(config.DUELOS, encoding="utf-8").readlines()[-1])
+        chequear("duelo: si uno se desconecta, gana el que queda (y se anota con su nombre)",
+                 s["duelo"]["ganador"] == A and s["duelo"]["por"] == "desconexion" and reg["perdedor"] == "rui", reg)
+        limpiar(73)
+    finally:
+        config.PVP, config.DUELOS = pvp_antes, duelos_antes
 
 
 def pruebas_multijugador(chequear):

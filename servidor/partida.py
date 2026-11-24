@@ -9,7 +9,7 @@ import re
 import struct
 import time
 
-from servidor import config
+from servidor import config, duelo
 from servidor.registro import maneja
 from servidor.estado import PARTIDAS, SALAS, partida, numero
 from servidor.cuentas import guardar, nivel
@@ -514,9 +514,10 @@ def evento_guion_escenario(cmd, cuerpo, conexion, c, p):
     s = SALAS.get(p.get("sala"))
     if not s or conexion not in s["miembros"] or len(s["miembros"]) <= 1:
         return []
+    avisos = duelo.ver_evento(s, conexion, cuerpo) if config.PVP else []   # (24-nov, experimental)
     # ★ (Punto 3) sólo a los que SIGUEN en la stage: el 0x105D fuera de la stage cierra el juego (medido
     #   dos veces el 18-nov: 10:19:37 en el lobby y 11:56:59 en la sala)
-    return [(0x105D, cuerpo, 0, m) for m in en_la_stage(s, conexion)]
+    return [(0x105D, cuerpo, 0, m) for m in en_la_stage(s, conexion)] + avisos
 
 
 @maneja(0x105D)
@@ -570,6 +571,9 @@ def estoy_vivo(cmd, cuerpo, conexion, c, p):
 @maneja(0x1065)
 def murio(cmd, cuerpo, conexion, c, p):
     """murió [§5.12]"""
+    s = SALAS.get(p.get("sala"))
+    if config.PVP and duelo.en_duelo(s) and conexion in s["miembros"]:
+        return duelo.muerte(s, conexion, cuerpo, p)       # (24-nov, experimental: sin cuadro de revivir)
     # al vencer el tiempo para revivir el cliente NO manda nada (medido 15:19): el game over
     # lo da el server (0x1069, 🟡) si no llegó el «sí» (0x106A) a tiempo
     p["game_over_en"] = time.time() + 15.5
@@ -645,6 +649,9 @@ def _fin_de_uno(cmd, cuerpo, conexion, c, p):
     p["resultado_guardado"] = True
     p["cierre_bajas"] = None
     p["game_over_en"] = None                            # (si estaba muerto esperando: ya no hay game over)
+    s_ = SALAS.get(p.get("sala"))
+    if config.PVP and duelo.en_duelo(s_) and conexion in s_["miembros"]:
+        return duelo.fin_de_uno(c, p, conexion, s_)     # (24-nov, experimental: el duelo no paga)
     inicio = p.get("inicio") or time.time()
     ms = int((time.time() - inicio) * 1000)
     # ★ el premio sale del XML del escenario (RANK_POINT, KILL_POINT, TOTALEXP, MONSTER_CNT,
