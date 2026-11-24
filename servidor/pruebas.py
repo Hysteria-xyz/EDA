@@ -1064,6 +1064,9 @@ def control():
     PARTIDAS.clear()
     ASIGNADAS.clear()
     SALAS.clear()
+    pruebas_jugadores_sala(chequear)
+    PARTIDAS.clear()
+    SALAS.clear()
     pruebas_panel(chequear)
     PARTIDAS.clear()
     ASIGNADAS.clear()
@@ -1284,6 +1287,42 @@ def pruebas_150_variantes(chequear):
              26004 not in [it[0] for it in nuevos] and 26004 not in [it[0] for it in c["items"]])
     chequear("(Paso 6) el premio da sólo ORO (= Σ Type 0) y no toca el cash", not oro_mal, oro_mal[:10])
     chequear("la carta de cada stage es un ítem que existe (o nada)", not carta_mal, carta_mal[:10])
+
+
+def pruebas_jugadores_sala(chequear):
+    """★ (24-nov) el máximo de jugadores de la sala (servidor/salas.py · maximo_sala, documentacion/MAS_JUGADORES.md)."""
+    from servidor.salas import maximo_sala
+    antes = config.JUGADORES_SALA
+    try:
+        config.JUGADORES_SALA = 0
+        chequear("sala: sin EDA_JUGADORES_SALA, el máximo que manda el cliente (Fácil 3, Normal 5, Difícil 8)",
+                 (maximo_sala(1011, 3), maximo_sala(1012, 5), maximo_sala(1013, 8)) == (3, 5, 8))
+        chequear("sala: si el cliente manda 0, el de la dificultad del escenario (1011 → 3, 1022 → 5, 1503 → 8)",
+                 (maximo_sala(1011, 0), maximo_sala(1022, 0), maximo_sala(1503, 0)) == (3, 5, 8))
+        chequear("sala: ★ el revés: nunca menos que los que ya están (4 adentro, pasa a Fácil → 4) ni más de 8",
+                 maximo_sala(1011, 0, 4) == 4 and maximo_sala(1013, 12) == 8)
+        cuerpo = bytearray(0x59)
+        struct.pack_into("<I", cuerpo, 0x28, 1011)
+        cuerpo[0x2F] = 3
+        r = responder(0x101D, b"\0\0\0\0" + bytes(cuerpo), 521)
+        num = partida(521)["sala"]
+        chequear("sala: creada en Fácil queda en 3 (el 0x101E lo dice en +0x2F)",
+                 SALAS[num]["sala"][0x2F] == 3 and [x for x in r if x[0] == 0x101E][0][1][5 + 0x2F] == 3)
+        responder(0x104B, struct.pack("<HI", 1, 1013) + bytes(28), 521)
+        chequear("sala: ★ pasar el escenario a Difícil (0x104B tipo 1) sube el máximo a 8 (antes quedaba en 3)",
+                 SALAS[num]["sala"][0x2F] == 8)
+        responder(0x104B, struct.pack("<HI", 1, 1012) + bytes(28), 521)
+        chequear("sala: y de vuelta a Normal, 5", SALAS[num]["sala"][0x2F] == 5)
+        SALAS.pop(num)
+        partida(521).pop("sala", None)
+        config.JUGADORES_SALA = 4
+        r = responder(0x101D, b"\0\0\0\0" + bytes(cuerpo), 521)
+        num = partida(521)["sala"]
+        chequear("sala: con EDA_JUGADORES_SALA=4 una sala de Fácil admite 4", SALAS[num]["sala"][0x2F] == 4)
+        SALAS.pop(num)
+        partida(521).pop("sala", None)
+    finally:
+        config.JUGADORES_SALA = antes
 
 
 def pruebas_duelo(chequear):

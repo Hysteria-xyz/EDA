@@ -94,6 +94,11 @@ TICKET_HORAS = float(os.environ.get("EDA_TICKET_HORAS") or 12)
 #   (con los conectados de verdad, el cliente muestra [Open] / [Normal] / [Busy] / [Full])
 NOMBRE_SERVER = os.environ.get("EDA_NOMBRE_SERVER") or "EDA"
 MAX_JUGADORES = int(os.environ.get("EDA_MAX_JUGADORES") or 100)
+# ★ (24-nov) JUGADORES POR SALA (servidor/salas.py · maximo_sala; documentacion/MAS_JUGADORES.md). 0 = el de la stage,
+#   como en 2009 (data/scenariolist.xml: Fácil 3, Normal 5, Difícil 8; lo manda el cliente al crear). 1..8 = ese máximo
+#   para TODAS las salas (p. ej. 4 para jugar de a cuatro también en Fácil). El cliente está hecho para 8 (8 filas en
+#   la sala, 8 compañeros en el HUD, 8 «Player Start» por mapa).
+JUGADORES_SALA = max(0, min(8, int(os.environ.get("EDA_JUGADORES_SALA") or 0)))
 
 # ★ «al menos por ahora, directo nivel 25» (El tester, 12-nov): el piso de nivel de cada personaje
 #   (servidor/cuentas.py · con_nivel_inicial). 0 = sin piso (las pruebas lo usan así)

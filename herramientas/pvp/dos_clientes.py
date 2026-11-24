@@ -10,6 +10,8 @@ r"""dos_clientes -- ★ PvP, etapa 0.1: DOS juegos independientes en esta PC con
         --hex: cada mensaje en server.log · --pvp: el server árbitro del duelo (EDA_PVP=1, servidor/duelo.py)
         --auto: [mazino] entrada=0 en A y B, para que combate_auto.py / control_partida.py muevan a los personajes
         --batalla: [pvp] batalla=1 en A y B (la pestaña Battle manda /batalla; hace falta preparar --dll-local)
+        --jugadores N: EDA_JUGADORES_SALA=N en el server (el máximo de todas las salas; 0 = el de la stage)
+    (EDA_PVP_N=4 en cualquier comando: cuatro juegos, A B C D, en vez de dos)
     py herramientas\pvp\dos_clientes.py preparar --dll-local     # la d3d9.dll compilada acá (_trabajo\dll) en A y B
     py herramientas\pvp\dos_clientes.py llevar [sala|listo|partida]   # los dos, del lobby a la stage 1011 (A anfitrión)
     py herramientas\pvp\dos_clientes.py estado
@@ -47,7 +49,8 @@ ORIGEN = os.path.join(RAIZ, "_trabajo", "juego")
 EXE_REPO = os.path.join(RAIZ, "exe")
 # ⚠ no %LOCALAPPDATA%: un programa empaquetado (MSIX) que lance esto lo ve redirigido a otra carpeta
 BASE = os.environ.get("EDA_PVP_DIR") or os.path.join(os.path.expanduser("~"), "EDA_pvp")
-INSTANCIAS = ("A", "B")
+# ★ (24-nov) EDA_PVP_N=4 → A, B, C, D (hasta 8: el login abierto tiene 4 cuentas automáticas, rui / kai / mio / ren)
+INSTANCIAS = tuple("ABCDEFGH"[:max(2, min(8, int(os.environ.get("EDA_PVP_N") or 2)))])
 EXE = "EDA_limpio.exe"
 PUERTO = 27900
 RELAY_BASE = 28000
@@ -282,7 +285,7 @@ def poner_ini(inst, seccion, clave, valor):
     ctypes.windll.kernel32.WritePrivateProfileStringW(seccion, clave, str(valor), os.path.join(inst, "eda_d3d9.ini"))
 
 
-def iniciar(p2p, hexa=False, pvp=False, auto=False, batalla=False):
+def iniciar(p2p, hexa=False, pvp=False, auto=False, batalla=False, jugadores=0):
     # ★ (24-nov) --auto: la dll 0.5.4 sólo deja pasar el teclado y el mouse «con EDA al frente» ([mazino] entrada) y
     #   tapa lo que mete control_partida.py (medido: kai quieto aun al frente). Para que las pruebas automáticas
     #   manejen a los personajes se apaga ESO, sólo en estas dos instalaciones; sin --auto vuelve a 1 (lo de fábrica)
@@ -309,7 +312,8 @@ def iniciar(p2p, hexa=False, pvp=False, auto=False, batalla=False):
     env = dict(os.environ, PYTHONIOENCODING="utf-8", EDA_ESTADO=os.path.join(BASE, "estado"),
                EDA_PUERTO=str(PUERTO), EDA_RELAY_IP="127.0.0.1", EDA_RELAY_BASE=str(RELAY_BASE),
                EDA_P2P=p2p, EDA_GM_CUENTAS="rui,kai", EDA_LOGIN="abierto", EDA_ENTORNO="local",
-               EDA_LOG_HEX="1" if hexa else "", EDA_PVP="1" if pvp else "")
+               EDA_LOG_HEX="1" if hexa else "", EDA_PVP="1" if pvp else "",
+               EDA_JUGADORES_SALA=str(jugadores) if jugadores else "")
     for i in INSTANCIAS:
         if os.path.exists(os.path.join(BASE, i, INSTALADOS)):
             print("· %s con recursos EXPERIMENTALES (%s)" % (i, os.path.join(BASE, i, INSTALADOS)))
@@ -332,7 +336,7 @@ def iniciar(p2p, hexa=False, pvp=False, auto=False, batalla=False):
         p = subprocess.Popen('"%s"' % os.path.join(d, EXE), cwd=d,
                              env=dict(os.environ, EDA_SERVER="127.0.0.1:%d" % PUERTO))
         clientes[i] = p.pid
-        ok = acomodar(p.pid, 0 if n == 0 else 820, 0)
+        ok = acomodar(p.pid, (n % 2) * 820, (n // 2) * 420)
         print("· juego %s: pid %d %s" % (i, p.pid, "" if ok else "(⚠ todavía sin ventana: acomodala a mano)"))
         time.sleep(2)
     json.dump({"inicio": time.strftime("%Y-%m-%d %H:%M:%S"), "carpeta": carpeta, "server": server.pid,
@@ -522,7 +526,9 @@ def main():
         p2p = a[a.index("--p2p") + 1] if "--p2p" in a and a.index("--p2p") + 1 < len(a) else "auto"
         if p2p not in ("auto", "relay", "directo"):
             raise SystemExit("⛔ --p2p auto | relay | directo")
-        return iniciar(p2p, hexa="--hex" in a, pvp="--pvp" in a, auto="--auto" in a, batalla="--batalla" in a)
+        jug = int(a[a.index("--jugadores") + 1]) if "--jugadores" in a and a.index("--jugadores") + 1 < len(a) else 0
+        return iniciar(p2p, hexa="--hex" in a, pvp="--pvp" in a, auto="--auto" in a, batalla="--batalla" in a,
+                       jugadores=jug)
     if cmd == "recursos":
         if a[1:2] == ["quitar"]:
             return recursos_quitar()

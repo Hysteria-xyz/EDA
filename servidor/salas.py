@@ -801,6 +801,22 @@ def sincronizar_equipo_sala(cmd, cuerpo, conexion, c, p):
     return [(0x105B, msg, 0, n) for n in s["miembros"] if n != conexion]
 
 
+MAXIMO_POR_DIFICULTAD = {1: 3, 2: 5, 3: 8}       # data/scenariolist.xml: el último dígito del escenario (1011 Fácil…)
+
+
+def maximo_sala(escenario, del_cliente=0, adentro=1):
+    """★ (24-nov) El máximo de jugadores de una sala (+0x2F). Con EDA_JUGADORES_SALA (config.JUGADORES_SALA) ése; si
+    no, el que manda el cliente; si no manda (0), el de la dificultad del escenario. Nunca menos que los que ya están
+    adentro ni más de 8 (documentacion/MAS_JUGADORES.md: el cliente está hecho para 8)."""
+    if config.JUGADORES_SALA:
+        m = config.JUGADORES_SALA
+    elif del_cliente:
+        m = del_cliente
+    else:
+        m = MAXIMO_POR_DIFICULTAD.get(escenario % 10, 3)
+    return max(1, min(8, max(m, adentro)))
+
+
 @maneja(0x104B)
 def actualizar_ajustes_sala(cmd, cuerpo, conexion, c, p):
     """★ ACTUALIZAR AJUSTES DE SALA (0x104B S→C `0x54F500`, aporte de Hysteria-xyz):
@@ -816,7 +832,11 @@ def actualizar_ajustes_sala(cmd, cuerpo, conexion, c, p):
         esc = struct.unpack_from("<I", cuerpo, 2)[0]
         sala_b = bytearray(s["sala"])
         struct.pack_into("<I", sala_b, 0x28, esc)
+        # ★ (24-nov) el máximo sigue al escenario nuevo (antes quedaba el de la sala creada: Fácil 3 aunque pasara a
+        #   Difícil); el cambio no trae el máximo del cliente: sale de la dificultad (o de EDA_JUGADORES_SALA)
+        sala_b[0x2F] = maximo_sala(esc, 0, len(s["miembros"]))
         s["sala"] = bytes(sala_b)
+        VIVO.LISTA_CAMBIO = True                        # (el lobby ve «n/máximo» nuevo)
         p["escenario"] = esc
         for m in s["miembros"]:
             partida(m)["escenario"] = esc
@@ -917,8 +937,7 @@ def crear_sala(cmd, cuerpo, conexion, c, p):
     # ★ el número: el más chico libre (lo que se ve en la columna «Number» del lobby)
     num = next(i for i in range(1, 1000) if i not in SALAS)
     struct.pack_into("<H", sala, 4, num)                # número de sala (el cliente: 0xFFFF)
-    if sala[0x2F] == 0:
-        sala[0x2F] = 3                                  # máximo de jugadores
+    sala[0x2F] = maximo_sala(p["escenario"], sala[0x2F])  # máximo de jugadores (el del cliente: Fácil 3, Normal 5…)
     # si ya estaba en otra sala (como anfitrión o invitado), salir limpiamente de ella
     avisos_salida = []
     vieja = p.get("sala")
