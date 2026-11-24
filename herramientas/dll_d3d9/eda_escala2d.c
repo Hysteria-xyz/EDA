@@ -26,6 +26,7 @@
  *   SetScissorRect, GetScissorRect, DrawPrimitiveUP, DrawIndexedPrimitiveUP y SetFVF. Sin hilos ni temporizadores. */
 
 static int g_e2d;                        /* [pantalla] escala2d (0 = nada de esto) */
+static int g_e2d_ambiente = 1;           /* ★ (24-nov) [pantalla] ambiente: las franjas con la imagen desenfocada (eda_graficos.c) */
 static int g_e2d_stage = 1;              /* [pantalla] escala2d_stage: el HUD del Stage también (1) o como hoy (0) */
 static int g_e2d_activa;                 /* escala2d y un backbuffer distinto de 800×600 */
 static int g_e2d_w = 800, g_e2d_h = 600; /* el backbuffer */
@@ -950,6 +951,7 @@ static void e2d_leer_ini(const char *ini)
      *   de resolución pedía reiniciar. (EDA_ESCALA2D=0 la apaga, sólo para medir.) */
     g_e2d = 1;
     g_e2d_stage = GetPrivateProfileIntA("pantalla", "escala2d_stage", 1, ini);
+    g_e2d_ambiente = GetPrivateProfileIntA("pantalla", "ambiente", 1, ini);
     g_e2d_ini_e2d = g_e2d;
     if (GetEnvironmentVariableA("EDA_ESCALA2D", v, sizeof(v))) g_e2d = atoi(v);
     int w = 0, h = 0;

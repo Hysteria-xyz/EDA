@@ -42,6 +42,9 @@ typedef long (WINAPI *M_TSS)(void *, DWORD, DWORD, DWORD); typedef long (WINAPI 
 typedef long (WINAPI *M_UNO)(void *, void *); typedef long (WINAPI *M_DPUP)(void *, DWORD, UINT, const void *, UINT);
 typedef long (WINAPI *M_CSB)(void *, DWORD, void **); typedef long (WINAPI *M_SB)(void *);
 static int g_e2d_w = 1920, g_e2d_h = 1080, g_e2d_activa = 1, g_e2d_es_orto = 1;
+static int g_e2d_ambiente = 1, g_e2d_stage_ahora, g_e2d_res_fase;     /* (las franjas con ambiente) */
+static float g_e2d_s = 1.8f, g_e2d_rx = 240, g_e2d_ry;
+#define FALSE 0
 static volatile long g_e2d_propio, g_e2d_rt_fuera;
 static long c_e2d_rt_fuera;
 typedef unsigned short WORD; typedef unsigned long ULONG; typedef size_t SIZE_T;
@@ -531,6 +534,23 @@ int main(void)
         chequear("un destino que el juego todavía tiene: se saca pero NO se suelta (ref 1) → el Reset falla y se ve", rt_suyo->ref == 1 && r_reset(dev, NULL) == (long)0x8876086C);
         chequear("[graficos] reset_desligar viene en 1 (0 = como antes)", g_gr_desligar == 1);
         g_gr_settex_real = settex_antes;
+    }
+    printf("== las franjas con ambiente: qué parte de la imagen chica va en cada franja ==\n");
+    {
+        RECT izq = {0, 0, 240, 1080}, der = {1680, 0, 1920, 1080}, s;        /* 1920×1080: interfaz 1440×1080 en x 240 */
+        gr_amb_fuente(&izq, 1920, 1080, 1440, 1080, 45, 33, &s);
+        chequear("izquierda (1920×1080, chica 45×33): el borde izquierdo de la interfaz, x 0–6, una franja vertical del centro",
+                 s.left == 0 && s.right == 6 && s.top > 0 && s.bottom < 33 && s.bottom - s.top >= 20);
+        RECT s2;
+        gr_amb_fuente(&der, 1920, 1080, 1440, 1080, 45, 33, &s2);
+        chequear("★ el revés: la derecha es el espejo (x 39–45), no la misma parte que la izquierda",
+                 s2.left == 39 && s2.right == 45 && s2.top == s.top && s2.bottom == s.bottom);
+        RECT arriba = {0, 0, 1280, 64};                                       /* 1280×1024: interfaz 1280×960 en y 32 */
+        gr_amb_fuente(&arriba, 1280, 1024, 1280, 960, 40, 30, &s);
+        chequear("letterbox (1280×1024): la de arriba toma una franja horizontal de arriba", s.top == 0 && s.bottom >= 1 && s.right - s.left >= 30);
+        RECT finita = {0, 0, 1, 1080};
+        gr_amb_fuente(&finita, 1920, 1080, 1440, 1080, 45, 33, &s);
+        chequear("una franja de 1 px: igual da al menos 1×1 dentro", s.right - s.left >= 1 && s.left >= 0 && s.right <= 45);
     }
     printf("prueba_graficos: %d bien · %d mal\n", ok, mal);
     return mal != 0;

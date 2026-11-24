@@ -162,3 +162,15 @@ Se puede desactivar con `[mazino] selector_stage=0` en eda_d3d9.ini. Respeta tam
 La versión numérica de la candidata es 0.5.1, identificada además por commit/build. Esta PR no declara una entrega estable ni publica etiquetas. No se atribuye al arreglo un parpadeo general que no se haya reproducido.
 
 Prueba de regresión: `zig cc -o prueba_selector prueba_selector.c` y ejecutar el resultado. Reproduce la imagen 14011 interceptando el borde del botón 14006; comprueba el destino corregido, centros, bordes y que otras escenas/controles se conserven.
+
+
+### Bordes de la pantalla con ambiente (24-nov, en pruebas)
+
+En pantallas que no son 4:3 (1600x900, 1366x768…) la interfaz de 800x600 se escala y se centra, y antes los
+costados quedaban en negro. Ahora la dll rellena esas franjas con la propia imagen del juego estirada y muy
+desenfocada (cadena de reducciones con StretchRect LINEAR) y oscurecida (alfa 0x70): se ve el ambiente del lobby
+o de la stage en lugar de un negro plano. Si el antialias está prendido pasa por una copia resuelta. Si algo falla
+(placa sin StretchRect entre render targets) queda en negro como antes y el registro lo dice. Se apaga con
+`[pantalla] ambiente=0` en eda_d3d9.ini. Registro: `(pantalla) franjas con ambiente`. Prueba: los 4 casos de
+`gr_amb_fuente` en `prueba_graficos.c` (compilar en 32 bits: `zig cc -target x86-windows-gnu`).
+Pendiente: lo «borroso/chico» del escalado no se arregla con esto (necesitaría un filtro de nitidez en la 2D).

@@ -2313,6 +2313,7 @@ static long WINAPI mi_present(void *dev, const RECT *a, const RECT *b, HWND w, c
     gr_brillo_dibujar(dev);                                  /* ★ (Punto 6) el brillo, sólo dentro del juego */
     if (g_mostrar) { InterlockedExchange(&g_e2d_propio, 1); dibujar_contador(dev); InterlockedExchange(&g_e2d_propio, 0); }
     e2d_cuadro(dev);                                         /* ★ (Punto 5) escena, backbuffer real, registro */
+    gr_ambiente(dev);                                        /* ★ (24-nov) las franjas con ambiente, no negras */
     /* ★ (19-nov, Punto 5) LOS GANCHOS DE ESCALA, CADA CUADRO. Medido 13:12:32.7 (dueño, al empezar el Stage): otro
      *   programa pisó SetTransform y compañía y la vigía (cada 1 s) los recuperó recién ~1 s después: en ese rato la
      *   barra de habilidades se dibujó con la proyección de 800×600 sin escalar. Ahora se mira en el Present (una
@@ -2339,6 +2340,7 @@ static long WINAPI mi_reset(void *dev, void *pp)
     }
     rojo_soltar();                                           /* (diag rojo: lo suyo del pool DEFAULT) */
     gr_soltar();                                             /* (el state block del brillo) */
+    gr_ambiente_soltar();                                    /* (las superficies de las franjas: pool DEFAULT) */
     sombras_olvidar();
     ajustar_pp(pp);
     gr_ajustar_pp(pp);                                       /* ★ (Punto 6) el antialias */

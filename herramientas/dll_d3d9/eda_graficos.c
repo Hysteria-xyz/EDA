@@ -369,6 +369,161 @@ static void gr_desc(void *sup, int *w, int *h, DWORD *ms)
     *ms = 0;
     if (sup && ((long (WINAPI *)(void *, void *))VT(sup)[12])(sup, d) == 0) { *w = (int)d[6]; *h = (int)d[7]; *ms = d[4]; }
 }
+
+/* ★ (24-nov) LAS FRANJAS CON «AMBIENTE» ([pantalla] ambiente=1, prendido; 0 = negras como antes). Con la adaptación 2D,
+ *   en una pantalla más ancha que 4:3 la interfaz de 800×600 queda centrada (R) y a los costados quedaban franjas negras
+ *   (pedido del dueño: «esos bordes negros están feos»). Estirar la interfaz la deformaría; acá, al final del cuadro (en el
+ *   Present, fuera de una escena), la zona R se achica por pasos a la mitad (StretchRect lineal: un desenfoque barato en la
+ *   placa), se estira otra vez SÓLO sobre las franjas como «cubrir pantalla» (el color sigue al centro) y se oscurece un
+ *   poco. No toca lo que dibuja el juego. Fuera del Stage 3D (lobby, sala, menús, resultados); en el Stage el 3D ya llena
+ *   la pantalla. Superficies del pool DEFAULT: se sueltan antes de cada Reset (gr_ambiente_soltar, mi_reset). Si algo
+ *   falla, las franjas quedan negras (como antes) y se anota una vez. */
+typedef long (WINAPI *M_CRT)(void *, UINT, UINT, DWORD, DWORD, DWORD, BOOL, void **, void *);
+#define GR_AMB_N 8
+static void *g_amb_dev, *g_amb_full, *g_amb_niv[GR_AMB_N];
+static int g_amb_nw[GR_AMB_N], g_amb_nh[GR_AMB_N], g_amb_n, g_amb_mal, g_amb_bw, g_amb_bh, g_amb_rw;
+static DWORD g_amb_fmt;
+static volatile LONG c_amb;
+static void gr_ambiente_soltar(void)
+{
+    for (int i = 0; i < g_amb_n; i++)
+        if (g_amb_niv[i]) ((M_SB)VT(g_amb_niv[i])[2])(g_amb_niv[i]);
+    if (g_amb_full) ((M_SB)VT(g_amb_full)[2])(g_amb_full);
+    memset(g_amb_niv, 0, sizeof(g_amb_niv));
+    g_amb_full = NULL;
+    g_amb_n = 0;
+    g_amb_dev = NULL;
+}
+static long gr_sr(void *dev, void *s, const RECT *a, void *d, const RECT *b, DWORD filtro)
+{
+    M_STRETCH sr = g_gr_stretch_real ? g_gr_stretch_real : (M_STRETCH)VT(dev)[34];
+    return sr(dev, s, a, d, b, filtro);
+}
+/* las franjas, un poco más oscuras que el centro (cuadrados negros con alfa, como el brillo) */
+static void gr_oscurecer(void *dev, const RECT *r, int n, DWORD alfa)
+{
+    void **vt = VT(dev);
+    if (g_gr_bloque && g_gr_bloque_dev != dev) g_gr_bloque = NULL;
+    if (!g_gr_bloque && ((M_CSB)vt[I_CREATESB])(dev, 1 /* D3DSBT_ALL */, &g_gr_bloque) != 0) g_gr_bloque = NULL;
+    g_gr_bloque_dev = dev;
+    if (!g_gr_bloque || n <= 0) return;
+    ((M_SB)VT(g_gr_bloque)[4])(g_gr_bloque);                        /* Capture */
+    InterlockedExchange(&g_e2d_propio, 1);
+    ((M_SIN)vt[I_BEGINSCENE])(dev);
+    DWORD vp[6] = {0, 0, (DWORD)g_amb_bw, (DWORD)g_amb_bh, 0, 0};
+    float uno = 1.0f;
+    memcpy(&vp[5], &uno, 4);
+    ((long (WINAPI *)(void *, const void *))vt[47])(dev, vp);
+    ((M_UNO)vt[I_SETVS])(dev, NULL);
+    ((M_UNO)vt[I_SETPS])(dev, NULL);
+    ((M_PTR)vt[I_SETTEXTURE])(dev, 0, NULL);
+    ((long (WINAPI *)(void *, DWORD))vt[I_SETFVF])(dev, 0x044);                            /* XYZRHW | DIFFUSE */
+    const DWORD estados[][2] = {{7, 0}, {14, 0}, {15, 0}, {27, 1} /* ALPHABLEND */, {19, 5} /* SRCALPHA */,
+        {20, 6} /* INVSRCALPHA */, {171, 1}, {206, 0}, {22, 1}, {137, 0}, {28, 0}, {52, 0}, {174, 0}, {168, 0x7}, {8, 3},
+        {161, 0}};
+    for (unsigned i = 0; i < sizeof(estados) / sizeof(estados[0]); i++)
+        ((M_RS)vt[I_SETRS])(dev, estados[i][0], estados[i][1]);
+    ((M_TSS)vt[I_SETTSS])(dev, 0, 1, 2);
+    ((M_TSS)vt[I_SETTSS])(dev, 0, 2, 0);
+    ((M_TSS)vt[I_SETTSS])(dev, 0, 4, 2);
+    ((M_TSS)vt[I_SETTSS])(dev, 0, 5, 0);
+    ((M_TSS)vt[I_SETTSS])(dev, 1, 1, 1);
+    DWORD color = alfa << 24;
+    for (int k = 0; k < n; k++) {
+        float x0 = (float)r[k].left - 0.5f, y0 = (float)r[k].top - 0.5f, x1 = (float)r[k].right - 0.5f, y1 = (float)r[k].bottom - 0.5f;
+        struct { float x, y, z, rhw; DWORD c; } q[4] = {{x0, y0, 0, 1, color}, {x1, y0, 0, 1, color}, {x0, y1, 0, 1, color},
+                                                         {x1, y1, 0, 1, color}};
+        ((M_DPUP)vt[I_DPUP])(dev, 5 /* TRIANGLESTRIP */, 2, q, sizeof(q[0]));
+    }
+    ((M_SIN)vt[I_ENDSCENE])(dev);
+    ((M_SB)VT(g_gr_bloque)[5])(g_gr_bloque);                        /* Apply */
+    InterlockedExchange(&g_e2d_propio, 0);
+}
+/* qué parte de la imagen chica (tw×th, la interfaz R entera achicada) va en la franja b de una pantalla W×H, como «cubrir
+ *   pantalla»: la interfaz agrandada c = max(W/rw, H/rh) y centrada. Devuelve el rectángulo (al menos 1×1, dentro). */
+static void gr_amb_fuente(const RECT *b, int W, int H, int rw, int rh, int tw, int th, RECT *s)
+{
+    float c = (float)W / rw > (float)H / rh ? (float)W / rw : (float)H / rh;
+    float u0 = 0.5f + (b->left - W / 2.0f) / (rw * c), u1 = 0.5f + (b->right - W / 2.0f) / (rw * c);
+    float v0 = 0.5f + (b->top - H / 2.0f) / (rh * c), v1 = 0.5f + (b->bottom - H / 2.0f) / (rh * c);
+    s->left = (LONG)(u0 * tw);
+    s->top = (LONG)(v0 * th);
+    s->right = (LONG)(u1 * tw + 0.999f);
+    s->bottom = (LONG)(v1 * th + 0.999f);
+    if (s->left < 0) s->left = 0;
+    if (s->top < 0) s->top = 0;
+    if (s->right > tw) s->right = tw;
+    if (s->bottom > th) s->bottom = th;
+    if (s->right <= s->left) { if (s->left + 1 <= tw) s->right = s->left + 1; else s->left = s->right - 1; }
+    if (s->bottom <= s->top) { if (s->top + 1 <= th) s->bottom = s->top + 1; else s->top = s->bottom - 1; }
+}
+static void gr_ambiente(void *dev)
+{
+    if (!g_e2d_ambiente || g_amb_mal || !dev || !g_e2d_activa) return;
+    if (g_e2d_stage_ahora && !g_e2d_res_fase) return;            /* (jugando: el 3D llena la pantalla) */
+    int rw = (int)(800 * g_e2d_s + 0.5f), rh = (int)(600 * g_e2d_s + 0.5f);
+    LONG x0 = (LONG)(g_e2d_rx + 0.5f), y0 = (LONG)(g_e2d_ry + 0.5f), x1 = x0 + rw, y1 = y0 + rh;
+    if (x0 < 2 && y0 < 2) return;                                /* (4:3: no hay franjas) */
+    void **vt = VT(dev);
+    void *bb = NULL;
+    if (((long (WINAPI *)(void *, UINT, UINT, UINT, void **))vt[18])(dev, 0, 0, 0, &bb) != 0 || !bb) return;
+    DWORD d[8] = {0};
+    ((long (WINAPI *)(void *, DWORD *))VT(bb)[12])(bb, d);
+    int W = (int)d[6], H = (int)d[7];
+    if (x1 > W) x1 = W;
+    if (y1 > H) y1 = H;
+    if (dev != g_amb_dev || d[0] != g_amb_fmt || W != g_amb_bw || H != g_amb_bh || rw != g_amb_rw || !g_amb_n) {
+        gr_ambiente_soltar();
+        g_amb_dev = dev;
+        g_amb_fmt = d[0];
+        g_amb_bw = W;
+        g_amb_bh = H;
+        g_amb_rw = rw;
+        M_CRT crt = (M_CRT)vt[28];                               /* CreateRenderTarget */
+        int ok = !d[4] || crt(dev, (UINT)W, (UINT)H, d[0], 0, 0, FALSE, &g_amb_full, NULL) == 0;
+        int w = rw / 2, h = rh / 2;
+        while (ok && g_amb_n < GR_AMB_N && w >= 24 && h >= 16) {
+            ok = crt(dev, (UINT)w, (UINT)h, d[0], 0, 0, FALSE, &g_amb_niv[g_amb_n], NULL) == 0;
+            if (ok) { g_amb_nw[g_amb_n] = w; g_amb_nh[g_amb_n] = h; g_amb_n++; }
+            w /= 2;
+            h /= 2;
+        }
+        if (!ok || !g_amb_n) {
+            g_amb_mal = 1;
+            apuntar("  (pantalla) ⚠ franjas con ambiente: no se pudieron crear las superficies (formato %lu, msaa %lu): quedan negras",
+                    (unsigned long)d[0], (unsigned long)d[4]);
+            gr_ambiente_soltar();
+            ((M_SB)VT(bb)[2])(bb);
+            return;
+        }
+        apuntar("  (pantalla) franjas con ambiente: %d×%d, interfaz %d×%d en x %ld · y %ld, %d niveles hasta %d×%d%s", W, H, rw, rh,
+                (long)x0, (long)y0, g_amb_n, g_amb_nw[g_amb_n - 1], g_amb_nh[g_amb_n - 1], d[4] ? " (con antialias: pasa por una copia)" : "");
+    }
+    long hr = 0;
+    void *src = bb;
+    if (g_amb_full) { hr = gr_sr(dev, bb, NULL, g_amb_full, NULL, 0 /* NONE */); src = g_amb_full; }
+    RECT rr = {x0, y0, x1, y1};
+    if (!hr) hr = gr_sr(dev, src, &rr, g_amb_niv[0], NULL, 2 /* LINEAR */);
+    for (int i = 1; !hr && i < g_amb_n; i++) hr = gr_sr(dev, g_amb_niv[i - 1], NULL, g_amb_niv[i], NULL, 2);
+    void *t = g_amb_niv[g_amb_n - 1];
+    RECT b[4] = {{0, 0, x0, H}, {x1, 0, W, H}, {x0, 0, x1, y0}, {x0, y1, x1, H}}, usar[4];
+    int n = 0;
+    for (int k = 0; k < 4 && !hr; k++) {
+        if (b[k].right <= b[k].left || b[k].bottom <= b[k].top) continue;
+        RECT s;
+        gr_amb_fuente(&b[k], W, H, rw, rh, g_amb_nw[g_amb_n - 1], g_amb_nh[g_amb_n - 1], &s);
+        hr = gr_sr(dev, t, &s, bb, &b[k], 2);
+        usar[n++] = b[k];
+    }
+    if (hr) {
+        g_amb_mal = 1;
+        apuntar("  (pantalla) ⚠ franjas con ambiente: StretchRect → 0x%08lx: quedan negras", (unsigned long)hr);
+    } else {
+        gr_oscurecer(dev, usar, n, 0x70);                     /* (44 %: el centro resalta y los costados conservan su color) */
+        InterlockedIncrement(&c_amb);
+    }
+    ((M_SB)VT(bb)[2])(bb);
+}
 static long WINAPI gr_ctex(void *dev, UINT w, UINT h, UINT niv, DWORD uso, DWORD fmt, DWORD pool, void **t, void *c)
 {
     long hr = g_gr_ctex_real(dev, w, h, niv, uso, fmt, pool, t, c);
