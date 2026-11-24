@@ -46,6 +46,25 @@ def foto(pid):
     return pantallas.foto(pid)
 
 
+def al_frente(pid):
+    """★ (24-nov) La d3d9.dll 0.5.4 sólo deja pasar el teclado y el mouse del juego «con EDA al frente»
+    (eda_d3d9.log: «[mazino] entrada: DirectInput8 del juego enganchado (teclado y mouse sólo con EDA al frente)»):
+    sin esto control_partida.py no mueve al personaje (medido: kai quieto 8 rondas). Trae la ventana al frente."""
+    import ctypes
+    import pantallas  # noqa: F401  (carga foto_juego en el camino)
+    from foto_juego import ventanas_de
+    v = ventanas_de(pid)
+    if not v:
+        return False
+    u32 = ctypes.windll.user32
+    h = v[0][0]
+    u32.ShowWindow(h, 9)                                     # SW_RESTORE
+    u32.SwitchToThisWindow(h, True)
+    u32.SetForegroundWindow(h)
+    time.sleep(0.4)
+    return u32.GetForegroundWindow() == h
+
+
 def qpc_ms():
     import ctypes
     k = ctypes.windll.kernel32
@@ -81,6 +100,7 @@ def paso(quien, plan, marca, espera=1.0):
         if os.path.exists(os.path.join(s["carpeta"], "pasos.jsonl")) else 0
     et = "%02d_%s" % (n + 1, marca)
     antes = barras(s, fotos, et + "_antes")
+    frente = al_frente(pid)
     t0 = qpc_ms()
     with open(os.path.join(s["carpeta"], "marcas.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps({"t": t0, "q": "marca", "texto": marca, "juego": quien, "plan": plan}) + "\n")
@@ -90,12 +110,12 @@ def paso(quien, plan, marca, espera=1.0):
     time.sleep(espera)
     despues = barras(s, fotos, et + "_despues")
     reg = {"paso": et, "t": t0, "juego": quien, "plan": plan, "antes": antes, "despues": despues,
-           "control_partida": r.returncode}
+           "control_partida": r.returncode, "al_frente": frente}
     with open(os.path.join(s["carpeta"], "pasos.jsonl"), "a", encoding="utf-8") as f:
         f.write(json.dumps(reg) + "\n")
     cambio = {i: (None if antes[i] is None or despues[i] is None else despues[i] - antes[i]) for i in antes}
-    print("· %s (%s: %s) → barra de HP antes %s, después %s, cambio %s%s"
-          % (et, quien, plan, antes, despues, cambio,
+    print("· %s (%s%s: %s) → barra de HP antes %s, después %s, cambio %s%s"
+          % (et, quien, "" if frente else " ⚠ no quedó al frente", plan, antes, despues, cambio,
              "" if r.returncode == 0 else "  ⚠ control_partida: %s" % (r.stderr or r.stdout)[-300:]))
     return reg
 

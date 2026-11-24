@@ -3,9 +3,11 @@ r"""dos_clientes -- ★ PvP, etapa 0.1: DOS juegos independientes en esta PC con
     py herramientas\pvp\dos_clientes.py preparar [--dll CARPETA]   # una vez (y cada vez que cambie exe\ o _trabajo\juego)
         --dll: la d3d9.dll + ini de la release «cliente-develop» (gh release download cliente-develop), verificadas
         con su cliente-develop.json. ⚠ exe\d3d9.dll del repo es la del Punto 4 (md5 d7df418b): NO carga traducciones\
-    py herramientas\pvp\dos_clientes.py recursos instalar [carpeta] [--grupos]   # la arena en A y B (--grupos: T04/T05)
+    py herramientas\pvp\dos_clientes.py recursos instalar [carpeta] [--grupos] [--sin-teleport]   # la arena en A y B
     py herramientas\pvp\dos_clientes.py recursos quitar                # A y B vuelven a leer sólo Data.dat
-    py herramientas\pvp\dos_clientes.py iniciar [--p2p auto|relay|directo] [--hex]   # --hex: cada mensaje en server.log
+    py herramientas\pvp\dos_clientes.py iniciar [--p2p auto|relay|directo] [--hex] [--pvp]
+        --hex: cada mensaje en server.log · --pvp: el server árbitro del duelo (EDA_PVP=1, servidor/duelo.py)
+        --auto: [mazino] entrada=0 en A y B, para que combate_auto.py / control_partida.py muevan a los personajes
     py herramientas\pvp\dos_clientes.py llevar [sala|listo|partida]   # los dos, del lobby a la stage 1011 (A anfitrión)
     py herramientas\pvp\dos_clientes.py estado
     py herramientas\pvp\dos_clientes.py cerrar                  # cierra todo y junta los registros de la sesión
@@ -148,9 +150,11 @@ INSTALADOS = "pvp_recursos.json"
 
 GRUPOS_APAGADO = "PVP_GRUPOS     = false"
 GRUPOS_PRENDIDO = "PVP_GRUPOS     = true "
+TELEPORT_PRENDIDO = "PVP_TELEPORT   = true "
+TELEPORT_APAGADO = "PVP_TELEPORT   = false"
 
 
-def recursos_instalar(origen=ARENA, base=None, grupos=False):
+def recursos_instalar(origen=ARENA, base=None, grupos=False, sin_teleport=False):
     """Copia los recursos experimentales (misma ruta relativa que en Data.dat) a cada instancia, donde la dll los
     sirve en lugar de los de Data.dat (idioma «es», el de fábrica). Sólo en EDA_pvp\\A y \\B: nadie más los ve."""
     base = base or BASE
@@ -172,15 +176,19 @@ def recursos_instalar(origen=ARENA, base=None, grupos=False):
             dst = os.path.join(inst, SUELTOS, rel)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(os.path.join(origen, rel), dst)
-            if grupos and rel.lower().endswith(".lua"):
+            cambios = ([(GRUPOS_APAGADO, GRUPOS_PRENDIDO)] if grupos else []) + \
+                      ([(TELEPORT_PRENDIDO, TELEPORT_APAGADO)] if sin_teleport else [])
+            if cambios and rel.lower().endswith(".lua"):
                 t = open(dst, encoding="latin-1").read()
-                if GRUPOS_APAGADO not in t:
-                    raise SystemExit("⛔ --grupos: %s no tiene «%s»" % (rel, GRUPOS_APAGADO))
-                open(dst, "w", encoding="latin-1", newline="").write(t.replace(GRUPOS_APAGADO, GRUPOS_PRENDIDO, 1))
+                for de, a in cambios:
+                    if de not in t:
+                        raise SystemExit("⛔ %s no tiene «%s»" % (rel, de))
+                    t = t.replace(de, a, 1)
+                open(dst, "w", encoding="latin-1", newline="").write(t)
             puestos.append(os.path.join(SUELTOS, rel))
         json.dump(puestos, open(os.path.join(inst, INSTALADOS), "w", encoding="utf-8"), indent=1)
-        print("· %s: %d recurso(s) experimental(es)%s: %s" % (i, len(puestos), " [PVP_GRUPOS = true]" if grupos else "",
-                                                             ", ".join(puestos)))
+        print("· %s: %d recurso(s) experimental(es)%s%s: %s" % (i, len(puestos), " [PVP_GRUPOS = true]" if grupos else "",
+                                                               " [sin teleport]" if sin_teleport else "", ", ".join(puestos)))
     return archivos
 
 
@@ -241,7 +249,18 @@ def acomodar(pid, x, y, espera=40):
     return False
 
 
-def iniciar(p2p, hexa=False):
+def poner_ini(inst, seccion, clave, valor):
+    import ctypes
+    ctypes.windll.kernel32.WritePrivateProfileStringW(seccion, clave, str(valor), os.path.join(inst, "eda_d3d9.ini"))
+
+
+def iniciar(p2p, hexa=False, pvp=False, auto=False):
+    # ★ (24-nov) --auto: la dll 0.5.4 sólo deja pasar el teclado y el mouse «con EDA al frente» ([mazino] entrada) y
+    #   tapa lo que mete control_partida.py (medido: kai quieto aun al frente). Para que las pruebas automáticas
+    #   manejen a los personajes se apaga ESO, sólo en estas dos instalaciones; sin --auto vuelve a 1 (lo de fábrica)
+    for i in INSTANCIAS:
+        if os.path.isdir(os.path.join(BASE, i)):
+            poner_ini(os.path.join(BASE, i), "mazino", "entrada", 0 if auto else 1)
     s = leer_sesion()
     if s and (vivo(s.get("server")) or any(vivo(p) for p in s.get("clientes", {}).values())):
         raise SystemExit("⛔ ya hay una sesión andando (%s). Primero: dos_clientes.py cerrar" % s["carpeta"])
@@ -261,7 +280,7 @@ def iniciar(p2p, hexa=False):
     env = dict(os.environ, PYTHONIOENCODING="utf-8", EDA_ESTADO=os.path.join(BASE, "estado"),
                EDA_PUERTO=str(PUERTO), EDA_RELAY_IP="127.0.0.1", EDA_RELAY_BASE=str(RELAY_BASE),
                EDA_P2P=p2p, EDA_GM_CUENTAS="rui,kai", EDA_LOGIN="abierto", EDA_ENTORNO="local",
-               EDA_LOG_HEX="1" if hexa else "")
+               EDA_LOG_HEX="1" if hexa else "", EDA_PVP="1" if pvp else "")
     for i in INSTANCIAS:
         if os.path.exists(os.path.join(BASE, i, INSTALADOS)):
             print("· %s con recursos EXPERIMENTALES (%s)" % (i, os.path.join(BASE, i, INSTALADOS)))
@@ -309,10 +328,21 @@ def llevar(hasta):
     import multi
     import pantallas
     pids = [s["clientes"][i] for i in INSTANCIAS]
+    # ★ (24-nov) con la dll 0.5.4 el juego se queda en la LISTA DE SERVIDORES (la del Punto 4 entraba sola): se lo
+    #   lleva con piloto.py, como multi.py, de a uno y en orden (el 1º que entra es rui)
     for i, pid in zip(INSTANCIAS, pids):
-        p = pantallas.esperar(pid, "lobby", 60)
+        p = pantallas.esperar(pid, ("lobby", "dialogo"), 8)
+        for _ in range(3):
+            if p == "lobby":
+                break
+            if p == "dialogo":
+                multi.clic(pid, *pantallas.CANCEL_DIALOGO)
+            else:
+                multi.piloto(pid, "lobby")
+            p = pantallas.esperar(pid, ("lobby", "dialogo"), 20)
         if p != "lobby":
-            raise SystemExit("⛔ el juego %s no está en el lobby (está en «%s»)" % (i, p))
+            raise SystemExit("⛔ el juego %s no llegó al lobby (está en «%s»)" % (i, p))
+        print("· juego %s en el lobby" % i, flush=True)
     multi.desde_el_lobby(pids, hasta, titulo="Duelo de prueba")
     for i, pid in zip(INSTANCIAS, pids):
         print("· juego %s: «%s»" % (i, pantallas.cual(pid)))
@@ -431,12 +461,12 @@ def main():
         p2p = a[a.index("--p2p") + 1] if "--p2p" in a and a.index("--p2p") + 1 < len(a) else "auto"
         if p2p not in ("auto", "relay", "directo"):
             raise SystemExit("⛔ --p2p auto | relay | directo")
-        return iniciar(p2p, hexa="--hex" in a)
+        return iniciar(p2p, hexa="--hex" in a, pvp="--pvp" in a, auto="--auto" in a)
     if cmd == "recursos":
         if a[1:2] == ["quitar"]:
             return recursos_quitar()
-        resto = [x for x in a[2:] if x != "--grupos"] if a[1:2] == ["instalar"] else []
-        recursos_instalar(resto[0] if resto else ARENA, grupos="--grupos" in a)
+        resto = [x for x in a[2:] if not x.startswith("--")] if a[1:2] == ["instalar"] else []
+        recursos_instalar(resto[0] if resto else ARENA, grupos="--grupos" in a, sin_teleport="--sin-teleport" in a)
         return 0
     if cmd == "llevar":
         hasta = a[1] if len(a) > 1 else "partida"

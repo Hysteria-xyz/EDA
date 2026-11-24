@@ -21,7 +21,8 @@ PVP_MARCAS     = {"Player Start 04", "Player Start 08"}   -- Chapter1_1.dat: (15
 PVP_CUENTA     = 5          -- segundos de cuenta regresiva
 PVP_LIMITE_MS  = 300000     -- 5 min: fin por tiempo
 PVP_DIAG       = true       -- mostrar en pantalla la vida de los dos cada 2 s (manager:GetHP)
-PVP_GRUPOS     = false      -- T04: SetEntityGroup. DESACTIVADO hasta verificar su firma (ver PvP_Grupos)
+PVP_GRUPOS     = false      -- T04: SetEntityGroup (dos_clientes.py recursos instalar --grupos lo prende)
+PVP_TELEPORT   = true       -- false (--sin-teleport): quedan donde aparecen, juntos (para las pruebas automaticas)
 
 Data = {}                   -- (el original define aca sus NPC; esta arena no crea ninguno)
 
@@ -43,7 +44,8 @@ function PvP_Jugadores()
 	local ids, visto = {}, {}
 	for i = 0, 8 do
 		local id = scenario:GetPlayerID(i)
-		if (id ~= nil and id ~= -1 and id ~= 0xffffffff and not visto[id]) then
+		-- (medido 24-nov: el vacio llega como -1 en un cliente y como 4294967295 en el otro; un ID de jugador es chico)
+		if (id ~= nil and id >= 0 and id < 65536 and not visto[id]) then
 			visto[id] = true
 			ids[#ids + 1] = id
 		end
@@ -81,7 +83,7 @@ function	PvP_Teleport()
 	PvP_InformarIDs()
 	local ids = PvP_Jugadores()
 	for i = 1, #ids do
-		if (PVP_MARCAS[i] ~= nil) then
+		if (PVP_TELEPORT and PVP_MARCAS[i] ~= nil) then
 			scenario:TeleportToMarker(ids[i], PVP_MARCAS[i])
 		end
 	end
@@ -107,14 +109,20 @@ end
 -- del lado del J1 ni del de los NPC). Sale como 0x105C tipo 0x1B y el otro juego lo aplica en 0x6445FE.
 PVP_GRUPO_J2 = 3
 
+-- ⚠ MEDIDO 24-nov (sesion 20261124-074413): LOS DOS CLIENTES corren este guion y cada uno ve la lista de IDs en
+-- otro orden: A pidio SetEntityGroup(0, 3) y B SetEntityGroup(1, 3); como el cambio se sincroniza, los DOS
+-- quedaron en 0x4 = el mismo grupo otra vez, y no hubo dano. Por eso la eleccion tiene que ser la MISMA en los dos:
+-- se ordenan los IDs y el menor va al 1 y el mayor al PVP_GRUPO_J2, explicitamente (repetirlo no cambia nada).
 function	PvP_Grupos()
 	local ids = PvP_Jugadores()
 	if (#ids < 2) then
 		PvP_Msg("PVP_GRUPOS: hacen falta 2 jugadores (hay " .. #ids .. ")", 3000)
 		return 1
 	end
+	table.sort(ids)
+	scenario:SetEntityGroup(ids[1], 1)
 	scenario:SetEntityGroup(ids[2], PVP_GRUPO_J2)
-	PvP_Msg("PVP_GRUPOS: J2 id " .. tostring(ids[2]) .. " -> grupo " .. PVP_GRUPO_J2 .. " (J1 sigue en 1)", 4000)
+	PvP_Msg("PVP_GRUPOS: id " .. tostring(ids[1]) .. " -> grupo 1, id " .. tostring(ids[2]) .. " -> grupo " .. PVP_GRUPO_J2, 4000)
 	scenario:InsertFunction("PvP_GruposHecho", 0)    -- aviso al server: el cambio se pidio
 	return 1
 end
